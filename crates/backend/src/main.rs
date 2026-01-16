@@ -44,7 +44,7 @@ async fn run_mock_brain(zenoh_session: Session) {
 
     let robot_id: u32 = 0;
     let mut position = [0.0f32, 0.0, 0.0];
-    let mut should_move = true; // valve: whether to advance the mock position
+    let mut should_move = false; // valve: whether to advance the mock position
     let mut last_log = std::time::Instant::now();
 
     loop {

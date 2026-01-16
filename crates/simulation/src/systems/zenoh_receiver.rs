@@ -92,16 +92,22 @@ pub fn collect_robot_updates(
                     .map(|t| t.elapsed() >= Duration::from_secs(1))
                     .unwrap_or(true);
                 
-                if moved && should_log {
+                
+                if !moved {
+                    continue;
+                }
+
+                if should_log {
                     // Update HUD text for UI display
                     debug_hud.last_message = Some(format!(
-                        "Received RobotUpdate_ID: {:?}, State: {:?}, Position: {:?}",
-                        update.id, update.state, update.position
+                        "Received RobotUpdate_ID: {}, State: {:?}, Position: [{:.2}, {:.2}, {:.2}]",
+                        update.id, update.state, update.position[0], update.position[1], update.position[2]
                     ));
                     *last_log = Some(Instant::now());
-                    last_positions.by_id.insert(update.id, update.position);
-                    robot_updates.updates.push(update);
                 }
+
+                last_positions.by_id.insert(update.id, update.position);
+                robot_updates.updates.push(update);
             }
             Err(mpsc::error::TryRecvError::Empty) => {
                 break;

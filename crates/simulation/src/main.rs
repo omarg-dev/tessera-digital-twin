@@ -7,7 +7,6 @@ use bevy_egui::EguiPlugin;
 // use resources::WarehouseStats;
 use systems::{
     camera::{spawn_camera, camera_controls},
-    movement::move_robots,
     populate_scene::{populate_environment, populate_lighting},
     spawn_robot::spawn_robot,
     zenoh_receiver::{setup_zenoh_receiver, collect_robot_updates},
