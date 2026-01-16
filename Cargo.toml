@@ -1,37 +1,21 @@
-[package]
-name = "hyper-twin-rs"
+[workspace]
+members = ["crates/protocol", "crates/simulation", "crates/backend"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-# Enable fast compiles for development
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.49", features = ["full"] }
+zenoh = "1.7.2"
+
 [profile.dev]
 opt-level = 1
 
-# Maximize optimization for the final release (The "Flex" Mode)
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
-
-[dependencies]
-# The Engine. We disable default features to speed up compile, 
-# then re-enable the ones we need for a desktop app.
-bevy = { version = "0.17.3" }
-
-# UI Library
-bevy_egui = " 0.38.1"
-
-# Simulation Logic & Data
-rand = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-csv = "1.4"
-
-# The Brain (Async Runtime)
-tokio = { version = "1.49", features = ["full"] }
-
-# The Nervous System (Networking)
-zenoh = "1.7.2" # Double check latest version on crates.io
-
-# Thread Communication (Tokio -> Bevy)
-crossbeam-channel = "0.5"

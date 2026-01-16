@@ -1,0 +1,20 @@
+[package]
+name = "simulation"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bevy = { version = "0.17.3" }
+bevy_egui = "0.38.1"
+rand = "0.8"
+serde.workspace = true
+serde_json.workspace = true
+csv = "1.4"
+tokio.workspace = true
+zenoh.workspace = true
+crossbeam-channel = "0.5"
+protocol = { path = "../protocol" }
+
+[[bin]]
+name = "simulation"
+path = "src/main.rs"
