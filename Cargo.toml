@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/protocol",
+    "crates/control_plane",
     "crates/visualizer",
     "crates/fleet_server",
     "crates/swarm_driver",

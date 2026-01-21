@@ -1,0 +1,15 @@
+[package]
+name = "control_plane"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "control_plane"
+path = "src/main.rs"
+
+[dependencies]
+protocol = { path = "../protocol" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+zenoh.workspace = true

@@ -23,11 +23,9 @@ pub enum PathCommand {
     ReturnToCharge,
 }
 
-/// System-wide control commands (fleet_server → all)
+/// System-wide control commands (control_plane → all)
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum SystemCommand {
     Pause,
     Resume,
-    Reset,
-    Kill,
 }

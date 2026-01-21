@@ -2,7 +2,6 @@
 
 use crate::allocator::RobotInfo;
 use crate::queue::TaskQueue;
-use protocol::SystemCommand;
 use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
@@ -14,7 +13,7 @@ pub enum StdinCmd {
         pickup: (usize, usize),
         dropoff: (usize, usize),
     },
-    System(SystemCommand),
+    Help,
 }
 
 /// Spawn a background task to read stdin commands
@@ -32,10 +31,6 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
 
             let cmd = match parts[0] {
                 "status" => Some(StdinCmd::Status),
-                "pause" => Some(StdinCmd::System(SystemCommand::Pause)),
-                "resume" => Some(StdinCmd::System(SystemCommand::Resume)),
-                "reset" => Some(StdinCmd::System(SystemCommand::Reset)),
-                "kill" => Some(StdinCmd::System(SystemCommand::Kill)),
                 "add" if parts.len() == 5 => {
                     let px = parts[1].parse().ok();
                     let py = parts[2].parse().ok();
@@ -60,6 +55,11 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                 }
                 "help" => {
                     print_help();
+                    Some(StdinCmd::Help)
+                }
+                "pause" | "resume" | "reset" | "kill" => {
+                    println!("System commands moved to control_plane crate.");
+                    println!("Run: cargo run -p control_plane");
                     None
                 }
                 _ => {
@@ -81,11 +81,9 @@ fn print_help() {
     println!("╠══════════════════════════════════════════╣");
     println!("║ status                  - Show status    ║");
     println!("║ add <px> <py> <dx> <dy> - Add task       ║");
-    println!("║ pause                   - Pause system   ║");
-    println!("║ resume                  - Resume system  ║");
-    println!("║ reset                   - Reset all      ║");
-    println!("║ kill                    - Shutdown all   ║");
     println!("║ help                    - Show this      ║");
+    println!("╠══════════════════════════════════════════╣");
+    println!("║ System commands: run control_plane      ║");
     println!("╚══════════════════════════════════════════╝\n");
 }
 

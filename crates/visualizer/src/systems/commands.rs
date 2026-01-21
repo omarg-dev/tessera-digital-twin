@@ -58,41 +58,21 @@ async fn run_system_listener(tx: mpsc::Sender<SystemCommand>) -> Result<(), Stri
 /// Process system commands and handle reset
 pub fn handle_system_commands(
     mut receiver: ResMut<SystemCommandReceiver>,
-    mut commands: Commands,
-    mut robot_index: ResMut<RobotIndex>,
-    robot_query: Query<Entity, With<Robot>>,
-    env_query: Query<Entity, Or<(With<crate::components::Ground>, With<crate::components::Wall>, 
+    _commands: Commands,
+    _robot_index: ResMut<RobotIndex>,
+    _robot_last_positions: ResMut<crate::resources::RobotLastPositions>,
+    _robot_query: Query<Entity, With<Robot>>,
+    _env_query: Query<Entity, Or<(With<crate::components::Ground>, With<crate::components::Wall>, 
                                    With<crate::components::Shelf>, With<crate::components::Station>, 
                                    With<crate::components::Dropoff>)>>,
 ) {
     while let Ok(cmd) = receiver.0.try_recv() {
         match cmd {
-            SystemCommand::Reset => {
-                println!("↻ Reset received - clearing entities and reloading map");
-                // Delete all robot entities
-                for entity in robot_query.iter() {
-                    commands.entity(entity).despawn();
-                }
-                // Clear robot index (will be repopulated as robots reconnect)
-                robot_index.by_id.clear();
-                
-                // Delete all environment entities
-                for entity in env_query.iter() {
-                    commands.entity(entity).despawn();
-                }
-                
-                // Trigger environment repopulation
-                commands.insert_resource(ReloadEnvironment);
-            }
             SystemCommand::Pause => {
-                println!("⏸ Pause received (visualization only - physics paused by fleet_server)");
+                println!("⏸ Pause received");
             }
             SystemCommand::Resume => {
                 println!("▶ Resume received");
-            }
-            SystemCommand::Kill => {
-                println!("☠ Kill received - shutting down");
-                std::process::exit(0);
             }
         }
     }

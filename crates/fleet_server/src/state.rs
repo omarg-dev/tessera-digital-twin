@@ -7,6 +7,7 @@ pub struct TrackedRobot {
     pub last_update: RobotUpdate,
     pub current_path: Vec<[f32; 3]>,
     pub path_index: usize,  // Current position in path
+    pub current_task: Option<u64>,  // Assigned task ID
 }
 
 impl TrackedRobot {
@@ -15,6 +16,7 @@ impl TrackedRobot {
             last_update: update,
             current_path: Vec::new(),
             path_index: 0,
+            current_task: None,
         }
     }
     

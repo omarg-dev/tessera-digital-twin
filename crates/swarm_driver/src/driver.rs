@@ -8,10 +8,10 @@ use serde_json::to_vec;
 use std::time::Instant;
 
 use crate::robot::SimRobot;
-use crate::commands::{handle_system_commands, handle_path_commands, CommandResult};
+use crate::commands::{handle_system_commands, handle_path_commands};
 
 /// Run the swarm driver main loop
-pub async fn run(session: Session, mut _map: GridMap) {
+pub async fn run(session: Session, map: GridMap) {
     // Publishers
     let update_publisher = session
         .declare_publisher(topics::ROBOT_UPDATES)
@@ -30,7 +30,7 @@ pub async fn run(session: Session, mut _map: GridMap) {
         .expect("Failed to declare ADMIN_CONTROL subscriber");
     
     // Spawn robots at station positions
-    let mut robots = spawn_robots_from_map(&_map);
+    let mut robots = spawn_robots_from_map(&map);
     
     println!("✓ Swarm Driver running with {} robot(s)", robots.len());
     
@@ -43,16 +43,8 @@ pub async fn run(session: Session, mut _map: GridMap) {
         let dt = now.duration_since(last_tick).as_secs_f32();
         last_tick = now;
         
-        // Handle system commands (pause/resume/reset/kill)
-        match handle_system_commands(&control_subscriber, &mut paused, &mut robots) {
-            CommandResult::MapReloaded(new_map) => {
-                _map = new_map;
-            }
-            CommandResult::Kill => {
-                std::process::exit(0);
-            }
-            CommandResult::Continue => {}
-        }
+        // Handle system commands (pause/resume)
+        handle_system_commands(&control_subscriber, &mut paused);
         
         // Handle path commands from fleet_server
         handle_path_commands(&cmd_subscriber, &mut robots);

@@ -132,14 +132,4 @@ impl SimRobot {
             }
         }
     }
-    
-    /// Reset robot to initial state at station
-    pub fn reset(&mut self) {
-        self.position = self.station_position;
-        self.velocity = [0.0, 0.0, 0.0];
-        self.battery = 100.0;
-        self.state = RobotState::Idle;
-        self.target = None;
-        self.carrying_cargo = None;
-    }
 }
