@@ -1,0 +1,23 @@
+/ id    type    color
+/ #     wall    black
+/ .     ground  white
+/ xc    shelf   brown
+/ o     station reddish-pink
+/ v     dropoff cyan
+/ capacity/charge indicated with a (value) after the tile
+
+/ Warehouse Layout (24 columns x 12 rows)
+/ ========================================
+
+#   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   ~   ~   ~   ~   ~
+#   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   #   ~   ~   ~   ~   ~   
+#   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   #   #   #   #   #   #
+#   .   .   .   .   .   x5  x8  .   .   x4  x6  .   .   x9  x4  .   .   #   _   _   _   _   #
+#   .   .   .   .   .   x4  x7  .   .   x8  x4  .   .   x6  x5  .   .   #   .   .   .   .   #
+#   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   #
+#   .   .   .   .   .   x6  x4  .   .   x5  x7  .   .   x4  x9  .   .   #   .   .   .   .   #
+#   v   .   .   .   .   x7  x5  .   .   x4  x8  .   .   x4  x6  .   .   #   _   _   _   _   #
+#   v   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   #   #   #   #   #   #
+#   v   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   #   ~   ~   ~   ~   ~
+#   v   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   #   ~   ~   ~   ~   ~
+#   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   ~   ~   ~   ~   ~

@@ -1,5 +1,11 @@
 [workspace]
-members = ["crates/protocol", "crates/simulation", "crates/backend"]
+members = [
+    "crates/protocol",
+    "crates/visualizer",
+    "crates/fleet_server",
+    "crates/swarm_driver",
+    "crates/mission_control",
+]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,15 @@
+[package]
+name = "swarm_driver"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+zenoh.workspace = true
+protocol = { path = "../protocol" }
+
+[[bin]]
+name = "swarm_driver"
+path = "src/main.rs"

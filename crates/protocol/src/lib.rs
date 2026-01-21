@@ -1,16 +1,17 @@
-use serde::{Deserialize, Serialize};
+//! Protocol crate - Shared types for Zenoh communication
+//! All types used for inter-crate communication are defined here.
+//! This ensures all crates agree on message formats.
 
-// This is the packet of data that travels over "The Air" (Zenoh)
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RobotUpdate {
-    pub id: u32,
-    pub position: [f32; 3], // [x, y, z]
-    pub state: RobotState,
-}
+pub mod commands;
+pub mod config;
+pub mod grid_map;
+pub mod robot;
+pub mod tasks;
+pub mod topics;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum RobotState {
-    Idle,
-    Moving,
-    Charging,
-}
+// Re-export for convenience
+pub use commands::{PathCmd, PathCommand, SystemCommand};
+pub use config::LAYOUT_FILE_PATH;
+pub use grid_map::{GridMap, MapValidation, Tile, TileType};
+pub use robot::{RobotState, RobotUpdate, RobotUpdateBatch};
+pub use tasks::{Priority, Task, TaskAssignment, TaskId, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};

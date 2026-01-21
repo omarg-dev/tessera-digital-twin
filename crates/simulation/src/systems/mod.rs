@@ -1,9 +1,0 @@
-pub mod movement;
-pub mod logistics;
-pub mod dashboard;
-pub mod populate_scene;
-pub mod spawn_robot;
-pub mod camera;
-pub mod sync_robots;
-pub mod index_robots;
-pub mod zenoh_receiver;
