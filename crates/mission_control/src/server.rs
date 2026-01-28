@@ -8,17 +8,26 @@ use serde_json::{from_slice, to_vec};
 
 use protocol::config::mission_control as mc_config;
 use protocol::{
-    topics, Priority, RobotUpdateBatch, Task, TaskAssignment,
+    topics, GridMap, Priority, RobotUpdateBatch, Task, TaskAssignment,
     TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
 };
 
 use crate::allocator::{Allocator, ClosestIdleAllocator, RobotInfo};
-use crate::cli::{print_status, spawn_stdin_reader, StdinCmd};
+use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, spawn_stdin_reader, StdinCmd};
 use crate::commands::handle_system_commands;
 use crate::queue::{FifoQueue, TaskQueue};
 
 /// Run the mission control main loop
 pub async fn run(session: Session) {
+    // Load warehouse map for location info
+    let map = GridMap::load_from_file("assets/data/layout.txt")
+        .expect("Failed to load warehouse layout");
+    println!("✓ Loaded map ({}x{}, {} shelves, {} dropoffs)",
+        map.width, map.height,
+        map.get_shelves().len(),
+        map.get_dropoffs().len(),
+    );
+
     // Publishers
     let assignment_pub = session.declare_publisher(topics::TASK_ASSIGNMENTS).await.unwrap();
     let queue_pub = session.declare_publisher(topics::QUEUE_STATE).await.unwrap();
@@ -34,6 +43,7 @@ pub async fn run(session: Session) {
     let allocator = ClosestIdleAllocator::new();
     let mut robots: HashMap<u32, RobotInfo> = HashMap::new();
     let mut paused = false;
+    let mut verbose = true; // Default to verbose on
 
     // Stdin
     let (tx, mut rx) = mpsc::channel::<StdinCmd>(16);
@@ -47,10 +57,10 @@ pub async fn run(session: Session) {
 
     loop {
         // System commands (from Zenoh - control_plane)
-        handle_system_commands(&control_sub, &mut paused);
+        handle_system_commands(&control_sub, &mut paused, &mut verbose);
         
         // Stdin commands (local CLI)
-        handle_stdin(&mut rx, &mut queue, &robots, paused).await;
+        handle_stdin(&mut rx, &mut queue, &robots, &map, paused, verbose).await;
         
         // Task requests (from other crates)
         handle_task_requests(&task_sub, &mut queue);
@@ -80,20 +90,73 @@ async fn handle_stdin(
     rx: &mut mpsc::Receiver<StdinCmd>,
     queue: &mut FifoQueue,
     robots: &HashMap<u32, RobotInfo>,
+    map: &GridMap,
     paused: bool,
+    verbose: bool,
 ) {
     while let Ok(cmd) = rx.try_recv() {
         match cmd {
-            StdinCmd::Status => print_status(queue, robots, paused),
+            StdinCmd::Status => print_status(queue, robots, map, paused, verbose),
             StdinCmd::AddTask { pickup, dropoff } => {
-                let id = queue.next_task_id();
-                let task = Task::new(id, TaskType::PickAndDeliver {
-                    pickup, dropoff, cargo_id: None,
-                }, Priority::Normal);
-                queue.enqueue(task);
+                // Resolve named locations (S1, D1, etc.)
+                let resolved_pickup = resolve_location(pickup, map);
+                let resolved_dropoff = resolve_location(dropoff, map);
+                
+                match (resolved_pickup, resolved_dropoff) {
+                    (Some(p), Some(d)) => {
+                        let id = queue.next_task_id();
+                        let task = Task::new(id, TaskType::PickAndDeliver {
+                            pickup: p, dropoff: d, cargo_id: None,
+                        }, Priority::Normal);
+                        println!("✓ Task #{} added: ({},{}) → ({},{})", id, p.0, p.1, d.0, d.1);
+                        queue.enqueue(task);
+                    }
+                    (None, _) => println!("✗ Invalid pickup location"),
+                    (_, None) => println!("✗ Invalid dropoff location"),
+                }
             }
+            StdinCmd::ListShelves => print_shelves(map),
+            StdinCmd::ListDropoffs => print_dropoffs(map),
+            StdinCmd::ListStations => print_stations(map),
+            StdinCmd::Map => print_map(map, robots),
             StdinCmd::Help => {} // Already printed by CLI
         }
+    }
+}
+
+/// Resolve a location - either already coordinates or named (S1=10001, D1=20001, etc.)
+fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)> {
+    let (x, y) = loc;
+    
+    // Check if it's a named location marker
+    if x >= 10000 && x < 20000 {
+        // Shelf: S1 = 10001, so index = x - 10000
+        let idx = x - 10000;
+        let shelves = map.get_shelves();
+        if idx >= 1 && idx <= shelves.len() {
+            let shelf = shelves[idx - 1];
+            return Some((shelf.x, shelf.y));
+        }
+        println!("✗ Shelf S{} not found (valid: S1-S{})", idx, shelves.len());
+        return None;
+    } else if x >= 20000 {
+        // Dropoff: D1 = 20001, so index = x - 20000
+        let idx = x - 20000;
+        let dropoffs = map.get_dropoffs();
+        if idx >= 1 && idx <= dropoffs.len() {
+            let dropoff = dropoffs[idx - 1];
+            return Some((dropoff.x, dropoff.y));
+        }
+        println!("✗ Dropoff D{} not found (valid: D1-D{})", idx, dropoffs.len());
+        return None;
+    }
+    
+    // Regular coordinates - validate they exist on map
+    if map.get_tile(x, y).is_some() {
+        Some((x, y))
+    } else {
+        println!("✗ Coordinates ({},{}) not on map", x, y);
+        None
     }
 }
 

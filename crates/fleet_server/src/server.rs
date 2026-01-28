@@ -92,7 +92,7 @@ pub async fn run(session: Session, map: GridMap) {
         // Handle system commands (from control_plane via Zenoh)
         while let Ok(Some(sample)) = control_subscriber.try_recv() {
             if let Ok(sys_cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-                commands::handle_system_command(&sys_cmd, &mut paused, &mut robots);
+                commands::handle_system_command(&sys_cmd, &mut paused);
             }
         }
         
@@ -151,6 +151,12 @@ pub async fn run(session: Session, map: GridMap) {
             }
         }
         
+        // Task progression: detect state transitions and send next waypoint
+        // This runs every loop iteration to be responsive to state changes
+        if !paused {
+            progress_tasks(&mut robots, &map, &cmd_publisher, &status_publisher).await;
+        }
+        
         // Server tick (10 Hz) - send path commands
         if last_tick.elapsed() >= std::time::Duration::from_millis(srv_config::PATH_SEND_INTERVAL_MS) {
             last_tick = std::time::Instant::now();
@@ -168,7 +174,17 @@ pub async fn run(session: Session, map: GridMap) {
                             if let Some(next) = robot.next_waypoint() {
                                 let cmd = PathCmd {
                                     robot_id: *robot_id,
-                                    command: PathCommand::MoveTo { target: next, speed: 2.0 },
+                                    command: match robot.current_task {
+                                        Some(_) => {
+                                            use crate::state::TaskStage;
+                                            match robot.task_stage {
+                                                TaskStage::MovingToPickup => PathCommand::MoveToPickup { target: next, speed: 2.0 },
+                                                TaskStage::MovingToDropoff => PathCommand::MoveToDropoff { target: next, speed: 2.0 },
+                                                _ => PathCommand::MoveTo { target: next, speed: 2.0 },
+                                            }
+                                        }
+                                        None => PathCommand::MoveTo { target: next, speed: 2.0 },
+                                    },
                                 };
                                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
                             }
@@ -176,7 +192,17 @@ pub async fn run(session: Session, map: GridMap) {
                             // Keep sending current waypoint command
                             let cmd = PathCmd {
                                 robot_id: *robot_id,
-                                command: PathCommand::MoveTo { target: waypoint, speed: 2.0 },
+                                command: match robot.current_task {
+                                    Some(_) => {
+                                        use crate::state::TaskStage;
+                                        match robot.task_stage {
+                                            TaskStage::MovingToPickup => PathCommand::MoveToPickup { target: waypoint, speed: 2.0 },
+                                            TaskStage::MovingToDropoff => PathCommand::MoveToDropoff { target: waypoint, speed: 2.0 },
+                                            _ => PathCommand::MoveTo { target: waypoint, speed: 2.0 },
+                                        }
+                                    }
+                                    None => PathCommand::MoveTo { target: waypoint, speed: 2.0 },
+                                },
                             };
                             cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
                         }
@@ -255,6 +281,8 @@ async fn handle_task_assignment(
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
 ) {
+    use crate::state::TaskStage;
+    
     let robot_id = assignment.robot_id;
     let task = &assignment.task;
     
@@ -275,15 +303,51 @@ async fn handle_task_assignment(
         return;
     };
     
-    // Mark task as in-progress
-    robot.current_task = Some(task.id);
-    
     // Get pickup location
     let Some(pickup) = task.pickup_location() else {
         println!("✗ Task {} has no pickup location", task.id);
         return;
     };
     
+    // Get dropoff location
+    let Some(dropoff_grid) = task.target_location() else {
+        println!("✗ Task {} has no dropoff location", task.id);
+        return;
+    };
+    
+    // Validate tile types: only shelf→shelf/dropoff or dropoff→shelf
+    let pickup_tile = map.get_tile(pickup.0, pickup.1).map(|t| t.tile_type);
+    let dropoff_tile = map.get_tile(dropoff_grid.0, dropoff_grid.1).map(|t| t.tile_type);
+    let valid_combo = match (pickup_tile, dropoff_tile) {
+        (Some(protocol::grid_map::TileType::Shelf(_)), Some(protocol::grid_map::TileType::Shelf(_))) => true,
+        (Some(protocol::grid_map::TileType::Shelf(_)), Some(protocol::grid_map::TileType::Dropoff)) => true,
+        (Some(protocol::grid_map::TileType::Dropoff), Some(protocol::grid_map::TileType::Shelf(_))) => true,
+        _ => false,
+    };
+    if !valid_combo {
+        println!("✗ Task {} rejected: pickup {:?} → dropoff {:?} invalid (allowed: shelf→shelf/dropoff, dropoff→shelf)", task.id, pickup_tile, dropoff_tile);
+        let update = TaskStatusUpdate {
+            task_id: task.id,
+            status: TaskStatus::Failed { reason: "Invalid pickup/dropoff combination".to_string() },
+            robot_id: Some(robot_id),
+        };
+        if let Ok(payload) = to_vec(&update) {
+            status_publisher.put(payload).await.ok();
+        }
+        return;
+    }
+
+    // Mark task as in-progress
+    robot.current_task = Some(task.id);
+    robot.task_stage = TaskStage::MovingToPickup;
+
+    // Convert to world coordinates
+    let pickup_world = [pickup.0 as f32, 0.25, pickup.1 as f32];
+    let dropoff_world = Some([dropoff_grid.0 as f32, 0.25, dropoff_grid.1 as f32]);
+
+    robot.pickup_location = Some(pickup_world);
+    robot.dropoff_location = dropoff_world;
+
     // Calculate path to pickup
     let start = pathfinding::world_to_grid(robot.last_update.position);
     
@@ -302,11 +366,11 @@ async fn handle_task_assignment(
             status_publisher.put(payload).await.ok();
         }
         
-        // Send first waypoint command immediately
+        // Send first waypoint command immediately (pickup-specific)
         if let Some(waypoint) = robot.next_waypoint() {
             let cmd = PathCmd {
                 robot_id,
-                command: PathCommand::MoveTo { target: waypoint, speed: 2.0 },
+                command: PathCommand::MoveToPickup { target: waypoint, speed: 2.0 },
             };
             cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
         }
@@ -319,6 +383,83 @@ async fn handle_task_assignment(
         };
         if let Ok(payload) = to_vec(&update) {
             status_publisher.put(payload).await.ok();
+        }
+    }
+}
+/// Monitor task progression and send next waypoint when state changes
+/// Handles: Picking → MovingToDrop → Delivering → MovingToStation → Idle
+async fn progress_tasks(
+    robots: &mut HashMap<u32, TrackedRobot>,
+    map: &GridMap,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
+    status_publisher: &zenoh::pubsub::Publisher<'_>,
+) {
+    use crate::state::TaskStage;
+    use protocol::RobotState;
+    
+    for (robot_id, robot) in robots.iter_mut() {
+        // Only process robots with active tasks
+        let Some(task_id) = robot.current_task else {
+            continue;
+        };
+        
+        let robot_state = &robot.last_update.state;
+        
+        // State machine: detect transitions and send next PathCmd
+        match robot_state {
+            RobotState::Picking => {
+                // Robot arrived at pickup - now send to dropoff
+                if robot.task_stage == TaskStage::MovingToPickup {
+                    robot.task_stage = TaskStage::Picking;
+                    println!("📦 Robot {} picked up cargo for task {}", robot_id, task_id);
+                    
+                    // Send path to dropoff if available
+                    if let Some(dropoff_world) = robot.dropoff_location {
+                        let start = pathfinding::world_to_grid(robot.last_update.position);
+                        let dropoff_grid = pathfinding::world_to_grid(dropoff_world);
+                        
+                        if let Some(grid_path) = pathfinding::find_path(map, start, dropoff_grid) {
+                            let world_path = pathfinding::grid_to_world_path(&grid_path);
+                            println!("🚚 Robot {} path to dropoff: {} waypoints", robot_id, world_path.len());
+                            robot.set_path(world_path);
+                            robot.task_stage = TaskStage::MovingToDropoff;
+                            
+                            // Send first waypoint
+                            if let Some(waypoint) = robot.next_waypoint() {
+                                let cmd = PathCmd {
+                                    robot_id: *robot_id,
+                                    command: PathCommand::MoveToDropoff { target: waypoint, speed: 2.0 },
+                                };
+                                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                            }
+                        }
+                    }
+                }
+            }
+            RobotState::Idle => {
+                // Robot is idle - check if it completed a task
+                if robot.task_stage == TaskStage::MovingToDropoff || robot.task_stage == TaskStage::Delivering {
+                    // Task completed!
+                    robot.task_stage = TaskStage::Idle;
+                    println!("✓ Task {} completed by Robot {}", task_id, robot_id);
+                    
+                    // Send completion status
+                    let update = TaskStatusUpdate {
+                        task_id,
+                        status: TaskStatus::Completed,
+                        robot_id: Some(*robot_id),
+                    };
+                    if let Ok(payload) = to_vec(&update) {
+                        status_publisher.put(payload).await.ok();
+                    }
+                    
+                    // Clear task
+                    robot.current_task = None;
+                    robot.pickup_location = None;
+                    robot.dropoff_location = None;
+                }
+            }
+            _ => {}
         }
     }
 }

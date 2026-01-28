@@ -15,16 +15,7 @@ pub fn handle_system_commands(
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
         if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-            match cmd {
-                SystemCommand::Pause => {
-                    *paused = true;
-                    println!("⏸ Physics PAUSED");
-                }
-                SystemCommand::Resume => {
-                    *paused = false;
-                    println!("▶ Physics RESUMED");
-                }
-            }
+            cmd.apply_with_log("Physics", Some(paused), None);
         }
     }
 }

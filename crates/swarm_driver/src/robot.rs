@@ -112,7 +112,20 @@ impl SimRobot {
         match cmd {
             PathCommand::MoveTo { target, speed: _ } => {
                 self.target = Some(*target);
-                // State will be set based on context
+                // Default movement with unknown intent
+                if self.carrying_cargo.is_some() {
+                    self.state = RobotState::MovingToDrop;
+                } else {
+                    self.state = RobotState::MovingToPickup;
+                }
+            }
+            PathCommand::MoveToPickup { target, speed: _ } => {
+                self.target = Some(*target);
+                self.state = RobotState::MovingToPickup;
+            }
+            PathCommand::MoveToDropoff { target, speed: _ } => {
+                self.target = Some(*target);
+                self.state = RobotState::MovingToDrop;
             }
             PathCommand::Stop => {
                 self.velocity = [0.0, 0.0, 0.0];

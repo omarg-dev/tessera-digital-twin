@@ -25,3 +25,6 @@ pub const TASK_STATUS: &str = "factory/tasks/status";
 
 /// Queue state broadcast for monitoring (mission_control → visualizer)
 pub const QUEUE_STATE: &str = "factory/tasks/queue";
+
+/// Verbose mode setting (control_plane → all)
+pub const VERBOSE_CONTROL: &str = "factory/admin/verbose";

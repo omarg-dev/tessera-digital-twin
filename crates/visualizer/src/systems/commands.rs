@@ -6,8 +6,6 @@ use serde_json::from_slice;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
-use crate::components::Robot;
-use crate::resources::RobotIndex;
 
 /// Receives system commands from Zenoh (pause/resume/reset/kill)
 #[derive(Resource)]
@@ -58,22 +56,8 @@ async fn run_system_listener(tx: mpsc::Sender<SystemCommand>) -> Result<(), Stri
 /// Process system commands and handle reset
 pub fn handle_system_commands(
     mut receiver: ResMut<SystemCommandReceiver>,
-    _commands: Commands,
-    _robot_index: ResMut<RobotIndex>,
-    _robot_last_positions: ResMut<crate::resources::RobotLastPositions>,
-    _robot_query: Query<Entity, With<Robot>>,
-    _env_query: Query<Entity, Or<(With<crate::components::Ground>, With<crate::components::Wall>, 
-                                   With<crate::components::Shelf>, With<crate::components::Station>, 
-                                   With<crate::components::Dropoff>)>>,
 ) {
     while let Ok(cmd) = receiver.0.try_recv() {
-        match cmd {
-            SystemCommand::Pause => {
-                println!("⏸ Pause received");
-            }
-            SystemCommand::Resume => {
-                println!("▶ Resume received");
-            }
-        }
+        cmd.apply_with_log("Visualizer", None, None);
     }
 }

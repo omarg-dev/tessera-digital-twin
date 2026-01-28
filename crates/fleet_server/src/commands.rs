@@ -4,22 +4,12 @@ use std::collections::HashMap;
 use protocol::SystemCommand;
 use crate::state::TrackedRobot;
 
-/// Handle a system command (pause/resume)
+/// Handle a system command (pause/resume/verbose)
 pub fn handle_system_command(
     cmd: &SystemCommand,
     paused: &mut bool,
-    _robots: &mut HashMap<u32, TrackedRobot>,
 ) {
-    match cmd {
-        SystemCommand::Pause => {
-            *paused = true;
-            println!("⏸ System PAUSED");
-        }
-        SystemCommand::Resume => {
-            *paused = false;
-            println!("▶ System RESUMED");
-        }
-    }
+    cmd.apply_with_log("FleetServer", Some(paused), None);
 }
 
 /// Print current status of tracked robots

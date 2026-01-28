@@ -2,12 +2,33 @@
 
 use protocol::RobotUpdate;
 
+/// Tracks where the robot is in the task execution lifecycle
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum TaskStage {
+    /// No task assigned
+    Idle,
+    /// Moving to pickup location
+    MovingToPickup,
+    /// Picking up cargo
+    Picking,
+    /// Moving to dropoff location
+    MovingToDropoff,
+    /// Delivering cargo
+    Delivering,
+    /// Returning to charging station
+    ReturningToStation,
+}
+
 /// Robot state tracked by the server
 pub struct TrackedRobot {
     pub last_update: RobotUpdate,
     pub current_path: Vec<[f32; 3]>,
     pub path_index: usize,  // Current position in path
     pub current_task: Option<u64>,  // Assigned task ID
+    pub task_stage: TaskStage,  // Where in task execution
+    pub pickup_location: Option<[f32; 3]>,  // Pickup in world coords
+    pub dropoff_location: Option<[f32; 3]>,  // Dropoff in world coords
 }
 
 impl TrackedRobot {
@@ -17,6 +38,9 @@ impl TrackedRobot {
             current_path: Vec::new(),
             path_index: 0,
             current_task: None,
+            task_stage: TaskStage::Idle,
+            pickup_location: None,
+            dropoff_location: None,
         }
     }
     
@@ -43,3 +67,4 @@ impl TrackedRobot {
         self.path_index = 0;
     }
 }
+

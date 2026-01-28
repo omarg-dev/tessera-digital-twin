@@ -18,6 +18,7 @@ pub fn sync_robots(
         // Lookup entity by id
         if let Some(&entity) = index.by_id.get(&update.id) {
             if let Ok((mut transform, mut robot)) = robots.get_mut(entity) {
+                let old_state = robot.state.clone();
                 robot.id = update.id;
                 robot.state = update.state.clone();
                 robot.battery = update.battery;
@@ -25,6 +26,11 @@ pub fn sync_robots(
                 let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
                 robot.position = pos;
                 transform.translation = pos;
+                
+                // Log state changes
+                if old_state != update.state {
+                    println!("🤖 Robot {} state: {:?} → {:?}", update.id, old_state, update.state);
+                }
             }
         } else {
             // Robot not found - spawn a new entity
