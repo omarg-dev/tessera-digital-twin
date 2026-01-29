@@ -5,4 +5,6 @@ edition.workspace = true
 
 [dependencies]
 serde.workspace = true
-bevy = { version = "0.17.3", features = ["serialize"] }
+
+[dev-dependencies]
+serde_json.workspace = true

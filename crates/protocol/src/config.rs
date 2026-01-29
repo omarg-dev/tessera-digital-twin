@@ -1,7 +1,16 @@
 //! Central configuration constants for all Hyper-Twin crates
 //! 
-//! This module defines all "magic numbers" in one place.
+//! This module defines all configurable values in one place.
 //! All crates should reference these instead of hardcoding values.
+//!
+//! ## Layer Terminology
+//! 
+//! Configuration is organized by abstraction layer:
+//! - **physics** - Robot movement and simulation timing
+//! - **battery** - Battery drain and charging rates  
+//! - **coordinator** - Path planning and task execution settings
+//! - **scheduler** - Task queue and allocation settings
+//! - **renderer** - Visualization dimensions and colors
 
 /// Path to the warehouse layout file (relative to workspace root)
 pub const LAYOUT_FILE_PATH: &str = "assets/data/layout.txt";
@@ -33,8 +42,8 @@ pub mod battery {
     pub const CHARGE_RATE: f32 = 10.0;
 }
 
-/// Fleet server settings
-pub mod server {
+/// Coordinator layer settings (path planning & task execution)
+pub mod coordinator {
     /// Main loop sleep interval in milliseconds
     pub const LOOP_INTERVAL_MS: u64 = 10;
     
@@ -48,8 +57,8 @@ pub mod server {
     pub const MAP_VALIDATION_TIMEOUT_SECS: u64 = 15;
 }
 
-/// Mission control settings
-pub mod mission_control {
+/// Scheduler layer settings (task queue & robot allocation)
+pub mod scheduler {
     /// Main loop sleep interval in milliseconds
     pub const LOOP_INTERVAL_MS: u64 = 50;
     
@@ -60,7 +69,7 @@ pub mod mission_control {
     pub const MIN_BATTERY_FOR_TASK: f32 = 20.0;
 }
 
-/// Visualization settings
+/// Renderer layer settings (visualization)
 pub mod visual {
     /// Tile size in world units
     pub const TILE_SIZE: f32 = 1.0;

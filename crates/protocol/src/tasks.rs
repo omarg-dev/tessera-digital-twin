@@ -1,7 +1,8 @@
-//! Task and order types for mission control
+//! Task and order types for inter-layer communication
 //!
-//! These types define the business-level entities that mission_control manages.
-//! They are intentionally decoupled from robot-level operations.
+//! These types define the business-level entities for task scheduling and execution.
+//! They are intentionally decoupled from robot-level operations (physical layer)
+//! and path planning details (coordinator layer).
 
 use serde::{Deserialize, Serialize};
 
@@ -141,4 +142,89 @@ pub struct TaskRequest {
     pub task_type: TaskType,
     /// Priority level
     pub priority: Priority,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_creation() {
+        let task = Task::new(
+            1,
+            TaskType::PickAndDeliver { pickup: (5, 5), dropoff: (10, 10), cargo_id: None },
+            Priority::Normal,
+        );
+        
+        assert_eq!(task.id, 1);
+        assert_eq!(task.priority, Priority::Normal);
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert!(task.created_at > 0);
+    }
+
+    #[test]
+    fn test_task_pickup_location() {
+        let pick_deliver = Task::new(
+            1,
+            TaskType::PickAndDeliver { pickup: (5, 5), dropoff: (10, 10), cargo_id: None },
+            Priority::Normal,
+        );
+        assert_eq!(pick_deliver.pickup_location(), Some((5, 5)));
+
+        let relocate = Task::new(
+            2,
+            TaskType::Relocate { from: (3, 3), to: (7, 7) },
+            Priority::High,
+        );
+        assert_eq!(relocate.pickup_location(), Some((3, 3)));
+
+        let return_station = Task::new(
+            3,
+            TaskType::ReturnToStation { robot_id: 1 },
+            Priority::Low,
+        );
+        assert_eq!(return_station.pickup_location(), None);
+    }
+
+    #[test]
+    fn test_task_target_location() {
+        let pick_deliver = Task::new(
+            1,
+            TaskType::PickAndDeliver { pickup: (5, 5), dropoff: (10, 10), cargo_id: None },
+            Priority::Normal,
+        );
+        assert_eq!(pick_deliver.target_location(), Some((10, 10)));
+
+        let relocate = Task::new(
+            2,
+            TaskType::Relocate { from: (3, 3), to: (7, 7) },
+            Priority::High,
+        );
+        assert_eq!(relocate.target_location(), Some((7, 7)));
+    }
+
+    #[test]
+    fn test_priority_ordering() {
+        assert!(Priority::Critical > Priority::High);
+        assert!(Priority::High > Priority::Normal);
+        assert!(Priority::Normal > Priority::Low);
+    }
+
+    #[test]
+    fn test_task_status_serialization() {
+        let statuses = vec![
+            TaskStatus::Pending,
+            TaskStatus::Assigned { robot_id: 5 },
+            TaskStatus::InProgress { robot_id: 5 },
+            TaskStatus::Completed,
+            TaskStatus::Failed { reason: "test error".to_string() },
+            TaskStatus::Cancelled,
+        ];
+
+        for status in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: TaskStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, status);
+        }
+    }
 }

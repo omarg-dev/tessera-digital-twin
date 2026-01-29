@@ -1,30 +1,40 @@
 //! Zenoh topic constants - Single source of truth for all topic strings
+//!
+//! Topics are organized by data flow direction. Comments use abstraction layer names:
+//! - **physical layer** - Robot firmware/physics simulation (mock_firmware)
+//! - **coordinator** - Path planning and task execution (fleet_server)
+//! - **scheduler** - Task queue and robot allocation (mission_control)
+//! - **system controller** - Process management and global commands (control_plane)
+//! - **renderer** - Visualization layer (visualizer)
 
-/// Robots broadcast their state here (swarm_driver → fleet_server, visualizer)
+/// Robots broadcast their state here (physical layer → coordinator, renderer, scheduler)
 pub const ROBOT_UPDATES: &str = "factory/robots";
 
-/// Fleet server sends path commands here (fleet_server → swarm_driver)
+/// Coordinator sends path commands here (coordinator → physical layer)
 pub const PATH_COMMANDS: &str = "factory/commands";
 
-/// Control plane for pause/resume/reset (fleet_server → all)
+/// System controller broadcasts pause/resume/reset (system controller → all layers)
 pub const ADMIN_CONTROL: &str = "factory/admin/control";
 
-/// Map hash validation on startup (fleet_server → all)
+/// Map hash validation on startup (coordinator → all layers)
 pub const MAP_VALIDATION: &str = "factory/admin/map_hash";
 
 // ============ Task/Mission Topics ============
 
-/// New task requests (external → mission_control)
+/// New task requests (external systems → scheduler)
 pub const TASK_REQUESTS: &str = "factory/tasks/requests";
 
-/// Task assignments (mission_control → fleet_server)
+/// Task assignments (scheduler → coordinator)
 pub const TASK_ASSIGNMENTS: &str = "factory/tasks/assignments";
 
-/// Task status updates (fleet_server → mission_control)
+/// Task status updates (coordinator → scheduler)
 pub const TASK_STATUS: &str = "factory/tasks/status";
 
-/// Queue state broadcast for monitoring (mission_control → visualizer)
+/// Queue state broadcast for monitoring (scheduler → renderer)
 pub const QUEUE_STATE: &str = "factory/tasks/queue";
 
-/// Verbose mode setting (control_plane → all)
-pub const VERBOSE_CONTROL: &str = "factory/admin/verbose";
+// ============ Sender Identifiers ============
+// Used in MapValidation.sender to identify the source of broadcasts
+
+/// Sender identifier for coordinator layer (fleet_server)
+pub const SENDER_COORDINATOR: &str = "coordinator";

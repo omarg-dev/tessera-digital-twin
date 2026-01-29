@@ -1,6 +1,45 @@
-//! Protocol crate - Shared types for Zenoh communication
-//! All types used for inter-crate communication are defined here.
-//! This ensures all crates agree on message formats.
+//! # Protocol Crate - Shared Types for Hyper-Twin
+//!
+//! This crate defines all types used for inter-layer communication via Zenoh.
+//! It ensures all layers agree on message formats and configuration constants.
+//!
+//! ## Abstraction Layers
+//!
+//! The system is organized into abstraction layers (crate names in parentheses):
+//!
+//! | Layer                 | Crate             | Responsibility                            |
+//! |-----------------------|-------------------|-------------------------------------------|
+//! | **Physical Layer**    | `mock_firmware`   | Robot physics, battery, movement          |
+//! | **Coordinator**       | `fleet_server`    | Path planning, task execution, A* routing |
+//! | **Scheduler**         | `mission_control` | Task queue, robot allocation, management  |
+//! | **System Controller** | `control_plane`   | Process management, pause/resume, reset   |
+//! | **Renderer**          | `visualizer`      | 3D visualization, HUD, camera controls    |
+//! 
+//! ## Modules
+//!
+//! - [`commands`] - Path commands (MoveTo, Stop) and system commands (Pause, Resume, Verbose)
+//! - [`config`] - Central configuration constants (physics, battery, coordinator, scheduler, renderer)
+//! - [`grid_map`] - Warehouse map parsing and tile types
+//! - [`robot`] - Robot state updates broadcast over Zenoh
+//! - [`tasks`] - Task definitions for inter-layer communication
+//! - [`topics`] - Zenoh topic string constants
+//!
+//! ## Dependencies
+//!
+//! This crate has minimal dependencies (only `serde`) to keep it lightweight.
+//! All other crates depend on this one for shared types.
+//!
+//! ## Example
+//!
+//! ```rust,ignore
+//! use protocol::{GridMap, RobotUpdate, SystemCommand, topics};
+//!
+//! // Load warehouse map
+//! let map = GridMap::load_from_file("assets/data/layout.txt")?;
+//!
+//! // Use topic constants for Zenoh
+//! let topic = topics::ROBOT_UPDATES;
+//! ```
 
 pub mod commands;
 pub mod config;
@@ -10,7 +49,7 @@ pub mod tasks;
 pub mod topics;
 
 // Re-export for convenience
-pub use commands::{PathCmd, PathCommand, SystemCommand};
+pub use commands::{PathCmd, PathCommand, SystemCommand, SystemCommandEffect};
 pub use config::LAYOUT_FILE_PATH;
 pub use grid_map::{GridMap, MapValidation, Tile, TileType};
 pub use robot::{RobotState, RobotUpdate, RobotUpdateBatch};

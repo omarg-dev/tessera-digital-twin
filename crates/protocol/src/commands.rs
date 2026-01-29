@@ -96,3 +96,71 @@ impl SystemCommand {
         effect
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_system_command_pause() {
+        let mut paused = false;
+        let effect = SystemCommand::Pause.apply(Some(&mut paused), None);
+        
+        assert!(paused);
+        assert_eq!(effect, SystemCommandEffect::Paused(true));
+    }
+
+    #[test]
+    fn test_system_command_resume() {
+        let mut paused = true;
+        let effect = SystemCommand::Resume.apply(Some(&mut paused), None);
+        
+        assert!(!paused);
+        assert_eq!(effect, SystemCommandEffect::Paused(false));
+    }
+
+    #[test]
+    fn test_system_command_verbose_on() {
+        let mut verbose = false;
+        let effect = SystemCommand::Verbose(true).apply(None, Some(&mut verbose));
+        
+        assert!(verbose);
+        assert_eq!(effect, SystemCommandEffect::Verbose(true));
+    }
+
+    #[test]
+    fn test_system_command_verbose_off() {
+        let mut verbose = true;
+        let effect = SystemCommand::Verbose(false).apply(None, Some(&mut verbose));
+        
+        assert!(!verbose);
+        assert_eq!(effect, SystemCommandEffect::Verbose(false));
+    }
+
+    #[test]
+    fn test_system_command_with_none_state() {
+        // When no state is passed, command still returns effect but doesn't mutate
+        let effect = SystemCommand::Pause.apply(None, None);
+        assert_eq!(effect, SystemCommandEffect::Paused(true));
+    }
+
+    #[test]
+    fn test_path_command_serialization() {
+        let cmd = PathCmd {
+            robot_id: 42,
+            command: PathCommand::MoveTo { target: [1.0, 0.25, 2.0], speed: 2.0 },
+        };
+        
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: PathCmd = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed.robot_id, 42);
+        match parsed.command {
+            PathCommand::MoveTo { target, speed } => {
+                assert_eq!(target, [1.0, 0.25, 2.0]);
+                assert_eq!(speed, 2.0);
+            }
+            _ => panic!("Wrong command type"),
+        }
+    }
+}

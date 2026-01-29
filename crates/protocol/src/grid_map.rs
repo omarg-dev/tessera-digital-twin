@@ -154,3 +154,91 @@ pub struct MapValidation {
     pub map_hash: u64,
     pub map_dimensions: (usize, usize),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_map() {
+        let layout = "# # #\n# . #\n# # #";
+        let map = GridMap::parse(layout).unwrap();
+        
+        assert_eq!(map.width, 3);
+        assert_eq!(map.height, 3);
+        assert_eq!(map.tiles.len(), 9);
+    }
+
+    #[test]
+    fn test_parse_all_tile_types() {
+        let layout = "# . ~ _ v x5";
+        let map = GridMap::parse(layout).unwrap();
+        
+        assert_eq!(map.tiles[0].tile_type, TileType::Wall);
+        assert_eq!(map.tiles[1].tile_type, TileType::Ground);
+        assert_eq!(map.tiles[2].tile_type, TileType::Empty);
+        assert_eq!(map.tiles[3].tile_type, TileType::Station);
+        assert_eq!(map.tiles[4].tile_type, TileType::Dropoff);
+        assert_eq!(map.tiles[5].tile_type, TileType::Shelf(5));
+    }
+
+    #[test]
+    fn test_is_walkable() {
+        let layout = "# . _ v x5";
+        let map = GridMap::parse(layout).unwrap();
+        
+        assert!(!map.is_walkable(0, 0)); // Wall
+        assert!(map.is_walkable(1, 0));  // Ground
+        assert!(map.is_walkable(2, 0));  // Station
+        assert!(map.is_walkable(3, 0));  // Dropoff
+        assert!(!map.is_walkable(4, 0)); // Shelf (not walkable)
+    }
+
+    #[test]
+    fn test_get_tile() {
+        let layout = "# .\n. #";
+        let map = GridMap::parse(layout).unwrap();
+        
+        assert_eq!(map.get_tile(0, 0).unwrap().tile_type, TileType::Wall);
+        assert_eq!(map.get_tile(1, 0).unwrap().tile_type, TileType::Ground);
+        assert_eq!(map.get_tile(0, 1).unwrap().tile_type, TileType::Ground);
+        assert_eq!(map.get_tile(1, 1).unwrap().tile_type, TileType::Wall);
+        assert!(map.get_tile(5, 5).is_none());
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        let layout = "# . #\n# . #";
+        let map1 = GridMap::parse(layout).unwrap();
+        let map2 = GridMap::parse(layout).unwrap();
+        
+        assert_eq!(map1.hash, map2.hash);
+    }
+
+    #[test]
+    fn test_hash_differs_for_different_maps() {
+        let map1 = GridMap::parse("# . #").unwrap();
+        let map2 = GridMap::parse("# # #").unwrap();
+        
+        assert_ne!(map1.hash, map2.hash);
+    }
+
+    #[test]
+    fn test_get_shelves_dropoffs_stations() {
+        let layout = "x5 x3 . _ _ v";
+        let map = GridMap::parse(layout).unwrap();
+        
+        assert_eq!(map.get_shelves().len(), 2);
+        assert_eq!(map.get_stations().len(), 2);
+        assert_eq!(map.get_dropoffs().len(), 1);
+    }
+
+    #[test]
+    fn test_skip_comments_and_empty_lines() {
+        let layout = "// This is a comment\n\n# . #\n\n// Another comment\n# . #";
+        let map = GridMap::parse(layout).unwrap();
+        
+        assert_eq!(map.height, 2);
+        assert_eq!(map.tiles.len(), 6);
+    }
+}
