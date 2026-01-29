@@ -51,12 +51,12 @@ pub async fn run(session: Session) {
 
     println!("✓ Mission Control running");
     println!("Commands: status, add <px> <py> <dx> <dy>, help");
-    println!("(System commands: run control_plane)");
+    println!("(System commands: run orchestrator)");
 
     let mut last_broadcast = std::time::Instant::now();
 
     loop {
-        // System commands (from Zenoh - control_plane)
+        // System commands (from Zenoh - orchestrator)
         handle_system_commands(&control_sub, &mut paused, &mut verbose);
         
         // Stdin commands (local CLI)

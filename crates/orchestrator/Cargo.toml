@@ -1,10 +1,10 @@
 [package]
-name = "control_plane"
+name = "orchestrator"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "control_plane"
+name = "orchestrator"
 path = "src/main.rs"
 
 [dependencies]

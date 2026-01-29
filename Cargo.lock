@@ -2036,17 +2036,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "control_plane"
-version = "0.1.0"
-dependencies = [
- "protocol",
- "serde",
- "serde_json",
- "tokio",
- "zenoh",
-]
-
-[[package]]
 name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4586,6 +4575,17 @@ checksum = "52ad2c6bae700b7aa5d1cc30c59bdd3a1c180b09dbaea51e2ae2b8e1cf211fdd"
 dependencies = [
  "libc",
  "libredox",
+]
+
+[[package]]
+name = "orchestrator"
+version = "0.1.0"
+dependencies = [
+ "protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zenoh",
 ]
 
 [[package]]

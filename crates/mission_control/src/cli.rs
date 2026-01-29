@@ -87,8 +87,8 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                     Some(StdinCmd::Help)
                 }
                 "pause" | "resume" | "reset" | "kill" => {
-                    println!("System commands moved to control_plane crate.");
-                    println!("Run: cargo run -p control_plane");
+                    println!("System commands moved to orchestrator crate.");
+                    println!("Run: cargo run -p orchestrator");
                     None
                 }
                 _ => {
@@ -120,7 +120,7 @@ fn print_help() {
     println!("║   list stations         - List charging stations   ║");
     println!("║   map                   - Show warehouse map       ║");
     println!("╠════════════════════════════════════════════════════╣");
-    println!("║ SYSTEM (run control_plane for pause/resume/reset): ║");
+    println!("║ SYSTEM (run orchestrator for pause/resume/reset):    ║");
     println!("║   help, h               - Show this help           ║");
     println!("╚════════════════════════════════════════════════════╝\n");
 }
@@ -182,7 +182,7 @@ pub fn print_status(
             }
         }
     } else {
-        println!("║ (Use 'verbose on' in control_plane for details)    ║");
+        println!("║ (Use 'verbose on' in orchestrator for details)     ║");
     }
 
     println!("╚════════════════════════════════════════════════════╝\n");

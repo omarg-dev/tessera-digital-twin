@@ -27,7 +27,7 @@ pub enum PathCommand {
     ReturnToCharge,
 }
 
-/// System-wide control commands (control_plane → all)
+/// System-wide control commands (orchestrator → all)
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum SystemCommand {
     Pause,

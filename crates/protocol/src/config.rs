@@ -69,6 +69,21 @@ pub mod scheduler {
     pub const MIN_BATTERY_FOR_TASK: f32 = 20.0;
 }
 
+/// Orchestrator settings (process management)
+pub mod orchestrator {
+    /// Delay after starting coordinator before starting physical layer (ms)
+    pub const COORDINATOR_STARTUP_DELAY_MS: u64 = 1000;
+    
+    /// Delay after starting physical layer before starting scheduler (ms)
+    pub const PHYSICAL_STARTUP_DELAY_MS: u64 = 500;
+    
+    /// Delay after starting scheduler before starting renderer (ms)
+    pub const SCHEDULER_STARTUP_DELAY_MS: u64 = 300;
+    
+    /// Delay after kill-all before restart (ms)
+    pub const RESTART_DELAY_MS: u64 = 500;
+}
+
 /// Renderer layer settings (visualization)
 pub mod visual {
     /// Tile size in world units

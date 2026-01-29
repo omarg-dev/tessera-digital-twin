@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/protocol",
-    "crates/control_plane",
+    "crates/orchestrator",
     "crates/visualizer",
     "crates/fleet_server",
     "crates/mock_firmware",

@@ -12,7 +12,7 @@
 //! | **Physical Layer**    | `mock_firmware`   | Robot physics, battery, movement          |
 //! | **Coordinator**       | `fleet_server`    | Path planning, task execution, A* routing |
 //! | **Scheduler**         | `mission_control` | Task queue, robot allocation, management  |
-//! | **System Controller** | `control_plane`   | Process management, pause/resume, reset   |
+//! | **Orchestrator**      | `orchestrator`    | Process management, pause/resume, reset   |
 //! | **Renderer**          | `visualizer`      | 3D visualization, HUD, camera controls    |
 //! 
 //! ## Modules

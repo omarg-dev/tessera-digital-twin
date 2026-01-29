@@ -12,7 +12,7 @@ use crate::state::TrackedRobot;
 use crate::pathfinding;
 use crate::commands;
 
-/// Stdin command variants (fleet-specific only, system commands in control_plane)
+/// Stdin command variants (fleet-specific only, system commands in orchestrator)
 pub enum StdinCmd {
     Status,
     /// Send a robot to a grid position: goto <robot_id> <x> <y>
@@ -89,7 +89,7 @@ pub async fn run(session: Session, map: GridMap) {
             last_validation_publish = std::time::Instant::now();
         }
         
-        // Handle system commands (from control_plane via Zenoh)
+        // Handle system commands (from orchestrator via Zenoh)
         while let Ok(Some(sample)) = control_subscriber.try_recv() {
             if let Ok(sys_cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
                 commands::handle_system_command(&sys_cmd, &mut paused);
@@ -221,7 +221,7 @@ fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
     tokio::spawn(async move {
         let mut lines = BufReader::new(io::stdin()).lines();
         println!("Commands: 'status', 'goto <robot_id> <x> <y>', 'help'");
-        println!("(System commands: run control_plane)");
+        println!("(System commands: run orchestrator)");
         
         while let Ok(Some(line)) = lines.next_line().await {
             let parts: Vec<&str> = line.trim().split_whitespace().collect();
@@ -251,13 +251,13 @@ fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                     println!("│  goto <id> <x> <y>  - Send robot to pos │");
                     println!("│  help, h            - Show this help    │");
                     println!("├─────────────────────────────────────────┤");
-                    println!("│  System commands: run control_plane    │");
+                    println!("│  System commands: run orchestrator     │");
                     println!("╰─────────────────────────────────────────╯");
                     Some(StdinCmd::Help)
                 }
                 "pause" | "resume" | "reset" | "kill" => {
-                    println!("System commands moved to control_plane.");
-                    println!("Run: cargo run -p control_plane");
+                    println!("System commands moved to orchestrator.");
+                    println!("Run: cargo run -p orchestrator");
                     None
                 }
                 _ => {

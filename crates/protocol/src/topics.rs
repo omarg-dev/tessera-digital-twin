@@ -1,11 +1,11 @@
 //! Zenoh topic constants - Single source of truth for all topic strings
 //!
 //! Topics are organized by data flow direction. Comments use abstraction layer names:
-//! - **physical layer** - Robot firmware/physics simulation (mock_firmware)
-//! - **coordinator** - Path planning and task execution (fleet_server)
-//! - **scheduler** - Task queue and robot allocation (mission_control)
-//! - **system controller** - Process management and global commands (control_plane)
+//! - **system controller** - Process management and global commands (orchestrator)
 //! - **renderer** - Visualization layer (visualizer)
+//! - **scheduler** - Task queue and robot allocation (mission_control)
+//! - **coordinator** - Path planning and task execution (fleet_server)
+//! - **physical layer** - Robot firmware/physics simulation (mock_firmware)
 
 /// Robots broadcast their state here (physical layer → coordinator, renderer, scheduler)
 pub const ROBOT_UPDATES: &str = "factory/robots";
