@@ -1,9 +1,9 @@
-//! Swarm Driver - Mock Robot Firmware (Physics Simulation)
+//! Mock Firmware - Physical Layer Simulation
 //!
 //! Responsibilities:
 //! - Simulate robot physics (pos += vel * dt)
-//! - Publish RobotUpdateBatch to fleet_server and visualizer
-//! - Subscribe to PathCmd from fleet_server
+//! - Publish RobotUpdateBatch to coordinator and renderer
+//! - Subscribe to PathCmd from coordinator
 //! - Subscribe to SystemCommand for pause/resume
 //! - Validate map hash on startup
 
@@ -19,7 +19,7 @@ use serde_json::from_slice;
 #[tokio::main]
 async fn main() {
     println!("╔════════════════════════════════════════╗");
-    println!("║     SWARM DRIVER - Robot Firmware      ║");
+    println!("║     MOCK FIRMWARE - Physical Layer     ║");
     println!("╚════════════════════════════════════════╝");
     
     // Load and validate map
@@ -31,21 +31,21 @@ async fn main() {
         .await
         .expect("Failed to open Zenoh session");
     
-    // Validate map hash with fleet_server
+    // Validate map hash with coordinator
     validate_map_hash(&session, &map).await;
     
     driver::run(session, map).await;
 }
 
 async fn validate_map_hash(session: &Session, map: &GridMap) {
-    use protocol::config::server::MAP_VALIDATION_TIMEOUT_SECS;
+    use protocol::config::coordinator::MAP_VALIDATION_TIMEOUT_SECS;
     
     let subscriber = session
         .declare_subscriber(topics::MAP_VALIDATION)
         .await
         .expect("Failed to subscribe to MAP_VALIDATION");
     
-    println!("⏳ Waiting for map hash validation from fleet_server...");
+    println!("⏳ Waiting for map hash validation from coordinator...");
     
     let timeout_duration = std::time::Duration::from_secs(MAP_VALIDATION_TIMEOUT_SECS);
     
@@ -53,7 +53,7 @@ async fn validate_map_hash(session: &Session, map: &GridMap) {
         loop {
             if let Ok(Some(sample)) = subscriber.try_recv() {
                 if let Ok(validation) = from_slice::<MapValidation>(&sample.payload().to_bytes()) {
-                    if validation.sender == "fleet_server" {
+                    if validation.sender == topics::SENDER_COORDINATOR {
                         return Some(validation);
                     }
                 }
@@ -65,16 +65,16 @@ async fn validate_map_hash(session: &Session, map: &GridMap) {
     match result {
         Ok(Some(validation)) => {
             if validation.map_hash == map.hash {
-                println!("✓ Map hash validated with fleet_server");
+                println!("✓ Map hash validated with coordinator");
             } else {
-                eprintln!("✗ MAP HASH MISMATCH! Server: {:016x}, Local: {:016x}", 
+                eprintln!("✗ MAP HASH MISMATCH! Coordinator: {:016x}, Local: {:016x}", 
                     validation.map_hash, map.hash);
                 eprintln!("  This could cause 'Ghost Wall' bugs. Exiting.");
                 std::process::exit(1);
             }
         }
         _ => {
-            println!("⚠ No fleet_server response within {}s. Proceeding with local map.", 
+            println!("⚠ No coordinator response within {}s. Proceeding with local map.", 
                 MAP_VALIDATION_TIMEOUT_SECS);
         }
     }

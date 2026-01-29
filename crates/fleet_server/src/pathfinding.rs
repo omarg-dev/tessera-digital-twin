@@ -1,7 +1,7 @@
-//! A* Pathfinding for the fleet server
+//! A* Pathfinding for the coordinator layer
 //!
 //! Grid-based pathfinding using A* algorithm.
-//! This runs on the fleet_server to calculate paths for robots.
+//! This runs on the coordinator layer to calculate paths for robots.
 
 use protocol::GridMap;
 use std::collections::{BinaryHeap, HashMap};

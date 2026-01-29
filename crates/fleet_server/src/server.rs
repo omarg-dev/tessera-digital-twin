@@ -4,7 +4,7 @@ use zenoh::Session;
 use tokio::time;
 use tokio::sync::mpsc;
 use protocol::*;
-use protocol::config::server as srv_config;
+use protocol::config::coordinator as coord_config;
 use serde_json::{to_vec, from_slice};
 use std::collections::HashMap;
 
@@ -56,7 +56,7 @@ pub async fn run(session: Session, map: GridMap) {
     
     // Broadcast map hash for validation
     let map_validation = MapValidation {
-        sender: "fleet_server".to_string(),
+        sender: topics::SENDER_COORDINATOR.to_string(),
         map_hash: map.hash,
         map_dimensions: (map.width, map.height),
     };
@@ -81,7 +81,7 @@ pub async fn run(session: Session, map: GridMap) {
     
     loop {
         // Republish map hash every 5 seconds (ensures latecomers can validate)
-        if last_validation_publish.elapsed() >= std::time::Duration::from_secs(srv_config::MAP_HASH_REPUBLISH_SECS) {
+        if last_validation_publish.elapsed() >= std::time::Duration::from_secs(coord_config::MAP_HASH_REPUBLISH_SECS) {
             map_publisher
                 .put(to_vec(&map_validation).unwrap())
                 .await
@@ -158,7 +158,7 @@ pub async fn run(session: Session, map: GridMap) {
         }
         
         // Server tick (10 Hz) - send path commands
-        if last_tick.elapsed() >= std::time::Duration::from_millis(srv_config::PATH_SEND_INTERVAL_MS) {
+        if last_tick.elapsed() >= std::time::Duration::from_millis(coord_config::PATH_SEND_INTERVAL_MS) {
             last_tick = std::time::Instant::now();
             
             if !paused {
@@ -211,7 +211,7 @@ pub async fn run(session: Session, map: GridMap) {
             }
         }
         
-        time::sleep(std::time::Duration::from_millis(srv_config::LOOP_INTERVAL_MS)).await;
+        time::sleep(std::time::Duration::from_millis(coord_config::LOOP_INTERVAL_MS)).await;
     }
 }
 

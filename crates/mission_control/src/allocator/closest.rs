@@ -1,7 +1,7 @@
 //! Closest idle robot allocator
 
 use super::{Allocator, RobotInfo};
-use protocol::config::mission_control::MIN_BATTERY_FOR_TASK;
+use protocol::config::scheduler::MIN_BATTERY_FOR_TASK;
 use protocol::{RobotState, Task};
 use std::collections::HashMap;
 

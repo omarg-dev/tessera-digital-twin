@@ -6,7 +6,7 @@ use tokio::time;
 use zenoh::Session;
 use serde_json::{from_slice, to_vec};
 
-use protocol::config::mission_control as mc_config;
+use protocol::config::scheduler as sched_config;
 use protocol::{
     topics, GridMap, Priority, RobotUpdateBatch, Task, TaskAssignment,
     TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
@@ -77,12 +77,12 @@ pub async fn run(session: Session) {
         }
 
         // Broadcast queue state
-        if last_broadcast.elapsed() >= std::time::Duration::from_secs(mc_config::QUEUE_BROADCAST_SECS) {
+        if last_broadcast.elapsed() >= std::time::Duration::from_secs(sched_config::QUEUE_BROADCAST_SECS) {
             broadcast_state(&queue_pub, &queue, &robots).await;
             last_broadcast = std::time::Instant::now();
         }
 
-        time::sleep(std::time::Duration::from_millis(mc_config::LOOP_INTERVAL_MS)).await;
+        time::sleep(std::time::Duration::from_millis(sched_config::LOOP_INTERVAL_MS)).await;
     }
 }
 

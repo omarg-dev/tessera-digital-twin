@@ -1,4 +1,4 @@
-//! System command handling for fleet_server
+//! System command handling for coordinator layer
 
 use std::collections::HashMap;
 use protocol::SystemCommand;

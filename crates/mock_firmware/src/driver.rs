@@ -1,4 +1,4 @@
-//! Swarm driver main loop
+//! Mock firmware main loop - Physical layer simulation
 
 use zenoh::Session;
 use tokio::time;
@@ -10,7 +10,7 @@ use std::time::Instant;
 use crate::robot::SimRobot;
 use crate::commands::{handle_system_commands, handle_path_commands};
 
-/// Run the swarm driver main loop
+/// Run the mock firmware main loop
 pub async fn run(session: Session, map: GridMap) {
     // Publishers
     let update_publisher = session
@@ -32,7 +32,7 @@ pub async fn run(session: Session, map: GridMap) {
     // Spawn robots at station positions
     let mut robots = spawn_robots_from_map(&map);
     
-    println!("✓ Swarm Driver running with {} robot(s)", robots.len());
+    println!("✓ Mock Firmware running with {} robot(s)", robots.len());
     
     let mut paused = false;
     let mut last_tick = Instant::now();
@@ -46,7 +46,7 @@ pub async fn run(session: Session, map: GridMap) {
         // Handle system commands (pause/resume)
         handle_system_commands(&control_subscriber, &mut paused);
         
-        // Handle path commands from fleet_server
+        // Handle path commands from coordinator
         handle_path_commands(&cmd_subscriber, &mut robots);
         
         // Physics update for all robots

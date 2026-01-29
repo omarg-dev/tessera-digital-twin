@@ -1,4 +1,4 @@
-//! System command handling for swarm_driver
+//! System command handling for mock firmware (physical layer)
 
 use protocol::{PathCmd, SystemCommand};
 use serde_json::from_slice;
@@ -20,7 +20,7 @@ pub fn handle_system_commands(
     }
 }
 
-/// Process path commands from fleet_server
+/// Process path commands from coordinator
 pub fn handle_path_commands(
     subscriber: &Subscriber<FifoChannelHandler<Sample>>,
     robots: &mut [SimRobot],

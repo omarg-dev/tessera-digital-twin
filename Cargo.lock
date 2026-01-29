@@ -23,10 +23,6 @@ name = "accesskit"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf203f9d3bd8f29f98833d1fbef628df18f759248a547e7e01cfbf63cda36a99"
-dependencies = [
- "enumn",
- "serde",
-]
 
 [[package]]
 name = "accesskit_consumer"
@@ -452,7 +448,6 @@ dependencies = [
  "bevy_derive",
  "bevy_ecs",
  "bevy_reflect",
- "serde",
 ]
 
 [[package]]
@@ -953,7 +948,6 @@ dependencies = [
  "bevy_reflect",
  "derive_more",
  "log",
- "serde",
  "smol_str",
  "thiserror 2.0.17",
 ]
@@ -1119,7 +1113,6 @@ dependencies = [
  "bytemuck",
  "derive_more",
  "hexasphere",
- "serde",
  "thiserror 2.0.17",
  "tracing",
  "wgpu-types",
@@ -1577,7 +1570,6 @@ dependencies = [
  "bevy_utils",
  "bevy_window",
  "derive_more",
- "serde",
  "smallvec",
  "taffy",
  "thiserror 2.0.17",
@@ -2586,17 +2578,6 @@ name = "encase_derive_impl"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1796db3d892515842ca2dfb11124c4bb4a9e58d9f2c5c1072e5bca1b2334507b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
-]
-
-[[package]]
-name = "enumn"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f9ed6b3789237c8a0c1c505af1c7eb2c560df6186f01b098c3a1064ea532f38"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3929,6 +3910,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mock_firmware"
+version = "0.1.0"
+dependencies = [
+ "protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zenoh",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4974,8 +4966,8 @@ checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
 name = "protocol"
 version = "0.1.0"
 dependencies = [
- "bevy",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5895,9 +5887,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "smithay-client-toolkit"
@@ -6069,17 +6058,6 @@ name = "svg_fmt"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0193cc4331cfd2f3d2011ef287590868599a2f33c3e69bc22c1a3d3acf9e02fb"
-
-[[package]]
-name = "swarm_driver"
-version = "0.1.0"
-dependencies = [
- "protocol",
- "serde",
- "serde_json",
- "tokio",
- "zenoh",
-]
 
 [[package]]
 name = "swash"

@@ -1,5 +1,5 @@
 [package]
-name = "swarm_driver"
+name = "mock_firmware"
 version.workspace = true
 edition.workspace = true
 
@@ -11,5 +11,5 @@ zenoh.workspace = true
 protocol = { path = "../protocol" }
 
 [[bin]]
-name = "swarm_driver"
+name = "mock_firmware"
 path = "src/main.rs"

@@ -4,7 +4,7 @@ members = [
     "crates/control_plane",
     "crates/visualizer",
     "crates/fleet_server",
-    "crates/swarm_driver",
+    "crates/mock_firmware",
     "crates/mission_control",
 ]
 resolver = "2"
