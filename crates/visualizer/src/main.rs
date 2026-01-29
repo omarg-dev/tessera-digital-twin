@@ -1,8 +1,8 @@
 //! Hyper-Twin Visualizer - Render-Only Layer
 //!
 //! This crate only visualizes the warehouse and robots.
-//! All physics and logic happen in swarm_driver and fleet_server.
-//! We subscribe to RobotUpdateBatch from swarm_driver and render.
+//! All physics and logic happen in firmware and coordinator.
+//! We subscribe to RobotUpdateBatch from firmware and render.
 //!
 //! ## TODO: UI Improvements (Phase 5+)
 //! - [ ] Integrated control panel (egui sidebar) for pause/resume/reset

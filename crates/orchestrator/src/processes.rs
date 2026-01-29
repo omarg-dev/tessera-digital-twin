@@ -8,7 +8,7 @@ use std::thread;
 use protocol::config::orchestrator as orch_config;
 
 /// List of all manageable crates in startup order
-pub const CRATE_ORDER: &[&str] = &["fleet_server", "mock_firmware", "mission_control", "visualizer"];
+pub const CRATE_ORDER: &[&str] = &["fleet_server", "mock_firmware", "scheduler", "visualizer"];
 
 /// Managed child processes for orchestration
 pub struct Processes {
@@ -60,7 +60,7 @@ impl Processes {
 
         println!("🔨 Building all crates...");
         let build_status = Command::new("cargo")
-            .args(["build", "-p", "fleet_server", "-p", "mock_firmware", "-p", "mission_control", "-p", "visualizer"])
+            .args(["build", "-p", "fleet_server", "-p", "mock_firmware", "-p", "scheduler", "-p", "visualizer"])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
@@ -79,16 +79,16 @@ impl Processes {
         self.running.push("fleet_server".to_string());
         thread::sleep(Duration::from_millis(orch_config::COORDINATOR_STARTUP_DELAY_MS));
 
-        // 2. Physical layer (mock_firmware) - validates map hash, starts physics
-        println!("  2/4 Starting mock_firmware (physical layer)...");
+        // 2. Firmware (mock_firmware) - validates map hash, starts physics
+        println!("  2/4 Starting mock_firmware (firmware)...");
         spawn_binary("mock_firmware")?;
         self.running.push("mock_firmware".to_string());
-        thread::sleep(Duration::from_millis(orch_config::PHYSICAL_STARTUP_DELAY_MS));
+        thread::sleep(Duration::from_millis(orch_config::FIRMWARE_STARTUP_DELAY_MS));
 
-        // 3. Scheduler (mission_control) - task queue
-        println!("  3/4 Starting mission_control (scheduler)...");
-        spawn_binary("mission_control")?;
-        self.running.push("mission_control".to_string());
+        // 3. Scheduler - task queue
+        println!("  3/4 Starting scheduler...");
+        spawn_binary("scheduler")?;
+        self.running.push("scheduler".to_string());
         thread::sleep(Duration::from_millis(orch_config::SCHEDULER_STARTUP_DELAY_MS));
 
         // 4. Renderer (visualizer) - Bevy window
@@ -252,7 +252,7 @@ mod tests {
     fn test_crate_order_contains_all() {
         assert!(CRATE_ORDER.contains(&"fleet_server"));
         assert!(CRATE_ORDER.contains(&"mock_firmware"));
-        assert!(CRATE_ORDER.contains(&"mission_control"));
+        assert!(CRATE_ORDER.contains(&"scheduler"));
         assert!(CRATE_ORDER.contains(&"visualizer"));
     }
 

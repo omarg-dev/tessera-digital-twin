@@ -1,10 +1,10 @@
 [package]
-name = "mission_control"
+name = "scheduler"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "mission_control"
+name = "scheduler"
 path = "src/main.rs"
 
 [dependencies]

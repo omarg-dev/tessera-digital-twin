@@ -5,15 +5,15 @@
 //!
 //! ## Abstraction Layers
 //!
-//! The system is organized into abstraction layers (crate names in parentheses):
+//! The system is organized into abstraction layers (top to bottom):
 //!
 //! | Layer                 | Crate             | Responsibility                            |
 //! |-----------------------|-------------------|-------------------------------------------|
-//! | **Physical Layer**    | `mock_firmware`   | Robot physics, battery, movement          |
-//! | **Coordinator**       | `fleet_server`    | Path planning, task execution, A* routing |
-//! | **Scheduler**         | `mission_control` | Task queue, robot allocation, management  |
 //! | **Orchestrator**      | `orchestrator`    | Process management, pause/resume, reset   |
 //! | **Renderer**          | `visualizer`      | 3D visualization, HUD, camera controls    |
+//! | **Scheduler**         | `scheduler`       | Task queue, robot allocation, management  |
+//! | **Coordinator**       | `fleet_server`    | Path planning, task execution, A* routing |
+//! | **Firmware**          | `mock_firmware`   | Robot physics, battery, movement          |
 //! 
 //! ## Modules
 //!

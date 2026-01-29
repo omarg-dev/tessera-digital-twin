@@ -1,14 +1,14 @@
 //! Resources for the Visualizer crate
 //! 
 //! This is a RENDER-ONLY layer. No physics, no task logic.
-//! We only subscribe to RobotUpdateBatch from swarm_driver and display.
+//! We only subscribe to RobotUpdateBatch from firmware and display.
 
 use bevy::prelude::*;
 use protocol::RobotUpdate;
 use tokio::sync::mpsc;
 use std::collections::HashMap;
 
-/// Receives robot updates from Zenoh (swarm_driver publishes, we display)
+/// Receives robot updates from Zenoh (firmware publishes, we display)
 #[derive(Resource)]
 pub struct ZenohReceiver(pub mpsc::Receiver<RobotUpdate>);
 

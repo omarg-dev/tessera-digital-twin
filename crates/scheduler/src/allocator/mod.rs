@@ -10,7 +10,7 @@ pub use closest::ClosestIdleAllocator;
 use protocol::{RobotState, RobotUpdate, Task};
 use std::collections::HashMap;
 
-/// Robot state as known to mission_control
+/// Robot state as known to scheduler
 #[derive(Debug, Clone)]
 pub struct RobotInfo {
     pub id: u32,

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Robot state broadcast over Zenoh (swarm_driver → fleet_server, visualizer)
+/// Robot state broadcast over Zenoh (firmware → coordinator, renderer, scheduler)
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RobotUpdate {
     pub id: u32,

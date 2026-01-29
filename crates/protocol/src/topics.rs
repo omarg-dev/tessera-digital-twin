@@ -1,19 +1,19 @@
 //! Zenoh topic constants - Single source of truth for all topic strings
 //!
-//! Topics are organized by data flow direction. Comments use abstraction layer names:
-//! - **system controller** - Process management and global commands (orchestrator)
-//! - **renderer** - Visualization layer (visualizer)
-//! - **scheduler** - Task queue and robot allocation (mission_control)
-//! - **coordinator** - Path planning and task execution (fleet_server)
-//! - **physical layer** - Robot firmware/physics simulation (mock_firmware)
+//! Topics are organized by data flow direction. Abstraction layers (top to bottom):
+//! - **orchestrator** - Process management and global commands (orchestrator crate)
+//! - **renderer** - Visualization layer (visualizer crate)
+//! - **scheduler** - Task queue and robot allocation (scheduler crate)
+//! - **coordinator** - Path planning and task execution (fleet_server crate)
+//! - **firmware** - Robot physics simulation (mock_firmware crate)
 
-/// Robots broadcast their state here (physical layer → coordinator, renderer, scheduler)
+/// Robots broadcast their state here (firmware → coordinator, renderer, scheduler)
 pub const ROBOT_UPDATES: &str = "factory/robots";
 
-/// Coordinator sends path commands here (coordinator → physical layer)
+/// Coordinator sends path commands here (coordinator → firmware)
 pub const PATH_COMMANDS: &str = "factory/commands";
 
-/// System controller broadcasts pause/resume/reset (system controller → all layers)
+/// Orchestrator broadcasts pause/resume/reset (orchestrator → all layers)
 pub const ADMIN_CONTROL: &str = "factory/admin/control";
 
 /// Map hash validation on startup (coordinator → all layers)

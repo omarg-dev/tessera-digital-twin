@@ -150,7 +150,7 @@ impl GridMap {
 /// Map validation message sent on startup
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MapValidation {
-    pub sender: String,     // "fleet_server", "swarm_driver", "visualizer"
+    pub sender: String,     // "coordinator", "firmware", "renderer"
     pub map_hash: u64,
     pub map_dimensions: (usize, usize),
 }

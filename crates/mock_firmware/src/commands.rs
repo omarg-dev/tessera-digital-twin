@@ -1,4 +1,4 @@
-//! System command handling for mock firmware (physical layer)
+//! System command handling for mock firmware (firmware layer)
 
 use protocol::{PathCmd, SystemCommand};
 use serde_json::from_slice;

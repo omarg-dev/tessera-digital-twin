@@ -1,4 +1,4 @@
-//! Mock Firmware - Physical Layer Simulation
+//! Mock Firmware - Firmware Layer Simulation
 //!
 //! Responsibilities:
 //! - Simulate robot physics (pos += vel * dt)
@@ -19,7 +19,7 @@ use serde_json::from_slice;
 #[tokio::main]
 async fn main() {
     println!("╔════════════════════════════════════════╗");
-    println!("║     MOCK FIRMWARE - Physical Layer     ║");
+    println!("║     MOCK FIRMWARE - Firmware Layer     ║");
     println!("╚════════════════════════════════════════╝");
     
     // Load and validate map

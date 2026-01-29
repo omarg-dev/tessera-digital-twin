@@ -1,7 +1,7 @@
 //! Fleet Server - Central Brain for the Digital Twin
 //!
 //! Responsibilities:
-//! - Receive RobotUpdate from swarm_driver
+//! - Receive RobotUpdate from firmware
 //! - Calculate paths and assign tasks (A* pathfinding)
 //! - Send PathCmd to swarm_driver
 //! - Broadcast SystemCommand for control plane

@@ -96,7 +96,7 @@ pub async fn run(session: Session, map: GridMap) {
             }
         }
         
-        // Handle task assignments (from mission_control)
+        // Handle task assignments (from scheduler)
         while let Ok(Some(sample)) = task_subscriber.try_recv() {
             if let Ok(assignment) = from_slice::<TaskAssignment>(&sample.payload().to_bytes()) {
                 handle_task_assignment(&assignment, &mut robots, &map, &cmd_publisher, &status_publisher).await;
@@ -273,7 +273,7 @@ fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
     });
 }
 
-/// Handle a task assignment from mission_control
+/// Handle a task assignment from scheduler
 async fn handle_task_assignment(
     assignment: &TaskAssignment,
     robots: &mut HashMap<u32, TrackedRobot>,

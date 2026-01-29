@@ -71,11 +71,11 @@ pub mod scheduler {
 
 /// Orchestrator settings (process management)
 pub mod orchestrator {
-    /// Delay after starting coordinator before starting physical layer (ms)
+    /// Delay after starting coordinator before starting firmware (ms)
     pub const COORDINATOR_STARTUP_DELAY_MS: u64 = 1000;
     
-    /// Delay after starting physical layer before starting scheduler (ms)
-    pub const PHYSICAL_STARTUP_DELAY_MS: u64 = 500;
+    /// Delay after starting firmware before starting scheduler (ms)
+    pub const FIRMWARE_STARTUP_DELAY_MS: u64 = 500;
     
     /// Delay after starting scheduler before starting renderer (ms)
     pub const SCHEDULER_STARTUP_DELAY_MS: u64 = 300;

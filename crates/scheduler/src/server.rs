@@ -1,4 +1,4 @@
-//! Mission Control server loop
+//! Scheduler server loop
 
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -13,11 +13,11 @@ use protocol::{
 };
 
 use crate::allocator::{Allocator, ClosestIdleAllocator, RobotInfo};
-use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, spawn_stdin_reader, StdinCmd};
+use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, spawn_stdin_reader, print_help, StdinCmd};
 use crate::commands::handle_system_commands;
 use crate::queue::{FifoQueue, TaskQueue};
 
-/// Run the mission control main loop
+/// Run the scheduler main loop
 pub async fn run(session: Session) {
     // Load warehouse map for location info
     let map = GridMap::load_from_file("assets/data/layout.txt")
@@ -49,7 +49,7 @@ pub async fn run(session: Session) {
     let (tx, mut rx) = mpsc::channel::<StdinCmd>(16);
     spawn_stdin_reader(tx);
 
-    println!("✓ Mission Control running");
+    println!("✓ Scheduler running");
     println!("Commands: status, add <px> <py> <dx> <dy>, help");
     println!("(System commands: run orchestrator)");
 
@@ -65,7 +65,7 @@ pub async fn run(session: Session) {
         // Task requests (from other crates)
         handle_task_requests(&task_sub, &mut queue);
         
-        // Robot updates (from swarm_driver)
+        // Robot updates (from firmware)
         handle_robot_updates(&robot_sub, &mut robots);
         
         // Task status updates (from fleet_server)
@@ -119,7 +119,7 @@ async fn handle_stdin(
             StdinCmd::ListDropoffs => print_dropoffs(map),
             StdinCmd::ListStations => print_stations(map),
             StdinCmd::Map => print_map(map, robots),
-            StdinCmd::Help => {} // Already printed by CLI
+            StdinCmd::Help => print_help()
         }
     }
 }

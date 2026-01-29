@@ -1,7 +1,7 @@
 //! Task and order types for inter-layer communication
 //!
 //! These types define the business-level entities for task scheduling and execution.
-//! They are intentionally decoupled from robot-level operations (physical layer)
+//! They are intentionally decoupled from robot-level operations (firmware layer)
 //! and path planning details (coordinator layer).
 
 use serde::{Deserialize, Serialize};
@@ -115,7 +115,7 @@ impl Task {
     }
 }
 
-/// Assignment message: mission_control → fleet_server
+/// Assignment message: scheduler → coordinator
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskAssignment {
     /// The task being assigned
@@ -124,7 +124,7 @@ pub struct TaskAssignment {
     pub robot_id: u32,
 }
 
-/// Status update: fleet_server → mission_control
+/// Status update: coordinator → scheduler
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskStatusUpdate {
     /// Task ID being updated
@@ -135,7 +135,7 @@ pub struct TaskStatusUpdate {
     pub robot_id: Option<u32>,
 }
 
-/// New task request: external system → mission_control
+/// New task request: external system → scheduler
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRequest {
     /// What type of work

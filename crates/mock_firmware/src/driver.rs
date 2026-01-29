@@ -1,4 +1,4 @@
-//! Mock firmware main loop - Physical layer simulation
+//! Mock firmware main loop - Firmware layer simulation
 
 use zenoh::Session;
 use tokio::time;

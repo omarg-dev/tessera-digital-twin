@@ -1,4 +1,4 @@
-//! Command-line interface for mission control
+//! Command-line interface for scheduler
 
 use crate::allocator::RobotInfo;
 use crate::queue::TaskQueue;
@@ -82,15 +82,7 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                     println!("  Examples: add S1 D1, add S2 S5, add 5 5 8 8");
                     None
                 }
-                "help" | "h" => {
-                    print_help();
-                    Some(StdinCmd::Help)
-                }
-                "pause" | "resume" | "reset" | "kill" => {
-                    println!("System commands moved to orchestrator crate.");
-                    println!("Run: cargo run -p orchestrator");
-                    None
-                }
+                "help" | "h" => Some(StdinCmd::Help),
                 _ => {
                     println!("Unknown command: {}. Type 'help' for available commands.", parts[0]);
                     None
@@ -104,9 +96,10 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
     });
 }
 
-fn print_help() {
+// Print help command list
+pub fn print_help() {
     println!("\n╔════════════════════════════════════════════════════╗");
-    println!("║            MISSION CONTROL COMMANDS                ║");
+    println!("║            SCHEDULER COMMANDS                     ║");
     println!("╠════════════════════════════════════════════════════╣");
     println!("║ TASKS:                                             ║");
     println!("║   add S1 D1             - Add task (shelf→dropoff) ║");
@@ -139,7 +132,7 @@ pub fn print_status(
     let idle_robots = robots.values().filter(|r| r.assigned_task.is_none()).count();
 
     println!("\n╔════════════════════════════════════════════════════╗");
-    println!("║            MISSION CONTROL STATUS                  ║");
+    println!("║            SCHEDULER STATUS                        ║");
     println!("╠════════════════════════════════════════════════════╣");
     println!("║ State: {:<8}  Verbose: {:<3}                      ║",
         if paused { "PAUSED" } else { "RUNNING" },
@@ -298,5 +291,40 @@ pub fn parse_named_location(name: &str) -> Option<(usize, usize)> {
         "S" => Some((10000 + idx, 0)),
         "D" => Some((20000 + idx, 0)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_shelf_location() {
+        assert_eq!(parse_named_location("S1"), Some((10001, 0)));
+        assert_eq!(parse_named_location("S10"), Some((10010, 0)));
+        assert_eq!(parse_named_location("S99"), Some((10099, 0)));
+    }
+
+    #[test]
+    fn test_parse_dropoff_location() {
+        assert_eq!(parse_named_location("D1"), Some((20001, 0)));
+        assert_eq!(parse_named_location("D5"), Some((20005, 0)));
+    }
+
+    #[test]
+    fn test_parse_invalid_location() {
+        assert_eq!(parse_named_location("X1"), None);  // Invalid prefix
+        assert_eq!(parse_named_location("S"), None);   // Too short
+        assert_eq!(parse_named_location(""), None);    // Empty
+        assert_eq!(parse_named_location("Sabc"), None); // Non-numeric suffix
+    }
+
+    #[test]
+    fn test_marker_values_distinguishable() {
+        // Ensure shelf and dropoff markers don't overlap
+        let s1 = parse_named_location("S1").unwrap();
+        let d1 = parse_named_location("D1").unwrap();
+        assert!(s1.0 < 20000);  // Shelf range: 10001-19999
+        assert!(d1.0 >= 20000); // Dropoff range: 20001+
     }
 }

@@ -1,4 +1,4 @@
-//! System command handling for mission_control
+//! System command handling for scheduler
 
 use protocol::SystemCommand;
 use serde_json::from_slice;
@@ -14,7 +14,7 @@ pub fn handle_system_commands(
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
         if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-            cmd.apply_with_log("MissionControl", Some(paused), Some(verbose));
+            cmd.apply_with_log("Scheduler", Some(paused), Some(verbose));
         }
     }
 }
