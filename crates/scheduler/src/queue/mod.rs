@@ -12,9 +12,12 @@ use protocol::{Task, TaskId};
 /// Trait for task queue implementations
 ///
 /// Implement this trait to create custom queueing strategies:
-/// - `FifoQueue` - Simple FIFO with priority support (default)
-/// - `PriorityQueue` - Heap-based priority queue
-/// - `MLOptimizedQueue` - ML-driven task ordering
+/// - `FifoQueue` - Priority queue with FIFO tiebreaking (default)
+/// - `PriorityQueue` - Heap-based priority queue (future)
+/// - `MLOptimizedQueue` - ML-driven task ordering (future)
+///
+/// Note: Some trait methods may appear unused in the binary but are part of the public API
+/// used by tests and future extensions (pathfinding-aware allocation, ML optimization, etc.)
 #[allow(dead_code)]
 pub trait TaskQueue: Send + Sync {
     /// Add a new task to the queue
@@ -46,4 +49,8 @@ pub trait TaskQueue: Send + Sync {
 
     /// Get all tasks
     fn all_tasks(&self) -> Vec<&Task>;
+
+    /// Remove all completed and failed tasks from the queue
+    /// Returns the number of tasks removed (for logging)
+    fn cleanup_completed(&mut self) -> usize;
 }

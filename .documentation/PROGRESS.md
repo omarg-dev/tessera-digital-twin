@@ -138,6 +138,64 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 ## Changelog
 
+### 2026-01-30: Scheduler Deep-Dive & Cleanup Session
+
+**Major Improvements:**
+- Moved `QueueState` struct from inline (server.rs) to protocol crate as reusable type
+  - Re-exported in protocol/lib.rs for convenience
+  - Enables serialization and sharing across all crates
+  - Pattern: All network-transmissible types belong in protocol crate
+- Moved location marker magic numbers to protocol config constants
+  - `SHELF_MARKER_BASE = 10000`, `DROPOFF_MARKER_BASE = 20000`
+  - Used consistently across cli.rs and server.rs
+
+**Code Quality Fixes:**
+- Fixed status display alignment to handle variable-width content
+  - Added `format_status_line()` helper for dynamic line formatting
+  - No longer breaks with large numbers (e.g., 999999 pending tasks)
+  - Uses consistent box width calculations
+- Improved FifoQueue documentation to clarify it's a **priority queue with FIFO tiebreaking**
+  - Added module-level doc explaining Priority > FIFO ordering
+  - Struct doc now explicitly states "NOT a pure FIFO queue"
+
+**Bug Fixes & Cleanup:**
+- Removed unnecessary `#[allow(dead_code)]` from `find_next_pending_index()` and `TaskQueue` trait
+  - Functions are actively used by dequeue(), peek(), and trait implementations
+  - Compiler now correctly flags actual dead code
+
+**New CLI Features:**
+- `cancel <id>` - Cancel a pending task
+- `priority <id> <level>` - Change task priority (low/normal/high/critical)
+- `history` - View completed/failed/cancelled tasks
+- Updated help text with all new commands
+
+**New Queue Features:**
+- Added `cleanup_completed()` method to TaskQueue trait
+  - Removes completed, failed, and cancelled tasks from queue
+  - Prevents memory leak from long-running systems
+  - Implemented in FifoQueue with test coverage
+  - Returns count of removed tasks for logging
+
+**Verbosity Improvements:**
+- Added `verbose: bool` parameter to `allocate_tasks()` function
+  - Task assignment logging now respects verbose flag
+  - Reduces console spam in production mode (verbose=off)
+  - Keeps detailed logging available when needed
+
+**Test Coverage:**
+- Added `test_cleanup_completed()` test to verify removal of completed/failed tasks
+- Total tests: **63 passing** (up from 62)
+  - protocol: 19
+  - orchestrator: 8
+  - scheduler: 15 (was 14)
+  - coordinator: 9
+  - mock_firmware: 12
+
+**Code Hygiene:**
+- No compiler warnings
+- All tests passing
+- Consistent import usage (QueueState now imported from protocol)
+
 ### 2026-01-30: Crate Review & Refactoring Session
 
 **Crate Renames:**
@@ -224,13 +282,13 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 | Crate | Test Count | Coverage Areas |
 |-------|------------|----------------|
-| protocol | 19 | Serialization, grid parsing, commands |
+| protocol | 19 | Serialization, grid parsing, commands, QueueState |
 | orchestrator | 8 | CLI parsing, process management |
-| scheduler | 14 | Queue operations, allocator logic |
+| scheduler | 15 | Queue operations, allocator logic, cleanup |
 | coordinator | 9 | Pathfinding, coordinate conversion |
 | mock_firmware | 12 | Physics, battery, state machine |
 | visualizer | 0 | (Bevy systems, manual testing) |
-| **Total** | **62** | |
+| **Total** | **63** | |
 
 ---
 

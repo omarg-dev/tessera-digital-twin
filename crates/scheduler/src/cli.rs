@@ -14,6 +14,9 @@ pub enum StdinCmd {
         pickup: (usize, usize),
         dropoff: (usize, usize),
     },
+    CancelTask { task_id: u64 },
+    SetPriority { task_id: u64, priority: protocol::Priority },
+    History,
     ListShelves,
     ListDropoffs,
     ListStations,
@@ -82,6 +85,32 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                     println!("  Examples: add S1 D1, add S2 S5, add 5 5 8 8");
                     None
                 }
+                "cancel" if parts.len() == 2 => {
+                    if let Ok(task_id) = parts[1].parse::<u64>() {
+                        Some(StdinCmd::CancelTask { task_id })
+                    } else {
+                        println!("Usage: cancel <task_id>");
+                        None
+                    }
+                }
+                "priority" if parts.len() == 3 => {
+                    let task_id = parts[1].parse::<u64>().ok();
+                    let priority = match parts[2].to_lowercase().as_str() {
+                        "low" | "l" => Some(protocol::Priority::Low),
+                        "normal" | "n" => Some(protocol::Priority::Normal),
+                        "high" | "h" => Some(protocol::Priority::High),
+                        "critical" | "c" => Some(protocol::Priority::Critical),
+                        _ => None,
+                    };
+                    match (task_id, priority) {
+                        (Some(id), Some(p)) => Some(StdinCmd::SetPriority { task_id: id, priority: p }),
+                        _ => {
+                            println!("Usage: priority <task_id> <low|normal|high|critical>");
+                            None
+                        }
+                    }
+                }
+                "history" | "hist" => Some(StdinCmd::History),
                 "help" | "h" => Some(StdinCmd::Help),
                 _ => {
                     println!("Unknown command: {}. Type 'help' for available commands.", parts[0]);
@@ -99,13 +128,17 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
 // Print help command list
 pub fn print_help() {
     println!("\n╔════════════════════════════════════════════════════╗");
-    println!("║            SCHEDULER COMMANDS                     ║");
+    println!("║            SCHEDULER COMMANDS                      ║");
     println!("╠════════════════════════════════════════════════════╣");
     println!("║ TASKS:                                             ║");
     println!("║   add S1 D1             - Add task (shelf→dropoff) ║");
     println!("║   add S1 S2             - Add task (shelf→shelf)   ║");
     println!("║   add <px> <py> <dx> <dy> - Add task by coords     ║");
+    println!("║   cancel <id>           - Cancel pending task      ║");
+    println!("║   priority <id> <level> - Set task priority        ║");
+    println!("║                           (low/normal/high/critical)║");
     println!("║   status, s             - Show full status         ║");
+    println!("║   history               - Show completed tasks     ║");
     println!("╠════════════════════════════════════════════════════╣");
     println!("║ LOCATIONS:                                         ║");
     println!("║   list shelves          - List all shelves (S#)    ║");
@@ -113,9 +146,21 @@ pub fn print_help() {
     println!("║   list stations         - List charging stations   ║");
     println!("║   map                   - Show warehouse map       ║");
     println!("╠════════════════════════════════════════════════════╣");
-    println!("║ SYSTEM (run orchestrator for pause/resume/reset):    ║");
+    println!("║ SYSTEM (run orchestrator for pause/resume/reset):  ║");
     println!("║   help, h               - Show this help           ║");
     println!("╚════════════════════════════════════════════════════╝\n");
+}
+
+/// Helper to format a status line with dynamic alignment
+fn format_status_line(content: &str, box_width: usize) -> String {
+    let available = box_width.saturating_sub(4); // "║ " + " ║"
+    if content.len() <= available {
+        let padding = available - content.len();
+        format!("║ {}{}║", content, " ".repeat(padding))
+    } else {
+        // Truncate if too long
+        format!("║ {}...║", &content[..available.saturating_sub(3)])
+    }
 }
 
 /// Print current status (enhanced with map info)
@@ -130,18 +175,38 @@ pub fn print_status(
     let dropoffs = map.get_dropoffs();
     let stations = map.get_stations();
     let idle_robots = robots.values().filter(|r| r.assigned_task.is_none()).count();
+    let box_width = 52; // Total width of box
 
     println!("\n╔════════════════════════════════════════════════════╗");
     println!("║            SCHEDULER STATUS                        ║");
     println!("╠════════════════════════════════════════════════════╣");
-    println!("║ State: {:<8}  Verbose: {:<3}                      ║",
+    let state_line = format!("State: {}  Verbose: {}",
         if paused { "PAUSED" } else { "RUNNING" },
         if verbose { "ON" } else { "OFF" });
-    println!("║ Queue: {} pending / {} total                         ║", queue.pending_count(), queue.total_count());
-    println!("║ Robots: {} online ({} idle, {} busy)                  ║",
-        robots.len(), idle_robots, robots.len() - idle_robots);
-    println!("║ Map: {}x{} | {} shelves | {} dropoffs | {} stations   ║",
-        map.width, map.height, shelves.len(), dropoffs.len(), stations.len());
+    println!("{}", format_status_line(&state_line, box_width));
+    
+    // Queue status - now handles any size numbers
+    let queue_line = format!("Queue: {} pending / {} total",
+        queue.pending_count(),
+        queue.total_count());
+    println!("{}", format_status_line(&queue_line, box_width));
+    
+    // Robot status
+    let robot_line = format!("Robots: {} online ({} idle, {} busy)",
+        robots.len(),
+        idle_robots,
+        robots.len() - idle_robots);
+    println!("{}", format_status_line(&robot_line, box_width));
+    
+    // Map status
+    let map_line = format!("Map: {}x{} | {} shelves | {} dropoffs | {} stations",
+        map.width,
+        map.height,
+        shelves.len(),
+        dropoffs.len(),
+        stations.len());
+    println!("{}", format_status_line(&map_line, box_width));
+    
     println!("╠════════════════════════════════════════════════════╣");
 
     if verbose {
@@ -220,6 +285,38 @@ pub fn print_stations(map: &GridMap) {
     println!("└──────────────────────────────────────────────────┘\n");
 }
 
+/// Print completed/failed/cancelled task history
+pub fn print_history(queue: &dyn TaskQueue) {
+    let tasks: Vec<_> = queue.all_tasks().into_iter()
+        .filter(|t| matches!(t.status, 
+            protocol::TaskStatus::Completed | 
+            protocol::TaskStatus::Failed { .. } | 
+            protocol::TaskStatus::Cancelled))
+        .collect();
+    
+    println!("\n┌─ TASK HISTORY ({} entries) ─────────────────────────┐", tasks.len());
+    if tasks.is_empty() {
+        println!("│ No completed/failed/cancelled tasks yet.            │");
+    } else {
+        for task in tasks {
+            let status_str = match &task.status {
+                protocol::TaskStatus::Completed => "✓ DONE".to_string(),
+                protocol::TaskStatus::Failed { reason } => format!("✗ FAIL: {}", reason),
+                protocol::TaskStatus::Cancelled => "⊘ CANCEL".to_string(),
+                _ => "?".to_string(),
+            };
+            let (pickup, dropoff) = match &task.task_type {
+                protocol::TaskType::PickAndDeliver { pickup, dropoff, .. } => {
+                    (format!("({},{})", pickup.0, pickup.1), format!("({},{})", dropoff.0, dropoff.1))
+                }
+                _ => ("?".to_string(), "?".to_string()),
+            };
+            println!("│ #{:<4} {} → {} | {}", task.id, pickup, dropoff, status_str);
+        }
+    }
+    println!("└──────────────────────────────────────────────────────┘\n");
+}
+
 /// Print ASCII map of the warehouse
 pub fn print_map(map: &GridMap, robots: &HashMap<u32, RobotInfo>) {
     println!("\n┌─ WAREHOUSE MAP ({}x{}) ─────────────────────────────┐", map.width, map.height);
@@ -286,10 +383,10 @@ pub fn parse_named_location(name: &str) -> Option<(usize, usize)> {
     let prefix = &name[0..1];
     let idx: usize = name[1..].parse().ok()?;
     // Return a marker value with prefix encoded
-    // S = 10000+idx, D = 20000+idx (will be resolved in server)
+    // S = SHELF_MARKER_BASE+idx, D = DROPOFF_MARKER_BASE+idx (will be resolved in server)
     match prefix {
-        "S" => Some((10000 + idx, 0)),
-        "D" => Some((20000 + idx, 0)),
+        "S" => Some((protocol::config::scheduler::SHELF_MARKER_BASE + idx, 0)),
+        "D" => Some((protocol::config::scheduler::DROPOFF_MARKER_BASE + idx, 0)),
         _ => None,
     }
 }
@@ -324,7 +421,7 @@ mod tests {
         // Ensure shelf and dropoff markers don't overlap
         let s1 = parse_named_location("S1").unwrap();
         let d1 = parse_named_location("D1").unwrap();
-        assert!(s1.0 < 20000);  // Shelf range: 10001-19999
-        assert!(d1.0 >= 20000); // Dropoff range: 20001+
+        assert!(s1.0 < protocol::config::scheduler::DROPOFF_MARKER_BASE);  // Shelf range
+        assert!(d1.0 >= protocol::config::scheduler::DROPOFF_MARKER_BASE); // Dropoff range
     }
 }

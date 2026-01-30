@@ -53,4 +53,4 @@ pub use commands::{PathCmd, PathCommand, SystemCommand, SystemCommandEffect};
 pub use config::LAYOUT_FILE_PATH;
 pub use grid_map::{GridMap, MapValidation, Tile, TileType};
 pub use robot::{RobotState, RobotUpdate, RobotUpdateBatch};
-pub use tasks::{Priority, Task, TaskAssignment, TaskId, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
+pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskId, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};

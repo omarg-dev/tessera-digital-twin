@@ -1,14 +1,24 @@
-//! Simple FIFO queue with priority support
+//! Priority-aware FIFO queue implementation
+//!
+//! Despite the name "FifoQueue", this is actually a **priority queue with FIFO tiebreaking**.
+//! Tasks are ordered by:
+//! 1. **Priority** - Critical > High > Normal > Low
+//! 2. **Insertion order** - FIFO within the same priority level
+//!
+//! The name is kept for API compatibility. For a pure heap-based priority queue,
+//! implement a new `HeapPriorityQueue` struct.
 
 use super::TaskQueue;
 use protocol::{Priority, Task, TaskId, TaskStatus};
 use std::collections::VecDeque;
 
-/// FIFO queue with priority awareness
+/// Priority-aware FIFO queue
 ///
 /// Tasks are stored in insertion order. When dequeuing:
-/// 1. Critical tasks are returned first
+/// 1. Highest priority pending task is returned first
 /// 2. Among same priority, FIFO order is preserved
+///
+/// **Note:** This is NOT a pure FIFO queue - it prioritizes by `Priority` enum first.
 pub struct FifoQueue {
     tasks: VecDeque<Task>,
     next_id: TaskId,
@@ -30,6 +40,7 @@ impl FifoQueue {
     }
 
     /// Find index of highest priority pending task (preserves FIFO for equal priority)
+    /// Called internally by dequeue() and peek() - appears unused but is actually used
     #[allow(dead_code)]
     fn find_next_pending_index(&self) -> Option<usize> {
         let mut best_idx: Option<usize> = None;
@@ -100,6 +111,18 @@ impl TaskQueue for FifoQueue {
 
     fn all_tasks(&self) -> Vec<&Task> {
         self.tasks.iter().collect()
+    }
+
+    fn cleanup_completed(&mut self) -> usize {
+        let initial_len = self.tasks.len();
+        // Retain only tasks that are not completed/failed
+        self.tasks.retain(|task| {
+            match task.status {
+                TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled => false,
+                _ => true,
+            }
+        });
+        initial_len - self.tasks.len()
     }
 }
 
@@ -199,5 +222,32 @@ mod tests {
         assert_eq!(queue.peek().unwrap().id, 1);
         assert_eq!(queue.peek().unwrap().id, 1); // Still there
         assert_eq!(queue.total_count(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_completed() {
+        let mut queue = FifoQueue::new();
+        let task1 = make_task(1, Priority::Normal);
+        let task2 = make_task(2, Priority::Normal);
+        let task3 = make_task(3, Priority::High);
+        
+        queue.enqueue(task1);
+        queue.enqueue(task2);
+        queue.enqueue(task3);
+        
+        assert_eq!(queue.total_count(), 3);
+        
+        // Mark some as completed
+        if let Some(t) = queue.get_mut(1) {
+            t.status = TaskStatus::Completed;
+        }
+        if let Some(t) = queue.get_mut(2) {
+            t.status = TaskStatus::Failed { reason: "test".to_string() };
+        }
+        
+        let removed = queue.cleanup_completed();
+        assert_eq!(removed, 2);
+        assert_eq!(queue.total_count(), 1); // Only task3 remains
+        assert!(queue.get(3).is_some()); // task3 should still be there
     }
 }

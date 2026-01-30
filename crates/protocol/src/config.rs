@@ -73,6 +73,12 @@ pub mod scheduler {
     
     /// Minimum battery level for robot allocation (percentage)
     pub const MIN_BATTERY_FOR_TASK: f32 = 20.0;
+    
+    /// Location marker base for shelf encoding (S1 = SHELF_MARKER_BASE + 1)
+    pub const SHELF_MARKER_BASE: usize = 10000;
+    
+    /// Location marker base for dropoff encoding (D1 = DROPOFF_MARKER_BASE + 1)
+    pub const DROPOFF_MARKER_BASE: usize = 20000;
 }
 
 /// Orchestrator settings (process management)

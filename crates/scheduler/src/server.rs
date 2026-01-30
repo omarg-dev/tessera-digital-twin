@@ -8,12 +8,12 @@ use serde_json::{from_slice, to_vec};
 
 use protocol::config::scheduler as sched_config;
 use protocol::{
-    topics, GridMap, Priority, RobotUpdateBatch, Task, TaskAssignment,
+    topics, GridMap, Priority, QueueState, RobotUpdateBatch, Task, TaskAssignment,
     TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
 };
 
 use crate::allocator::{Allocator, ClosestIdleAllocator, RobotInfo};
-use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, spawn_stdin_reader, print_help, StdinCmd};
+use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, print_history, spawn_stdin_reader, print_help, StdinCmd};
 use crate::commands::handle_system_commands;
 use crate::queue::{FifoQueue, TaskQueue};
 
@@ -73,7 +73,7 @@ pub async fn run(session: Session) {
 
         // Allocate tasks
         if !paused {
-            allocate_tasks(&mut queue, &allocator, &mut robots, &assignment_pub).await;
+            allocate_tasks(&mut queue, &allocator, &mut robots, &assignment_pub, verbose).await;
         }
 
         // Broadcast queue state
@@ -119,6 +119,32 @@ async fn handle_stdin(
             StdinCmd::ListDropoffs => print_dropoffs(map),
             StdinCmd::ListStations => print_stations(map),
             StdinCmd::Map => print_map(map, robots),
+            StdinCmd::History => print_history(queue),
+            StdinCmd::CancelTask { task_id } => {
+                if let Some(task) = queue.get_mut(task_id) {
+                    if matches!(task.status, TaskStatus::Pending) {
+                        task.status = TaskStatus::Cancelled;
+                        println!("✓ Task #{} cancelled", task_id);
+                    } else {
+                        println!("✗ Task #{} cannot be cancelled (status: {:?})", task_id, task.status);
+                    }
+                } else {
+                    println!("✗ Task #{} not found", task_id);
+                }
+            }
+            StdinCmd::SetPriority { task_id, priority } => {
+                if let Some(task) = queue.get_mut(task_id) {
+                    if matches!(task.status, TaskStatus::Pending) {
+                        let old = task.priority;
+                        task.priority = priority;
+                        println!("✓ Task #{} priority: {:?} → {:?}", task_id, old, priority);
+                    } else {
+                        println!("✗ Task #{} already assigned/in-progress", task_id);
+                    }
+                } else {
+                    println!("✗ Task #{} not found", task_id);
+                }
+            }
             StdinCmd::Help => print_help()
         }
     }
@@ -129,9 +155,9 @@ fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)
     let (x, y) = loc;
     
     // Check if it's a named location marker
-    if x >= 10000 && x < 20000 {
-        // Shelf: S1 = 10001, so index = x - 10000
-        let idx = x - 10000;
+    if x >= sched_config::SHELF_MARKER_BASE && x < sched_config::DROPOFF_MARKER_BASE {
+        // Shelf: S1 = SHELF_MARKER_BASE + 1, so index = x - SHELF_MARKER_BASE
+        let idx = x - sched_config::SHELF_MARKER_BASE;
         let shelves = map.get_shelves();
         if idx >= 1 && idx <= shelves.len() {
             let shelf = shelves[idx - 1];
@@ -139,9 +165,9 @@ fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)
         }
         println!("✗ Shelf S{} not found (valid: S1-S{})", idx, shelves.len());
         return None;
-    } else if x >= 20000 {
-        // Dropoff: D1 = 20001, so index = x - 20000
-        let idx = x - 20000;
+    } else if x >= sched_config::DROPOFF_MARKER_BASE {
+        // Dropoff: D1 = DROPOFF_MARKER_BASE + 1, so index = x - DROPOFF_MARKER_BASE
+        let idx = x - sched_config::DROPOFF_MARKER_BASE;
         let dropoffs = map.get_dropoffs();
         if idx >= 1 && idx <= dropoffs.len() {
             let dropoff = dropoffs[idx - 1];
@@ -218,6 +244,7 @@ async fn allocate_tasks(
     allocator: &dyn Allocator,
     robots: &mut HashMap<u32, RobotInfo>,
     publisher: &zenoh::pubsub::Publisher<'_>,
+    verbose: bool,
 ) {
     let pending_ids: Vec<u64> = queue.pending_tasks().iter().map(|t| t.id).collect();
 
@@ -237,7 +264,9 @@ async fn allocate_tasks(
             let assignment = TaskAssignment { task: task.clone(), robot_id };
             if let Ok(payload) = to_vec(&assignment) {
                 publisher.put(payload).await.ok();
-                println!("📤 Task {} → Robot {}", task_id, robot_id);
+                if verbose {
+                    println!("📤 Task {} → Robot {}", task_id, robot_id);
+                }
             }
         }
     }
@@ -248,9 +277,6 @@ async fn broadcast_state(
     queue: &dyn TaskQueue,
     robots: &HashMap<u32, RobotInfo>,
 ) {
-    #[derive(serde::Serialize)]
-    struct QueueState { pending: usize, total: usize, robots_online: usize }
-
     let state = QueueState {
         pending: queue.pending_count(),
         total: queue.total_count(),

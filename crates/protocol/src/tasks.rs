@@ -144,6 +144,17 @@ pub struct TaskRequest {
     pub priority: Priority,
 }
 
+/// Queue status snapshot: scheduler broadcasts this periodically
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueState {
+    /// Number of pending (unassigned) tasks
+    pub pending: usize,
+    /// Total tasks in queue
+    pub total: usize,
+    /// Number of online robots
+    pub robots_online: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
