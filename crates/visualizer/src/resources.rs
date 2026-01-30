@@ -5,8 +5,28 @@
 
 use bevy::prelude::*;
 use protocol::RobotUpdate;
-use tokio::sync::mpsc;
 use std::collections::HashMap;
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
+use zenoh::Session;
+
+/// Shared Zenoh session for all visualizer subscribers
+#[derive(Resource, Clone)]
+pub struct ZenohSession(pub Session);
+
+/// Open a single Zenoh session for the visualizer (blocking startup).
+///
+/// This avoids multiple sessions per process and keeps the visualizer lean.
+pub fn open_zenoh_session() -> ZenohSession {
+    let rt = Runtime::new().expect("Failed to create Tokio runtime for Zenoh session");
+    let session = rt.block_on(async {
+        zenoh::open(zenoh::Config::default())
+            .await
+            .expect("Failed to open Zenoh session")
+    });
+
+    ZenohSession(session)
+}
 
 /// Receives robot updates from Zenoh (firmware publishes, we display)
 #[derive(Resource)]
@@ -29,14 +49,4 @@ pub struct RobotIndex {
 #[derive(Resource, Default)]
 pub struct RobotLastPositions {
     pub by_id: HashMap<u32, [f32; 3]>,
-}
-
-/// Debug HUD data for UI overlay
-#[derive(Resource, Default)]
-pub struct DebugHUD {
-    pub last_message: Option<String>,
-    // TODO: Wire this into the Bevy UI to render a visible "paused" overlay.
-    pub _paused: bool,            // Show pause overlay when system paused.
-    // TODO: Display this count in the HUD once robot connection tracking is implemented.
-    pub _connected_robots: u32,   // Count from coordinator.
 }

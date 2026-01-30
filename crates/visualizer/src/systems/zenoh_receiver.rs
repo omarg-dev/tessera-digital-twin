@@ -5,19 +5,21 @@ use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use zenoh::sample::Sample;
+use zenoh::Session;
 use std::time::{Duration, Instant};
 
-use crate::resources::{RobotUpdates, ZenohReceiver, RobotLastPositions, DebugHUD};
+use crate::resources::{RobotUpdates, ZenohReceiver, RobotLastPositions, ZenohSession};
 
 /// Initializes Zenoh subscriber and creates a receiver channel
-pub fn setup_zenoh_receiver(mut commands: Commands) {
+pub fn setup_zenoh_receiver(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<RobotUpdate>(256); // Buffer for batch updates
+    let session = session.0.clone();
 
     // Spawn a background thread with its own Tokio runtime for Zenoh async work
     thread::spawn(move || {
         let rt = Runtime::new().expect("Failed to create Tokio runtime for Zenoh receiver");
         rt.block_on(async move {
-            if let Err(e) = run_zenoh_listener(tx).await {
+            if let Err(e) = run_zenoh_listener(session, tx).await {
                 eprintln!("Zenoh listener exited: {}", e);
             }
         });
@@ -28,11 +30,7 @@ pub fn setup_zenoh_receiver(mut commands: Commands) {
     commands.init_resource::<RobotUpdates>();
 }
 
-async fn run_zenoh_listener(tx: mpsc::Sender<RobotUpdate>) -> Result<(), String> {
-    let session = zenoh::open(zenoh::Config::default())
-        .await
-        .map_err(|e| format!("open session: {}", e))?;
-
+async fn run_zenoh_listener(session: Session, tx: mpsc::Sender<RobotUpdate>) -> Result<(), String> {
     let subscriber = session
         .declare_subscriber(topics::ROBOT_UPDATES)
         .await
@@ -80,7 +78,6 @@ pub fn collect_robot_updates(
     mut receiver: ResMut<ZenohReceiver>,
     mut robot_updates: ResMut<RobotUpdates>,
     mut last_positions: ResMut<RobotLastPositions>,
-    _debug_hud: ResMut<DebugHUD>,
     mut last_log: Local<Option<Instant>>,
 ) {
     // Clear previous updates

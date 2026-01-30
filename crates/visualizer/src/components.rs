@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use protocol::RobotState;
 
+/// Robot entity - visual representation of a robot in the warehouse
 #[derive(Component)]
 pub struct Robot {
     pub id: u32,
@@ -13,16 +14,15 @@ pub struct Robot {
     pub carrying_cargo: Option<u32>,
 }
 
+/// Ground tile marker
 #[derive(Component)]
-pub struct Ground {
+pub struct Ground;
 
-}
-
+/// Wall tile marker
 #[derive(Component)]
-pub struct Wall {
+pub struct Wall;
 
-}
-
+/// Shelf tile with storage capacity
 #[derive(Component)]
 pub struct Shelf {
     /// TODO: Display capacity in shelf tooltip/UI
@@ -30,12 +30,10 @@ pub struct Shelf {
     pub capacity: u32,
 }
 
+/// Charging station marker
 #[derive(Component)]
-pub struct Station {
-    
-}
+pub struct Station;
 
+/// Dropoff zone marker
 #[derive(Component)]
-pub struct Dropoff {
-    
-}
+pub struct Dropoff;

@@ -6,24 +6,32 @@ use serde_json::from_slice;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+use zenoh::Session;
+
+use crate::resources::ZenohSession;
 
 /// Receives system commands from Zenoh (pause/resume/reset/kill)
 #[derive(Resource)]
 pub struct SystemCommandReceiver(pub mpsc::Receiver<SystemCommand>);
 
-/// Resource flag to trigger environment reload after reset
+/// Resource flag to trigger environment reload after reset.
+///
+/// TODO: Future use. The visualizer will eventually switch warehouse layouts
+/// from the UI, broadcast a reset to other crates, and reload the environment
+/// using the selected layout from config.
 #[derive(Resource)]
 pub struct ReloadEnvironment;
 
 /// Initialize system command listener
-pub fn setup_system_listener(mut commands: Commands) {
+pub fn setup_system_listener(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<SystemCommand>(16);
+    let session = session.0.clone();
 
     // Spawn background thread to listen for system commands
     thread::spawn(move || {
         let rt = Runtime::new().expect("Failed to create Tokio runtime for system commands");
         rt.block_on(async move {
-            if let Err(e) = run_system_listener(tx).await {
+            if let Err(e) = run_system_listener(session, tx).await {
                 eprintln!("System command listener exited: {}", e);
             }
         });
@@ -32,11 +40,7 @@ pub fn setup_system_listener(mut commands: Commands) {
     commands.insert_resource(SystemCommandReceiver(rx));
 }
 
-async fn run_system_listener(tx: mpsc::Sender<SystemCommand>) -> Result<(), String> {
-    let session = zenoh::open(zenoh::Config::default())
-        .await
-        .map_err(|e| format!("open session: {}", e))?;
-
+async fn run_system_listener(session: Session, tx: mpsc::Sender<SystemCommand>) -> Result<(), String> {
     let subscriber = session
         .declare_subscriber(topics::ADMIN_CONTROL)
         .await

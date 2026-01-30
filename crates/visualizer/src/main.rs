@@ -24,17 +24,22 @@ use systems::{
     populate_scene::{populate_environment, populate_lighting, check_reload_environment},
     zenoh_receiver::{setup_zenoh_receiver, collect_robot_updates},
     sync_robots::sync_robots,
-    dashboard::debug_hud,
     commands::{setup_system_listener, handle_system_commands},
 };
 
 fn main() {
-    println!("Starting Hyper-Twin Visualizer (Render-Only Layer)...");
+    println!("┌─────────────────────────────────────┐");
+    println!("│         HYPER-TWIN VISUALIZER       │");
+    println!("│          (Renderer Layer)           │");
+    println!("└─────────────────────────────────────┘");
+    println!();
+    let session = resources::open_zenoh_session();
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin::default())
+        .insert_resource(session)
         .init_resource::<resources::RobotIndex>()
-        .init_resource::<resources::DebugHUD>()
         .init_resource::<resources::RobotLastPositions>()
         .add_systems(Startup, (
             populate_environment,
@@ -53,7 +58,6 @@ fn main() {
         ))
         // Run environment reload in PostUpdate to ensure despawn commands are applied first
         .add_systems(PostUpdate, check_reload_environment)
-        .add_systems(Update, debug_hud)
         .run();
 }
 
