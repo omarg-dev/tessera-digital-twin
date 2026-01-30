@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(Command::parse("kill"), Command::KillAll);
         assert_eq!(Command::parse("kill all"), Command::KillAll);
         assert_eq!(Command::parse("down"), Command::KillAll);
-        assert_eq!(Command::parse("kill fleet_server"), Command::Kill("fleet_server".to_string()));
+        assert_eq!(Command::parse("kill coordinator"), Command::Kill("coordinator".to_string()));
     }
 
     #[test]

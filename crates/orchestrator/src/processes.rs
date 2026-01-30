@@ -8,7 +8,7 @@ use std::thread;
 use protocol::config::orchestrator as orch_config;
 
 /// List of all manageable crates in startup order
-pub const CRATE_ORDER: &[&str] = &["fleet_server", "mock_firmware", "scheduler", "visualizer"];
+pub const CRATE_ORDER: &[&str] = &["coordinator", "mock_firmware", "scheduler", "visualizer"];
 
 /// Managed child processes for orchestration
 pub struct Processes {
@@ -60,7 +60,7 @@ impl Processes {
 
         println!("🔨 Building all crates...");
         let build_status = Command::new("cargo")
-            .args(["build", "-p", "fleet_server", "-p", "mock_firmware", "-p", "scheduler", "-p", "visualizer"])
+            .args(["build", "-p", "coordinator", "-p", "mock_firmware", "-p", "scheduler", "-p", "visualizer"])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
@@ -73,10 +73,10 @@ impl Processes {
         println!("✓ Build complete");
         println!("🚀 Starting all crates in order...");
 
-        // 1. Coordinator (fleet_server) - must start first, broadcasts map hash
-        println!("  1/4 Starting fleet_server (coordinator)...");
-        spawn_binary("fleet_server")?;
-        self.running.push("fleet_server".to_string());
+        // 1. Coordinator - must start first, broadcasts map hash
+        println!("  1/4 Starting coordinator...");
+        spawn_binary("coordinator")?;
+        self.running.push("coordinator".to_string());
         thread::sleep(Duration::from_millis(orch_config::COORDINATOR_STARTUP_DELAY_MS));
 
         // 2. Firmware (mock_firmware) - validates map hash, starts physics
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_crate_order_contains_all() {
-        assert!(CRATE_ORDER.contains(&"fleet_server"));
+        assert!(CRATE_ORDER.contains(&"coordinator"));
         assert!(CRATE_ORDER.contains(&"mock_firmware"));
         assert!(CRATE_ORDER.contains(&"scheduler"));
         assert!(CRATE_ORDER.contains(&"visualizer"));

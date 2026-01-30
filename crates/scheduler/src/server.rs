@@ -68,7 +68,7 @@ pub async fn run(session: Session) {
         // Robot updates (from firmware)
         handle_robot_updates(&robot_sub, &mut robots);
         
-        // Task status updates (from fleet_server)
+        // Task status updates (from coordinator)
         handle_status_updates(&status_sub, &mut queue, &mut robots);
 
         // Allocate tasks

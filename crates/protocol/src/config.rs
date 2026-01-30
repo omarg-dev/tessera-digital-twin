@@ -55,6 +55,12 @@ pub mod coordinator {
     
     /// Timeout for map hash validation in seconds
     pub const MAP_VALIDATION_TIMEOUT_SECS: u64 = 15;
+    
+    /// Distance threshold to consider robot "arrived" at waypoint
+    pub const WAYPOINT_ARRIVAL_THRESHOLD: f32 = 0.2;
+    
+    /// Default robot movement speed (units per second)
+    pub const DEFAULT_SPEED: f32 = 2.0;
 }
 
 /// Scheduler layer settings (task queue & robot allocation)

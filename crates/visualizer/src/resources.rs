@@ -38,5 +38,5 @@ pub struct DebugHUD {
     // TODO: Wire this into the Bevy UI to render a visible "paused" overlay.
     pub _paused: bool,            // Show pause overlay when system paused.
     // TODO: Display this count in the HUD once robot connection tracking is implemented.
-    pub _connected_robots: u32,   // Count from fleet_server.
+    pub _connected_robots: u32,   // Count from coordinator.
 }

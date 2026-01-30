@@ -1,10 +1,9 @@
-//! Robot state tracking for the fleet server
+//! Robot state tracking for the coordinator layer
 
 use protocol::RobotUpdate;
 
 /// Tracks where the robot is in the task execution lifecycle
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum TaskStage {
     /// No task assigned
     Idle,
@@ -14,9 +13,11 @@ pub enum TaskStage {
     Picking,
     /// Moving to dropoff location
     MovingToDropoff,
-    /// Delivering cargo
+    /// Delivering cargo (future: wait for unload confirmation)
+    #[allow(dead_code)]
     Delivering,
-    /// Returning to charging station
+    /// Returning to charging station (future: low battery handling)
+    #[allow(dead_code)]
     ReturningToStation,
 }
 
@@ -67,4 +68,3 @@ impl TrackedRobot {
         self.path_index = 0;
     }
 }
-

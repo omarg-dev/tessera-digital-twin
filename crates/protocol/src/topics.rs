@@ -4,7 +4,7 @@
 //! - **orchestrator** - Process management and global commands (orchestrator crate)
 //! - **renderer** - Visualization layer (visualizer crate)
 //! - **scheduler** - Task queue and robot allocation (scheduler crate)
-//! - **coordinator** - Path planning and task execution (fleet_server crate)
+//! - **coordinator** - Path planning and task execution (coordinator crate)
 //! - **firmware** - Robot physics simulation (mock_firmware crate)
 
 /// Robots broadcast their state here (firmware → coordinator, renderer, scheduler)
@@ -36,5 +36,5 @@ pub const QUEUE_STATE: &str = "factory/tasks/queue";
 // ============ Sender Identifiers ============
 // Used in MapValidation.sender to identify the source of broadcasts
 
-/// Sender identifier for coordinator layer (fleet_server)
+/// Sender identifier for coordinator layer
 pub const SENDER_COORDINATOR: &str = "coordinator";

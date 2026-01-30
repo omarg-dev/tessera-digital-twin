@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Path command from fleet_server to a specific robot
+/// Path command from coordinator to a specific robot
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PathCmd {
     pub robot_id: u32,

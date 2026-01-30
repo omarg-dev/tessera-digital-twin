@@ -2045,6 +2045,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "coordinator"
+version = "0.1.0"
+dependencies = [
+ "protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zenoh",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2727,17 +2738,6 @@ checksum = "bfe33edd8e85a12a67454e37f8c75e730830d83e313556ab9ebf9ee7fbeb3bfb"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
-]
-
-[[package]]
-name = "fleet_server"
-version = "0.1.0"
-dependencies = [
- "protocol",
- "serde",
- "serde_json",
- "tokio",
- "zenoh",
 ]
 
 [[package]]

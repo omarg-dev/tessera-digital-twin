@@ -12,7 +12,7 @@
 //! | **Orchestrator**      | `orchestrator`    | Process management, pause/resume, reset   |
 //! | **Renderer**          | `visualizer`      | 3D visualization, HUD, camera controls    |
 //! | **Scheduler**         | `scheduler`       | Task queue, robot allocation, management  |
-//! | **Coordinator**       | `fleet_server`    | Path planning, task execution, A* routing |
+//! | **Coordinator**       | `coordinator`     | Path planning, task execution, A* routing |
 //! | **Firmware**          | `mock_firmware`   | Robot physics, battery, movement          |
 //! 
 //! ## Modules

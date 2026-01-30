@@ -8,14 +8,15 @@ use crate::state::TrackedRobot;
 pub fn handle_system_command(
     cmd: &SystemCommand,
     paused: &mut bool,
+    verbose: &mut bool,
 ) {
-    cmd.apply_with_log("FleetServer", Some(paused), None);
+    cmd.apply_with_log("Coordinator", Some(paused), Some(verbose));
 }
 
 /// Print current status of tracked robots
-pub fn print_status(robots: &HashMap<u32, TrackedRobot>, paused: bool) {
-    println!("═══ STATUS ═══");
-    println!("  Paused: {}", paused);
+pub fn print_status(robots: &HashMap<u32, TrackedRobot>, paused: bool, verbose: bool) {
+    println!("═══ COORDINATOR STATUS ═══");
+    println!("  Paused: {}  Verbose: {}", paused, verbose);
     println!("  Tracked robots: {}", robots.len());
     for (id, robot) in robots {
         let path_status = if robot.path_complete() {
@@ -23,12 +24,16 @@ pub fn print_status(robots: &HashMap<u32, TrackedRobot>, paused: bool) {
         } else {
             format!("waypoint {}/{}", robot.path_index + 1, robot.current_path.len())
         };
-        println!("    Robot {}: {:?} @ [{:.1}, {:.1}, {:.1}] ({})",
+        let task_info = robot.current_task
+            .map(|t| format!(" [Task#{}:{:?}]", t, robot.task_stage))
+            .unwrap_or_default();
+        println!("    Robot {}: {:?} @ [{:.1}, {:.1}, {:.1}] ({}){}",
             id, robot.last_update.state,
             robot.last_update.position[0],
             robot.last_update.position[1],
             robot.last_update.position[2],
-            path_status);
+            path_status,
+            task_info);
     }
-    println!("══════════════");
+    println!("═══════════════════════════");
 }

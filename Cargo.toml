@@ -3,7 +3,7 @@ members = [
     "crates/protocol",
     "crates/orchestrator",
     "crates/visualizer",
-    "crates/fleet_server",
+    "crates/coordinator",
     "crates/mock_firmware",
     "crates/scheduler",
 ]
