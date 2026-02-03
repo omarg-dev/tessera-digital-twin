@@ -26,7 +26,7 @@
 //!
 //! ## Dependencies
 //!
-//! This crate has minimal dependencies (only `serde`) to keep it lightweight.
+//! This crate has minimal dependencies (`serde`, `chrono`, `rand`) to keep it lightweight.
 //! All other crates depend on this one for shared types.
 //!
 //! ## Example
@@ -47,10 +47,13 @@ pub mod grid_map;
 pub mod robot;
 pub mod tasks;
 pub mod topics;
+pub mod logs;
+pub mod chaos;
 
 // Re-export for convenience
-pub use commands::{PathCmd, PathCommand, SystemCommand, SystemCommandEffect};
+pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemCommandEffect, CommandResponse, CommandStatus};
 pub use config::LAYOUT_FILE_PATH;
 pub use grid_map::{GridMap, MapValidation, Tile, TileType};
 pub use robot::{RobotState, RobotUpdate, RobotUpdateBatch};
 pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskId, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
+pub use logs::{timestamp, save_log};

@@ -1,7 +1,7 @@
 //! A* Pathfinding Algorithm
 //!
 //! Grid-based single-robot pathfinding using the A* algorithm.
-//! This is the default pathfinder - simple and fast but no multi-robot coordination.
+//! Selectable via `protocol::config::coordinator::PATHFINDING_STRATEGY`.
 
 use super::{GridPos, PathResult, Pathfinder, grid_to_world_path};
 use protocol::GridMap;
@@ -34,6 +34,15 @@ impl Pathfinder for AStarPathfinder {
         goal: GridPos,
     ) -> Option<PathResult> {
         find_path_astar(map, start, goal)
+    }
+    
+    fn find_path_to_non_walkable(
+        &self,
+        map: &GridMap,
+        start: GridPos,
+        goal: GridPos,
+    ) -> Option<PathResult> {
+        find_path_astar_non_walkable(map, start, goal)
     }
     
     fn name(&self) -> &'static str {
@@ -76,6 +85,25 @@ fn heuristic(x1: usize, y1: usize, x2: usize, y2: usize) -> u32 {
 /// 4-directional movement (N, E, S, W)
 const DIRS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
 
+/// Reconstruct path from came_from map
+fn reconstruct_path(came_from: &HashMap<GridPos, GridPos>, goal: GridPos) -> Vec<GridPos> {
+    let mut path = vec![goal];
+    let mut pos = goal;
+    while let Some(&prev) = came_from.get(&pos) {
+        path.push(prev);
+        pos = prev;
+    }
+    path.reverse();
+    path
+}
+
+/// Check if two positions are orthogonally adjacent (4-directional)
+fn is_adjacent(pos: GridPos, target: GridPos) -> bool {
+    let (x1, y1) = pos;
+    let (x2, y2) = target;
+    (x1.abs_diff(x2) + y1.abs_diff(y2)) == 1
+}
+
 /// Core A* algorithm
 fn find_path_astar(
     map: &GridMap,
@@ -96,6 +124,63 @@ fn find_path_astar(
         });
     }
     
+    find_path_astar_generic(map, start, goal, |pos, goal| pos == goal)
+}
+
+/// Core A* algorithm supporting non-walkable endpoints (e.g., shelves)
+///
+/// This variant allows pathfinding to non-walkable goals by accepting
+/// reaching an adjacent tile as success. The path naturally stops one
+/// tile before the non-walkable goal. Only walkable tiles are explored.
+fn find_path_astar_non_walkable(
+    map: &GridMap,
+    start: GridPos,
+    goal: GridPos,
+) -> Option<PathResult> {
+    // Start must be walkable
+    if !map.is_walkable(start.0, start.1) {
+        return None;
+    }
+    
+    // For walkable goals, use normal pathfinding
+    if map.is_walkable(goal.0, goal.1) {
+        return find_path_astar(map, start, goal);
+    }
+    
+    // Goal is non-walkable (e.g., shelf)
+    // Already at goal or adjacent to goal?
+    if start == goal {
+        return Some(PathResult {
+            grid_path: vec![start],
+            world_path: grid_to_world_path(&[start]),
+            cost: 0,
+        });
+    }
+    
+    if is_adjacent(start, goal) {
+        return Some(PathResult {
+            grid_path: vec![start],
+            world_path: grid_to_world_path(&[start]),
+            cost: 0,
+        });
+    }
+    
+    find_path_astar_generic(map, start, goal, |pos, goal| is_adjacent(pos, goal))
+}
+
+/// Generic A* implementation with parameterized goal-check
+///
+/// Factored out common A* logic to avoid duplication between walkable and non-walkable variants.
+/// The `goal_check` closure determines when the search succeeds.
+fn find_path_astar_generic<F>(
+    map: &GridMap,
+    start: GridPos,
+    goal: GridPos,
+    goal_check: F,
+) -> Option<PathResult>
+where
+    F: Fn(GridPos, GridPos) -> bool,
+{
     let mut open_set = BinaryHeap::new();
     let mut came_from: HashMap<GridPos, GridPos> = HashMap::new();
     let mut g_scores: HashMap<GridPos, u32> = HashMap::new();
@@ -111,8 +196,8 @@ fn find_path_astar(
     while let Some(current) = open_set.pop() {
         let current_pos = (current.x, current.y);
         
-        if current_pos == goal {
-            // Reconstruct path
+        // Use parameterized goal-check
+        if goal_check(current_pos, goal) {
             let grid_path = reconstruct_path(&came_from, current_pos);
             let cost = current.g_cost;
             return Some(PathResult {
@@ -140,7 +225,7 @@ fn find_path_astar(
                 continue;
             }
             
-            // Walkability check
+            // Only explore walkable tiles
             if !map.is_walkable(nx, ny) {
                 continue;
             }
@@ -165,19 +250,6 @@ fn find_path_astar(
     
     None // No path found
 }
-
-/// Reconstruct path from came_from map
-fn reconstruct_path(came_from: &HashMap<GridPos, GridPos>, goal: GridPos) -> Vec<GridPos> {
-    let mut path = vec![goal];
-    let mut pos = goal;
-    while let Some(&prev) = came_from.get(&pos) {
-        path.push(prev);
-        pos = prev;
-    }
-    path.reverse();
-    path
-}
-
 // ============================================================================
 // Tests
 // ============================================================================

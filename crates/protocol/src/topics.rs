@@ -13,8 +13,14 @@ pub const ROBOT_UPDATES: &str = "factory/robots";
 /// Coordinator sends path commands here (coordinator → firmware)
 pub const PATH_COMMANDS: &str = "factory/commands";
 
+/// Firmware sends command responses here (firmware → coordinator)
+pub const COMMAND_RESPONSES: &str = "factory/commands/responses";
+
 /// Orchestrator broadcasts pause/resume/reset (orchestrator → all layers)
 pub const ADMIN_CONTROL: &str = "factory/admin/control";
+
+/// Orchestrator sends robot up/down/restart (orchestrator → firmware)
+pub const ROBOT_CONTROL: &str = "factory/admin/robots";
 
 /// Map hash validation on startup (coordinator → all layers)
 pub const MAP_VALIDATION: &str = "factory/admin/map_hash";

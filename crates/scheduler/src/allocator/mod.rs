@@ -4,8 +4,10 @@
 //! To add a new allocation strategy, create a new file and implement the trait.
 
 mod closest;
+mod dispatcher;
 
 pub use closest::ClosestIdleAllocator;
+pub use dispatcher::AllocatorInstance;
 
 use protocol::{RobotState, RobotUpdate, Task};
 use std::collections::HashMap;

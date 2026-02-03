@@ -48,11 +48,13 @@ impl Processes {
         spawn_binary(name)?;
         self.running.push(name.to_string());
         println!("✓ {} started", name);
+        protocol::logs::save_log("Orchestrator", &format!("Process started: {}", name));
         Ok(())
     }
 
     /// Start all crates in order
     pub fn start_all(&mut self) -> Result<(), String> {
+        protocol::logs::save_log("Orchestrator", "Startup sequence initiated");
         // First kill any existing processes
         if !self.running.is_empty() {
             self.kill_all();
@@ -97,11 +99,13 @@ impl Processes {
         self.running.push("visualizer".to_string());
 
         println!("✓ All crates started successfully");
+        protocol::logs::save_log("Orchestrator", "All crates started successfully");
         Ok(())
     }
 
     /// Kill a specific crate
     pub fn kill(&mut self, name: &str) -> Result<(), String> {
+        protocol::logs::save_log("Orchestrator", &format!("Killing process: {}", name));
         if !CRATE_ORDER.contains(&name) {
             return Err(format!("Unknown crate: '{}'. Valid: {:?}", name, CRATE_ORDER));
         }
@@ -109,6 +113,7 @@ impl Processes {
         if kill_process_by_name(name) {
             self.running.retain(|n| n != name);
             println!("✓ {} killed", name);
+            protocol::logs::save_log("Orchestrator", &format!("Process terminated: {}", name));
         } else {
             println!("⚠ {} was not running", name);
         }
@@ -117,6 +122,7 @@ impl Processes {
 
     /// Kill all managed processes
     pub fn kill_all(&mut self) {
+        protocol::logs::save_log("Orchestrator", "Killing all processes");
         if self.running.is_empty() {
             println!("No managed processes to kill.");
             return;
@@ -135,14 +141,18 @@ impl Processes {
 
         self.running.clear();
         println!("✓ All processes killed");
+        protocol::logs::save_log("Orchestrator", "All processes terminated");
     }
 
     /// Restart all crates
     pub fn restart_all(&mut self) -> Result<(), String> {
+        protocol::logs::save_log("Orchestrator", "Restart initiated");
         println!("🔄 Restarting all crates...");
         self.kill_all();
         thread::sleep(Duration::from_millis(orch_config::RESTART_DELAY_MS));
-        self.start_all()
+        self.start_all()?;
+        protocol::logs::save_log("Orchestrator", "Restart completed");
+        Ok(())
     }
 
     /// Get list of running processes

@@ -15,6 +15,7 @@ mod state;
 mod server;
 mod pathfinding;
 mod commands;
+mod task_manager;
 
 use zenoh::*;
 use protocol::{GridMap, LAYOUT_FILE_PATH};
@@ -22,7 +23,7 @@ use protocol::{GridMap, LAYOUT_FILE_PATH};
 #[tokio::main]
 async fn main() {
     println!("╔═════════════════════════════════════════════╗");
-    println!("║       COORDINATOR - Path Planning         ║");
+    println!("║       COORDINATOR - Path Planning           ║");
     println!("╚═════════════════════════════════════════════╝");
     
     // Load and validate map

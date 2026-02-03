@@ -15,6 +15,12 @@
 /// Path to the warehouse layout file (relative to workspace root)
 pub const LAYOUT_FILE_PATH: &str = "assets/data/layout.txt";
 
+/// Log directory path for storing timestamped log files
+/// Log directory - absolute path from workspace root
+/// Uses env var CARGO_MANIFEST_DIR at compile time for crates,
+/// but falls back to relative path which works when run from workspace root
+pub const LOG_DIR: &str = "logs";
+
 /// Physics simulation settings
 pub mod physics {
     /// Physics tick interval in milliseconds (20 Hz)
@@ -32,18 +38,24 @@ pub mod physics {
 
 /// Battery settings
 pub mod battery {
-    /// Battery drain rate: % per second while moving
-    pub const DRAIN_RATE: f32 = 0.01;
+    /// Battery drain rate: % per second while moving (random in range)
+    pub const DRAIN_RATE_RANGE: (f32, f32) = (0.03, 0.07);
     
     /// Low battery warning threshold (percentage)
     pub const LOW_THRESHOLD: f32 = 20.0;
+
+    /// Minimum battery level for robot allocation (percentage)
+    pub const MIN_BATTERY_FOR_TASK: f32 = 50.0;
     
     /// Charge rate: % per second while at station
-    pub const CHARGE_RATE: f32 = 10.0;
+    pub const CHARGE_RATE: f32 = 1.0;
 }
 
 /// Coordinator layer settings (path planning & task execution)
 pub mod coordinator {
+    /// Pathfinding strategy: "astar" or "whca" (default: "whca" for multi-robot)
+    pub const PATHFINDING_STRATEGY: &str = "whca";
+    
     /// Main loop sleep interval in milliseconds
     pub const LOOP_INTERVAL_MS: u64 = 10;
     
@@ -61,18 +73,50 @@ pub mod coordinator {
     
     /// Default robot movement speed (units per second)
     pub const DEFAULT_SPEED: f32 = 2.0;
+    
+    /// Cargo pickup delay in seconds (time for robot to load cargo)
+    pub const PICKUP_DELAY_SECS: f32 = 2.0;
+    
+    /// Cargo dropoff delay in seconds (time for robot to unload cargo)
+    pub const DROPOFF_DELAY_SECS: f32 = 1.5;
+    
+    /// Task progress timeout in seconds (must see progress within this time)
+    pub const TASK_TIMEOUT_SECS: u64 = 30;
+    
+    /// How often to check for stalled tasks (ms)
+    pub const TIMEOUT_CHECK_INTERVAL_MS: u64 = 5000;
+
+    /// WHCA* pathfinding settings
+    pub mod whca {
+        /// Planning window size (milliseconds to look ahead)
+        pub const WINDOW_SIZE_MS: u64 = 16000;
+
+        /// Maximum wait time before giving up (prevents infinite waits)
+        pub const MAX_WAIT_TIME: u32 = 10;
+        
+        /// Reservation tolerance window (milliseconds)
+        /// Reserves cells at predicted_time ± tolerance to handle physics jitter
+        pub const RESERVATION_TOLERANCE_MS: i64 = 200;
+
+         // Time step for planning (approximate time to move 1 cell at default speed)
+        // 1 grid cell / 2.0 units/sec = 0.5 sec = 500ms
+        pub const MOVE_TIME_MS: u64 = 500;
+    }
 }
 
 /// Scheduler layer settings (task queue & robot allocation)
 pub mod scheduler {
+    /// Task queue strategy: "fifo" or others (default: "fifo")
+    pub const QUEUE_STRATEGY: &str = "fifo";
+    
+    /// Robot allocator strategy: "closest_idle" or others (default: "closest_idle")
+    pub const ALLOCATOR_STRATEGY: &str = "closest_idle";
+    
     /// Main loop sleep interval in milliseconds
     pub const LOOP_INTERVAL_MS: u64 = 50;
     
     /// Queue state broadcast interval in seconds
     pub const QUEUE_BROADCAST_SECS: u64 = 2;
-    
-    /// Minimum battery level for robot allocation (percentage)
-    pub const MIN_BATTERY_FOR_TASK: f32 = 20.0;
     
     /// Location marker base for shelf encoding (S1 = SHELF_MARKER_BASE + 1)
     pub const SHELF_MARKER_BASE: usize = 10000;
@@ -145,4 +189,50 @@ pub mod visual {
         pub const ZOOM_MIN: f32 = 5.0;
         pub const ZOOM_MAX: f32 = 100.0;
     }
+}
+
+/// Chaos testing settings - inject faults to test system resilience
+/// 
+/// Set ENABLED = true to activate chaos engineering.
+/// Each feature can be individually toggled and tuned.
+pub mod chaos {
+    /// Master switch for all chaos features
+    pub const ENABLED: bool = false;
+    
+    // ============ Network Chaos ============
+    
+    /// Probability of dropping outgoing messages (0.0 = never, 1.0 = always)
+    pub const PACKET_LOSS_ENABLED: bool = true;
+    pub const PACKET_LOSS_RATE: f32 = 0.05;
+    
+    /// Random delay range for messages in milliseconds (min, max)
+    pub const MESSAGE_DELAY_ENABLED: bool = true;
+    pub const MESSAGE_DELAY_MS: (u64, u64) = (0, 100);
+    
+    // ============ Firmware Chaos ============
+    
+    /// Probability of ignoring/rejecting a command (0.0 = never, 1.0 = always)
+    pub const COMMAND_REJECT_ENABLED: bool = true;
+    pub const COMMAND_REJECT_RATE: f32 = 0.02;
+    
+    /// Probability of sending stale/old state data
+    pub const STALE_STATE_ENABLED: bool = true;
+    pub const STALE_STATE_RATE: f32 = 0.03;
+    
+    /// Position drift range per update in world units (simulates odometry errors)
+    pub const POSITION_DRIFT_ENABLED: bool = false;
+    pub const POSITION_DRIFT_RANGE: f32 = 0.02;
+    
+    // ============ Battery Chaos ============
+    
+    /// Probability of battery sensor glitch (false low reading)
+    pub const BATTERY_GLITCH_ENABLED: bool = true;
+    pub const BATTERY_GLITCH_RATE: f32 = 0.01;
+    
+    // ============ System Chaos ============
+    
+    /// Probability of process self-termination per loop iteration
+    /// Enable crash chaos (BE CAREFUL - this will kill processes!)
+    pub const CRASH_ENABLED: bool = false;
+    pub const CRASH_PROBABILITY: f32 = 0.0001;
 }

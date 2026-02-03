@@ -8,21 +8,22 @@ use serde_json::{from_slice, to_vec};
 
 use protocol::config::scheduler as sched_config;
 use protocol::{
-    topics, GridMap, Priority, QueueState, RobotUpdateBatch, Task, TaskAssignment,
+    timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, Task, TaskAssignment,
     TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
 };
 
-use crate::allocator::{Allocator, ClosestIdleAllocator, RobotInfo};
+use crate::allocator::{Allocator, AllocatorInstance, RobotInfo};
 use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, print_history, spawn_stdin_reader, print_help, StdinCmd};
 use crate::commands::handle_system_commands;
-use crate::queue::{FifoQueue, TaskQueue};
+use crate::queue::{QueueInstance, TaskQueue};
 
 /// Run the scheduler main loop
 pub async fn run(session: Session) {
     // Load warehouse map for location info
     let map = GridMap::load_from_file("assets/data/layout.txt")
         .expect("Failed to load warehouse layout");
-    println!("✓ Loaded map ({}x{}, {} shelves, {} dropoffs)",
+    println!("[{}ms] ✓ Loaded map ({}x{}, {} shelves, {} dropoffs)",
+        timestamp(),
         map.width, map.height,
         map.get_shelves().len(),
         map.get_dropoffs().len(),
@@ -39,8 +40,8 @@ pub async fn run(session: Session) {
     let control_sub = session.declare_subscriber(topics::ADMIN_CONTROL).await.unwrap();
 
     // State
-    let mut queue = FifoQueue::new();
-    let allocator = ClosestIdleAllocator::new();
+    let mut queue = QueueInstance::from_config();
+    let allocator = AllocatorInstance::from_config();
     let mut robots: HashMap<u32, RobotInfo> = HashMap::new();
     let mut paused = false;
     let mut verbose = true; // Default to verbose on
@@ -49,15 +50,16 @@ pub async fn run(session: Session) {
     let (tx, mut rx) = mpsc::channel::<StdinCmd>(16);
     spawn_stdin_reader(tx);
 
-    println!("✓ Scheduler running");
-    println!("Commands: status, add <px> <py> <dx> <dy>, help");
-    println!("(System commands: run orchestrator)");
+    println!("[{}ms] ✓ Scheduler running", timestamp());
+    println!("[{}ms] Commands: status, add <px> <py> <dx> <dy>, help", timestamp());
+    println!("[{}ms] (System commands: run orchestrator)", timestamp());
 
     let mut last_broadcast = std::time::Instant::now();
+    let mut chaos = protocol::config::chaos::ENABLED;
 
     loop {
         // System commands (from Zenoh - orchestrator)
-        handle_system_commands(&control_sub, &mut paused, &mut verbose);
+        handle_system_commands(&control_sub, &mut paused, &mut verbose, &mut chaos);
         
         // Stdin commands (local CLI)
         handle_stdin(&mut rx, &mut queue, &robots, &map, paused, verbose).await;
@@ -88,7 +90,7 @@ pub async fn run(session: Session) {
 
 async fn handle_stdin(
     rx: &mut mpsc::Receiver<StdinCmd>,
-    queue: &mut FifoQueue,
+    queue: &mut dyn TaskQueue,
     robots: &HashMap<u32, RobotInfo>,
     map: &GridMap,
     paused: bool,
@@ -108,7 +110,8 @@ async fn handle_stdin(
                         let task = Task::new(id, TaskType::PickAndDeliver {
                             pickup: p, dropoff: d, cargo_id: None,
                         }, Priority::Normal);
-                        println!("✓ Task #{} added: ({},{}) → ({},{})", id, p.0, p.1, d.0, d.1);
+                        println!("[{}ms] ✓ Task #{} added: ({},{}) → ({},{})", timestamp(), id, p.0, p.1, d.0, d.1);
+                        logs::save_log("Scheduler", &format!("Task {} created: pickup ({},{}) -> dropoff ({},{})", id, p.0, p.1, d.0, d.1));
                         queue.enqueue(task);
                     }
                     (None, _) => println!("✗ Invalid pickup location"),
@@ -188,7 +191,7 @@ fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)
 
 fn handle_task_requests(
     sub: &zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
-    queue: &mut FifoQueue,
+    queue: &mut dyn TaskQueue,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
         if let Ok(req) = from_slice::<TaskRequest>(&sample.payload().to_bytes()) {
@@ -210,6 +213,8 @@ fn handle_robot_updates(
                 entry.position = update.position;
                 entry.state = update.state.clone();
                 entry.battery = update.battery;
+                // NOTE: Do NOT touch assigned_task here!
+                // It's managed by handle_status_updates based on TaskStatusUpdate messages
             }
         }
     }
@@ -223,7 +228,8 @@ fn handle_status_updates(
     while let Ok(Some(sample)) = sub.try_recv() {
         if let Ok(update) = from_slice::<TaskStatusUpdate>(&sample.payload().to_bytes()) {
             if let Some(task) = queue.get_mut(update.task_id) {
-                println!("↻ Task {} status: {:?} → {:?}", task.id, task.status, update.status);
+                println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
+                logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
                 task.status = update.status.clone();
 
                 // Free robot on completion/failure
@@ -265,7 +271,7 @@ async fn allocate_tasks(
             if let Ok(payload) = to_vec(&assignment) {
                 publisher.put(payload).await.ok();
                 if verbose {
-                    println!("📤 Task {} → Robot {}", task_id, robot_id);
+                    println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
                 }
             }
         }

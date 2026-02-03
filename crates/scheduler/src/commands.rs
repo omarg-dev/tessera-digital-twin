@@ -6,15 +6,16 @@ use zenoh::handlers::FifoChannelHandler;
 use zenoh::pubsub::Subscriber;
 use zenoh::sample::Sample;
 
-/// Process system commands (pause/resume/verbose)
+/// Process system commands (pause/resume/verbose/chaos)
 pub fn handle_system_commands(
     subscriber: &Subscriber<FifoChannelHandler<Sample>>,
     paused: &mut bool,
     verbose: &mut bool,
+    chaos: &mut bool,
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
         if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-            cmd.apply_with_log("Scheduler", Some(paused), Some(verbose));
+            cmd.apply_with_log("Scheduler", Some(paused), Some(verbose), Some(chaos));
         }
     }
 }

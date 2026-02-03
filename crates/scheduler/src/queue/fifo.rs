@@ -68,6 +68,12 @@ impl Default for FifoQueue {
 }
 
 impl TaskQueue for FifoQueue {
+    fn next_task_id(&mut self) -> TaskId {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
     fn enqueue(&mut self, task: Task) {
         println!("+ Task {} queued: {:?} (priority: {:?})", 
             task.id, task.task_type, task.priority);

@@ -1897,8 +1897,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fac4744fb15ae8337dc853fee7fb3f4e48c0fbaa23d0afe49c447b4fab126118"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -3892,6 +3894,7 @@ name = "mock_firmware"
 version = "0.1.0"
 dependencies = [
  "protocol",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "tokio",
@@ -4955,6 +4958,8 @@ checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
 name = "protocol"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "rand 0.8.5",
  "serde",
  "serde_json",
 ]

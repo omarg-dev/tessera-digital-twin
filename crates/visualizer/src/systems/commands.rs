@@ -62,6 +62,6 @@ pub fn handle_system_commands(
     mut receiver: ResMut<SystemCommandReceiver>,
 ) {
     while let Ok(cmd) = receiver.0.try_recv() {
-        cmd.apply_with_log("Visualizer", None, None);
+        cmd.apply_with_log("Visualizer", None, None, None);
     }
 }

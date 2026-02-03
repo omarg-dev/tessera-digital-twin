@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Path command from coordinator to a specific robot
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PathCmd {
+    pub cmd_id: u64,
     pub robot_id: u32,
     pub command: PathCommand,
 }
@@ -27,6 +28,22 @@ pub enum PathCommand {
     ReturnToCharge,
 }
 
+/// Response from firmware after applying a command
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CommandResponse {
+    pub cmd_id: u64,
+    pub robot_id: u32,
+    pub status: CommandStatus,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum CommandStatus {
+    /// Command accepted and executing
+    Accepted,
+    /// Command rejected (with reason)
+    Rejected { reason: String },
+}
+
 /// System-wide control commands (orchestrator → all)
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum SystemCommand {
@@ -34,6 +51,19 @@ pub enum SystemCommand {
     Resume,
     /// Set verbose mode globally
     Verbose(bool),
+    /// Toggle chaos engineering mode
+    Chaos(bool),
+}
+
+/// Individual robot control (orchestrator → firmware)
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum RobotControl {
+    /// Disable a robot (stops publishing updates, ignores commands)
+    Down(u32),
+    /// Enable a disabled robot
+    Up(u32),
+    /// Restart a robot (reset to initial state at station)
+    Restart(u32),
 }
 
 /// Result of applying a system command - tells caller what changed
@@ -43,6 +73,8 @@ pub enum SystemCommandEffect {
     Paused(bool),
     /// Verbose state changed  
     Verbose(bool),
+    /// Chaos mode changed
+    Chaos(bool),
     /// No state change needed for this crate
     None,
 }
@@ -55,6 +87,7 @@ impl SystemCommand {
         &self,
         paused: Option<&mut bool>,
         verbose: Option<&mut bool>,
+        chaos: Option<&mut bool>,
     ) -> SystemCommandEffect {
         match self {
             SystemCommand::Pause => {
@@ -75,6 +108,12 @@ impl SystemCommand {
                 }
                 SystemCommandEffect::Verbose(*v)
             }
+            SystemCommand::Chaos(c) => {
+                if let Some(ch) = chaos {
+                    *ch = *c;
+                }
+                SystemCommandEffect::Chaos(*c)
+            }
         }
     }
 
@@ -84,13 +123,16 @@ impl SystemCommand {
         crate_name: &str,
         paused: Option<&mut bool>,
         verbose: Option<&mut bool>,
+        chaos: Option<&mut bool>,
     ) -> SystemCommandEffect {
-        let effect = self.apply(paused, verbose);
+        let effect = self.apply(paused, verbose, chaos);
         match &effect {
             SystemCommandEffect::Paused(true) => println!("⏸ {} PAUSED", crate_name),
             SystemCommandEffect::Paused(false) => println!("▶ {} RESUMED", crate_name),
             SystemCommandEffect::Verbose(true) => println!("🔊 {} verbose ON", crate_name),
             SystemCommandEffect::Verbose(false) => println!("🔇 {} verbose OFF", crate_name),
+            SystemCommandEffect::Chaos(true) => println!("💥 {} chaos ON", crate_name),
+            SystemCommandEffect::Chaos(false) => println!("✨ {} chaos OFF", crate_name),
             SystemCommandEffect::None => {}
         }
         effect
@@ -104,7 +146,7 @@ mod tests {
     #[test]
     fn test_system_command_pause() {
         let mut paused = false;
-        let effect = SystemCommand::Pause.apply(Some(&mut paused), None);
+        let effect = SystemCommand::Pause.apply(Some(&mut paused), None, None);
         
         assert!(paused);
         assert_eq!(effect, SystemCommandEffect::Paused(true));
@@ -113,7 +155,7 @@ mod tests {
     #[test]
     fn test_system_command_resume() {
         let mut paused = true;
-        let effect = SystemCommand::Resume.apply(Some(&mut paused), None);
+        let effect = SystemCommand::Resume.apply(Some(&mut paused), None, None);
         
         assert!(!paused);
         assert_eq!(effect, SystemCommandEffect::Paused(false));
@@ -122,7 +164,7 @@ mod tests {
     #[test]
     fn test_system_command_verbose_on() {
         let mut verbose = false;
-        let effect = SystemCommand::Verbose(true).apply(None, Some(&mut verbose));
+        let effect = SystemCommand::Verbose(true).apply(None, Some(&mut verbose), None);
         
         assert!(verbose);
         assert_eq!(effect, SystemCommandEffect::Verbose(true));
@@ -131,16 +173,34 @@ mod tests {
     #[test]
     fn test_system_command_verbose_off() {
         let mut verbose = true;
-        let effect = SystemCommand::Verbose(false).apply(None, Some(&mut verbose));
+        let effect = SystemCommand::Verbose(false).apply(None, Some(&mut verbose), None);
         
         assert!(!verbose);
         assert_eq!(effect, SystemCommandEffect::Verbose(false));
     }
 
     #[test]
+    fn test_system_command_chaos_on() {
+        let mut chaos = false;
+        let effect = SystemCommand::Chaos(true).apply(None, None, Some(&mut chaos));
+        
+        assert!(chaos);
+        assert_eq!(effect, SystemCommandEffect::Chaos(true));
+    }
+
+    #[test]
+    fn test_system_command_chaos_off() {
+        let mut chaos = true;
+        let effect = SystemCommand::Chaos(false).apply(None, None, Some(&mut chaos));
+        
+        assert!(!chaos);
+        assert_eq!(effect, SystemCommandEffect::Chaos(false));
+    }
+
+    #[test]
     fn test_system_command_with_none_state() {
         // When no state is passed, command still returns effect but doesn't mutate
-        let effect = SystemCommand::Pause.apply(None, None);
+        let effect = SystemCommand::Pause.apply(None, None, None);
         assert_eq!(effect, SystemCommandEffect::Paused(true));
     }
 
@@ -148,6 +208,7 @@ mod tests {
     fn test_path_command_serialization() {
         let cmd = PathCmd {
             robot_id: 42,
+            cmd_id: 1,
             command: PathCommand::MoveTo { target: [1.0, 0.25, 2.0], speed: 2.0 },
         };
         

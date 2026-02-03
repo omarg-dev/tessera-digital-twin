@@ -212,7 +212,7 @@ pub fn print_status(
     if verbose {
         // Show tasks
         if !queue.all_tasks().is_empty() {
-            println!("║ TASKS:");
+            println!("║ TASKS:                                             ║");
             for task in queue.all_tasks() {
                 let (pickup, dropoff) = match &task.task_type {
                     protocol::TaskType::PickAndDeliver { pickup, dropoff, .. } => {
@@ -227,7 +227,7 @@ pub fn print_status(
 
         // Show robots
         if !robots.is_empty() {
-            println!("║ ROBOTS:");
+            println!("║ ROBOTS:                                            ║");
             let mut robot_list: Vec<_> = robots.values().collect();
             robot_list.sort_by_key(|r| r.id);
             for robot in robot_list {

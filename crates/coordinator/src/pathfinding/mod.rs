@@ -4,15 +4,20 @@
 //! To add a new pathfinding strategy, create a new file and implement the trait.
 //!
 //! ## Available Implementations
-//! - `AStarPathfinder` - Single-robot A* (default, no collision avoidance)
+//! - `AStarPathfinder` - Single-robot A* (no collision avoidance)
+//! - `WHCAPathfinder` - Windowed Hierarchical Cooperative A* (default, multi-robot)
+//! - `PathfinderInstance` - Runtime-selectable dispatcher (config-driven)
 //!
 //! ## Future Implementations
-//! - `WHCAPathfinder` - Windowed Hierarchical Cooperative A* (multi-robot)
 //! - `CBSPathfinder` - Conflict-Based Search (optimal multi-robot)
 
 mod astar;
+mod whca;
+mod dispatcher;
 
 pub use astar::AStarPathfinder;
+pub use whca::WHCAPathfinder;
+pub use dispatcher::PathfinderInstance;
 
 use protocol::GridMap;
 
@@ -26,7 +31,6 @@ pub type WorldPos = [f32; 3];
 #[derive(Debug, Clone)]
 pub struct PathResult {
     /// Grid coordinates of the path (used by WHCA* for reservation table)
-    #[allow(dead_code)]
     pub grid_path: Vec<GridPos>,
     /// World coordinates of the path (derived from grid_path)
     pub world_path: Vec<WorldPos>,
@@ -37,8 +41,8 @@ pub struct PathResult {
 /// Trait for pathfinding algorithm implementations
 ///
 /// Implement this trait to create custom pathfinding strategies:
-/// - `AStarPathfinder` - Simple single-robot A* (default)
-/// - `WHCAPathfinder` - Multi-robot with time windows (future)
+/// - `AStarPathfinder` - Simple single-robot A*
+/// - `WHCAPathfinder` - Multi-robot with time windows (default)
 /// - `CBSPathfinder` - Conflict-based search (future)
 pub trait Pathfinder: Send + Sync {
     /// Find a path from start to goal
@@ -50,6 +54,23 @@ pub trait Pathfinder: Send + Sync {
         start: GridPos,
         goal: GridPos,
     ) -> Option<PathResult>;
+    
+    /// Find a path to a goal, allowing non-walkable endpoints (like shelves)
+    ///
+    /// Pathfinds to the goal allowing non-walkable tiles as endpoints.
+    /// For such goals, returns the path to an adjacent walkable tile (one step before).
+    /// For walkable goals, behaves identically to `find_path()`.
+    ///
+    /// This allows natural A* exploration to find the optimal approach direction.
+    #[allow(dead_code, unused_variables)]
+    fn find_path_to_non_walkable(
+        &self,
+        map: &GridMap,
+        start: GridPos,
+        goal: GridPos,
+    ) -> Option<PathResult> {
+        self.find_path(map, start, goal)
+    }
     
     /// Find a path avoiding other robots (for multi-robot planners)
     ///
@@ -124,5 +145,76 @@ mod tests {
         assert_eq!(world_path.len(), 3);
         assert_eq!(world_path[0], [0.0, ROBOT_HEIGHT, 0.0]);
         assert_eq!(world_path[2], [2.0, ROBOT_HEIGHT, 0.0]);
+    }
+
+    #[test]
+    fn test_find_path_to_non_walkable_shelf() {
+        // Map: . . . . .
+        //      . x . . .  (x is shelf at (1,1))
+        //      . . . . .
+        let map_str = r#"
+            . . . . .
+            . x . . .
+            . . . . .
+        "#;
+        let map = GridMap::parse(map_str).unwrap();
+        let pathfinder = AStarPathfinder::new();
+        
+        // Pathfind to a non-walkable shelf from (0, 0)
+        let result = pathfinder.find_path_to_non_walkable(&map, (0, 0), (1, 1));
+        assert!(result.is_some());
+        
+        let result = result.unwrap();
+        // Should pathfind to one of the adjacent walkable tiles
+        let last_pos = result.grid_path.last().unwrap();
+        
+        // Last position should be adjacent to (1,1) but not (1,1) itself
+        assert!(*last_pos != (1, 1));
+        assert!(
+            *last_pos == (1, 0) || *last_pos == (0, 1) || *last_pos == (1, 2) || *last_pos == (2, 1),
+            "Last position {:?} should be adjacent to shelf (1,1)",
+            last_pos
+        );
+    }
+
+    #[test]
+    fn test_find_path_to_non_walkable_surrounded_shelf() {
+        // Map: # # # # #
+        //      # x # # #  (x is shelf at (1,1), all neighbors are walls)
+        //      # # # # #
+        let map_str = r#"
+            # # # # #
+            # x # # #
+            # # # # #
+        "#;
+        let map = GridMap::parse(map_str).unwrap();
+        let pathfinder = AStarPathfinder::new();
+        
+        // Pathfind to a completely surrounded non-walkable shelf
+        let result = pathfinder.find_path_to_non_walkable(&map, (0, 0), (1, 1));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_path_to_non_walkable_edge_accessible() {
+        // Map: . # # # #
+        //      . . x5 . #
+        //      . # # # #
+        // Shelf at (2,1) is accessible only from the left
+        let map_str = r#"
+            . # # # #
+            . . x . #
+            . # # # #
+        "#;
+        let map = GridMap::parse(map_str).unwrap();
+        let pathfinder = AStarPathfinder::new();
+        
+        let result = pathfinder.find_path_to_non_walkable(&map, (0, 1), (2, 1));
+        assert!(result.is_some());
+        
+        let result = result.unwrap();
+        let last_pos = result.grid_path.last().unwrap();
+        // Should have approached from the left side
+        assert_eq!(*last_pos, (1, 1));
     }
 }

@@ -4,13 +4,14 @@ use std::collections::HashMap;
 use protocol::SystemCommand;
 use crate::state::TrackedRobot;
 
-/// Handle a system command (pause/resume/verbose)
+/// Handle a system command (pause/resume/verbose/chaos)
 pub fn handle_system_command(
     cmd: &SystemCommand,
     paused: &mut bool,
     verbose: &mut bool,
+    chaos: &mut bool,
 ) {
-    cmd.apply_with_log("Coordinator", Some(paused), Some(verbose));
+    cmd.apply_with_log("Coordinator", Some(paused), Some(verbose), Some(chaos));
 }
 
 /// Print current status of tracked robots

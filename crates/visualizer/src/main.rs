@@ -17,6 +17,9 @@ mod components;
 mod resources;
 mod systems;
 
+#[cfg(test)]
+mod tests;
+
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use systems::{

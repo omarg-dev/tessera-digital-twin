@@ -1,7 +1,7 @@
 //! Closest idle robot allocator
 
 use super::{Allocator, RobotInfo};
-use protocol::config::scheduler::MIN_BATTERY_FOR_TASK;
+use protocol::config::battery::MIN_BATTERY_FOR_TASK;
 use protocol::{RobotState, Task};
 use std::collections::HashMap;
 
@@ -40,7 +40,16 @@ impl Allocator for ClosestIdleAllocator {
 
         for robot in robots.values() {
             // Skip unavailable robots
-            if robot.state != RobotState::Idle { continue; }
+            // Allow Idle or Charging robots, plus robots returning to station (MovingToPickup/MovingToDrop)
+            // so they can accept new tasks immediately.
+            let available_state = matches!(
+                robot.state,
+                RobotState::Idle
+                    | RobotState::Charging
+                    | RobotState::MovingToPickup
+                    | RobotState::MovingToDrop
+            );
+            if !available_state { continue; }
             if robot.assigned_task.is_some() { continue; }
             if robot.battery < self.min_battery { continue; }
 
@@ -52,8 +61,9 @@ impl Allocator for ClosestIdleAllocator {
         }
 
         if let Some(robot_id) = best_robot {
-            println!("→ Allocating Task {} to Robot {} (distance: {:.1})", 
-                task.id, robot_id, best_distance);
+                println!("[{}ms] → Allocating Task {} to Robot {} (distance: {:.1})", 
+                    protocol::timestamp(), task.id, robot_id, best_distance);
+                protocol::logs::save_log("Scheduler", &format!("Task {} allocated to Robot {} (distance: {:.1})", task.id, robot_id, best_distance));
         }
 
         best_robot
@@ -94,9 +104,10 @@ mod tests {
     fn test_busy_robot_skipped() {
         let allocator = ClosestIdleAllocator::new();
         let mut robots = HashMap::new();
+        // Robot 1 is busy with an assigned task
         robots.insert(1, RobotInfo {
             id: 1, position: [1.0, 0.25, 1.0],
-            state: RobotState::MovingToPickup, battery: 100.0, assigned_task: None,
+            state: RobotState::MovingToPickup, battery: 100.0, assigned_task: Some(39),
         });
         robots.insert(2, make_robot(2, 10.0, 10.0));
 
@@ -104,6 +115,7 @@ mod tests {
             pickup: (1, 1), dropoff: (5, 5), cargo_id: None,
         }, Priority::Normal);
 
+        // Robot 1 has assigned_task, so Robot 2 is selected
         assert_eq!(allocator.allocate(&task, &robots), Some(2));
     }
 
@@ -120,6 +132,41 @@ mod tests {
             pickup: (1, 1), dropoff: (5, 5), cargo_id: None,
         }, Priority::Normal);
 
+        assert_eq!(allocator.allocate(&task, &robots), None);
+    }
+
+    #[test]
+    fn test_charging_robot_with_good_battery_allocated() {
+        let allocator = ClosestIdleAllocator::new();
+        let mut robots = HashMap::new();
+        // Charging robot with sufficient battery should be available
+        robots.insert(1, RobotInfo {
+            id: 1, position: [1.0, 0.25, 1.0],
+            state: RobotState::Charging, battery: 80.0, assigned_task: None,
+        });
+
+        let task = Task::new(1, TaskType::PickAndDeliver {
+            pickup: (1, 1), dropoff: (5, 5), cargo_id: None,
+        }, Priority::Normal);
+
+        assert_eq!(allocator.allocate(&task, &robots), Some(1));
+    }
+
+    #[test]
+    fn test_charging_robot_with_low_battery_skipped() {
+        let allocator = ClosestIdleAllocator::new();
+        let mut robots = HashMap::new();
+        // Charging robot with low battery should NOT be available
+        robots.insert(1, RobotInfo {
+            id: 1, position: [1.0, 0.25, 1.0],
+            state: RobotState::Charging, battery: 30.0, assigned_task: None,
+        });
+
+        let task = Task::new(1, TaskType::PickAndDeliver {
+            pickup: (1, 1), dropoff: (5, 5), cargo_id: None,
+        }, Priority::Normal);
+
+        // MIN_BATTERY_FOR_TASK is 50%, so 30% is too low
         assert_eq!(allocator.allocate(&task, &robots), None);
     }
 }
