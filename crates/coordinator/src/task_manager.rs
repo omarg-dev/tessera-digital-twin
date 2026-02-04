@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 use protocol::*;
 use protocol::config::coordinator as coord_config;
+use protocol::config::coordinator::collision as collision_config;
 use protocol::config::battery as battery_config;
 use protocol::logs;
 use serde_json::to_vec;
@@ -270,12 +271,19 @@ pub async fn progress_tasks(
     pathfinder: &mut PathfinderInstance,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    robot_control_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
     verbose: bool,
     pending_tasks: usize,
 ) {
     // First pass: check for timed out tasks
     handle_task_timeouts(robots, status_publisher, pathfinder).await;
+
+    // Fault cleanup: restart faulted robots after delay
+    handle_fault_cleanup(robots, robot_control_publisher, verbose).await;
+
+    // Blocked handling: immediate replan or fault escalation
+    handle_blocked_robots(robots, map, pathfinder, cmd_publisher, status_publisher, next_cmd_id, verbose).await;
     
     // Second pass: reserve stationary robot positions for WHCA* collision avoidance
     for (robot_id, robot) in robots.iter() {
@@ -289,12 +297,32 @@ pub async fn progress_tasks(
             TaskStage::Idle | TaskStage::Picking | TaskStage::Delivering => {
                 pathfinder.reserve_stationary(*robot_id, robot_pos);
             }
-            _ => {} // Robot is moving, path already reserved
+            _ => {}
+        }
+
+        if matches!(robot.last_update.state, RobotState::Faulted | RobotState::Blocked) {
+            pathfinder.reserve_stationary(*robot_id, robot_pos);
         }
     }
     
     // Third pass: normal task progression
     for (robot_id, robot) in robots.iter_mut() {
+        // Replan immediately if robot has deviated from its path
+        if should_replan_for_deviation(robot) {
+            let replanned = attempt_replan(
+                robot,
+                *robot_id,
+                map,
+                pathfinder,
+                cmd_publisher,
+                next_cmd_id,
+                verbose,
+            ).await;
+            if replanned {
+                continue;
+            }
+        }
+
         // Handle returning to station (no task required)
         if robot.task_stage == TaskStage::ReturningToStation {
             handle_returning_to_station(robot, *robot_id, cmd_publisher, next_cmd_id, verbose).await;
@@ -388,6 +416,208 @@ async fn handle_task_timeouts(
             robot.mark_progress();
         }
     }
+}
+
+/// Mark a robot as faulted and clear its task/path state
+pub async fn mark_robot_faulted(
+    robot: &mut TrackedRobot,
+    robot_id: u32,
+    reason: String,
+    status_publisher: &zenoh::pubsub::Publisher<'_>,
+    pathfinder: &mut PathfinderInstance,
+    verbose: bool,
+) {
+    if robot.faulted_since.is_some() {
+        return; // already faulted
+    }
+
+    if verbose {
+        println!("[{}ms] ⚠ Robot {} FAULTED: {}", timestamp(), robot_id, reason);
+    }
+    logs::save_log("Coordinator", &format!("Robot {} faulted: {}", robot_id, reason));
+
+    if let Some(task_id) = robot.current_task {
+        send_task_failure(status_publisher, task_id, robot_id, reason).await;
+    }
+
+    // Clear robot state
+    robot.current_task = None;
+    robot.task_stage = TaskStage::Idle;
+    robot.task_started = None;
+    robot.pickup_location = None;
+    robot.dropoff_location = None;
+    robot.return_reason = None;
+    robot.current_path.clear();
+    robot.path_index = 0;
+    robot.replan_attempts = 0;
+    robot.blocked_since = None;
+    robot.faulted_since = Some(std::time::Instant::now());
+
+    // Update local state to reflect fault
+    robot.last_update.state = RobotState::Faulted;
+
+    // Clear reservations for this robot
+    pathfinder.clear_robot_reservations(robot_id);
+    robot.mark_progress();
+}
+
+/// Handle blocked robots: immediate replan or escalate to fault
+async fn handle_blocked_robots(
+    robots: &mut HashMap<u32, TrackedRobot>,
+    map: &GridMap,
+    pathfinder: &mut PathfinderInstance,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
+    status_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
+    verbose: bool,
+) {
+    let mut blocked_ids = Vec::new();
+    for (robot_id, robot) in robots.iter_mut() {
+        if robot.last_update.state == RobotState::Blocked {
+            if robot.blocked_since.is_none() {
+                robot.blocked_since = Some(std::time::Instant::now());
+            }
+            blocked_ids.push(*robot_id);
+        }
+    }
+
+    for robot_id in blocked_ids {
+        let Some(robot) = robots.get_mut(&robot_id) else { continue; };
+
+        // If blocked too long, escalate to fault
+        if let Some(since) = robot.blocked_since {
+            if since.elapsed().as_secs() >= collision_config::BLOCKED_TIMEOUT_SECS {
+                mark_robot_faulted(
+                    robot,
+                    robot_id,
+                    format!("Blocked timeout ({}s)", collision_config::BLOCKED_TIMEOUT_SECS),
+                    status_publisher,
+                    pathfinder,
+                    verbose,
+                ).await;
+                continue;
+            }
+        }
+
+        // Try immediate replan
+        let replanned = attempt_replan(
+            robot,
+            robot_id,
+            map,
+            pathfinder,
+            cmd_publisher,
+            next_cmd_id,
+            verbose,
+        ).await;
+
+        if replanned {
+            robot.blocked_since = None;
+            robot.replan_attempts = 0;
+        } else {
+            robot.replan_attempts += 1;
+            if robot.replan_attempts >= collision_config::MAX_REPLAN_ATTEMPTS {
+                mark_robot_faulted(
+                    robot,
+                    robot_id,
+                    format!("Replan failed ({} attempts)", robot.replan_attempts),
+                    status_publisher,
+                    pathfinder,
+                    verbose,
+                ).await;
+            }
+        }
+    }
+}
+
+/// Restart faulted robots after cleanup delay
+async fn handle_fault_cleanup(
+    robots: &mut HashMap<u32, TrackedRobot>,
+    robot_control_publisher: &zenoh::pubsub::Publisher<'_>,
+    verbose: bool,
+) {
+    for (robot_id, robot) in robots.iter_mut() {
+        let Some(since) = robot.faulted_since else { continue; };
+        if since.elapsed().as_secs() >= collision_config::FAULT_CLEANUP_DELAY_SECS {
+            let cmd = RobotControl::Restart(*robot_id);
+            if let Ok(payload) = to_vec(&cmd) {
+                robot_control_publisher.put(payload).await.ok();
+            }
+            if verbose {
+                println!("[{}ms] 🔄 Robot {} restart after fault cleanup", timestamp(), robot_id);
+            }
+            logs::save_log("Coordinator", &format!("Robot {} restart after fault cleanup", robot_id));
+            robot.faulted_since = None;
+            robot.blocked_since = None;
+            robot.replan_attempts = 0;
+            robot.task_stage = TaskStage::Idle;
+            robot.last_update.state = RobotState::Idle;
+        }
+    }
+}
+
+/// Check if robot deviated from path enough to replan
+fn should_replan_for_deviation(robot: &TrackedRobot) -> bool {
+    if robot.current_task.is_none() {
+        return false;
+    }
+    match robot.task_stage {
+        TaskStage::MovingToPickup | TaskStage::MovingToDropoff | TaskStage::Delivering => {}
+        _ => return false,
+    }
+
+    let Some(next_wp) = robot.next_waypoint() else { return false; };
+    let pos = robot.last_update.position;
+    let dist = ((pos[0] - next_wp[0]).powi(2) + (pos[2] - next_wp[2]).powi(2)).sqrt();
+    dist > collision_config::MAX_PATH_DEVIATION_TILES
+}
+
+/// Attempt to replan to the current task target
+async fn attempt_replan(
+    robot: &mut TrackedRobot,
+    robot_id: u32,
+    map: &GridMap,
+    pathfinder: &mut PathfinderInstance,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
+    verbose: bool,
+) -> bool {
+    let Some(task_id) = robot.current_task else { return false; };
+
+    let target_world = match robot.task_stage {
+        TaskStage::MovingToPickup => robot.pickup_location,
+        TaskStage::MovingToDropoff | TaskStage::Delivering => robot.dropoff_location,
+        _ => None,
+    };
+
+    let Some(target_world) = target_world else { return false; };
+    let start = pathfinding::world_to_grid(robot.last_update.position);
+    let goal = pathfinding::world_to_grid(target_world);
+
+    let Some(result) = pathfinder.find_path(map, start, goal) else { return false; };
+
+    // Clear old reservations and reserve new path
+    pathfinder.clear_robot_reservations(robot_id);
+    pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
+
+    robot.set_path(result.world_path);
+    robot.mark_progress();
+
+    if verbose {
+        println!("[{}ms] 🔁 Robot {} replanned (task {}) - {} waypoints", timestamp(), robot_id, task_id, robot.current_path.len());
+    }
+
+    if let Some(waypoint) = robot.next_waypoint() {
+        let command = match robot.task_stage {
+            TaskStage::MovingToPickup => PathCommand::MoveToPickup { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+            TaskStage::MovingToDropoff | TaskStage::Delivering => PathCommand::MoveToDropoff { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+            _ => return false,
+        };
+        let cmd = PathCmd { cmd_id: *next_cmd_id, robot_id, command };
+        *next_cmd_id += 1;
+        cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+    }
+
+    true
 }
 
 /// Handle robot returning to station

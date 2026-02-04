@@ -1,8 +1,13 @@
 //! Simulated robot with physics state
 
-use protocol::{RobotState, RobotUpdate, PathCommand, CommandStatus};
+use protocol::{RobotState, RobotUpdate, PathCommand, CommandStatus, GridMap};
 use protocol::config::{battery, physics};
 use rand::Rng;
+
+/// Convert world position to grid coordinates
+fn world_to_grid(pos: [f32; 3]) -> (usize, usize) {
+    (pos[0].round() as usize, pos[2].round() as usize)
+}
 
 
 /// A simulated robot with physics state
@@ -54,9 +59,27 @@ impl SimRobot {
     }
     
     /// Physics tick: pos += vel * dt
-    pub fn update_physics(&mut self, dt: f32, paused: bool, chaos: bool) {
+    pub fn update_physics(&mut self, dt: f32, paused: bool, chaos: bool, map: &GridMap) {
         if paused || !self.enabled {
             return;
+        }
+        
+        // Check if next position would hit a wall BEFORE updating position
+        if self.velocity[0].abs() > 0.01 || self.velocity[2].abs() > 0.01 {
+            let next_pos_x = self.position[0] + self.velocity[0] * dt;
+            let next_pos_z = self.position[2] + self.velocity[2] * dt;
+            let (grid_x, grid_z) = world_to_grid([next_pos_x, 0.0, next_pos_z]);
+            
+            if !map.is_walkable(grid_x, grid_z) {
+                // Wall collision detected!
+                self.velocity = [0.0, 0.0, 0.0];
+                self.target = None;
+                if self.state != RobotState::Blocked && self.state != RobotState::Faulted {
+                    self.state = RobotState::Blocked;
+                    println!("⚠ Robot {} BLOCKED: Wall collision at ({}, {})", self.id, grid_x, grid_z);
+                }
+                return; // Don't update position
+            }
         }
         
         // Update position
@@ -202,6 +225,9 @@ impl SimRobot {
                         reason: "Invalid pickup target".to_string() 
                     };
                 }
+                // Note: We don't validate target against GridMap here because
+                // coordinator already validated it during pathfinding.
+                // Validation at this layer would reject adjacent-to-shelf positions.
                 self.target = Some(*target);
                 self.target_speed = *speed;
                 self.state = RobotState::MovingToPickup;
@@ -212,6 +238,7 @@ impl SimRobot {
                         reason: "Invalid dropoff target".to_string() 
                     };
                 }
+                // Note: Same as above - coordinator already validated target
                 self.target = Some(*target);
                 self.target_speed = *speed;
                 self.state = RobotState::MovingToDrop;
@@ -277,14 +304,33 @@ mod tests {
     use super::*;
 
     fn make_robot() -> SimRobot {
-        SimRobot::new(1, [5.0, 0.25, 5.0])
+        // Station at (4, 4) in the test map
+        SimRobot::new(1, [4.0, 0.25, 4.0])
+    }
+    
+    fn make_test_map() -> GridMap {
+        // Simple test map - space-separated tokens required by GridMap parser
+        // '_' denotes Station in protocol::grid_map::parse_token
+        let layout = vec![
+            "# # # # # # # # # #",
+            "# . . . . . . . . #",
+            "# . . . . . . . . #",
+            "# . . . . . . . . #",
+            "# . . . _ . . . . #",
+            "# . . . . . . . . #",
+            "# . . . . . . . . #",
+            "# . . . . . . . . #",
+            "# . . . . . . . . #",
+            "# # # # # # # # # #",
+        ].join("\n");
+        GridMap::parse(&layout).unwrap()
     }
 
     #[test]
     fn test_new_robot_initial_state() {
         let robot = make_robot();
         assert_eq!(robot.id, 1);
-        assert_eq!(robot.position, [5.0, 0.25, 5.0]);
+        assert_eq!(robot.position, [4.0, 0.25, 4.0]);
         assert_eq!(robot.velocity, [0.0, 0.0, 0.0]);
         assert_eq!(robot.state, RobotState::Idle);
         assert_eq!(robot.battery, 100.0);
@@ -295,30 +341,36 @@ mod tests {
     #[test]
     fn test_physics_update_moves_robot() {
         let mut robot = make_robot();
-        robot.target = Some([10.0, 0.25, 5.0]); // 5 units to the right
+        let map = make_test_map();
+        // Robot at (4,4) which is the station position, move to (5,4)
+        robot.position = [4.0, 0.25, 4.0]; 
+        robot.target = Some([5.0, 0.25, 4.0]); // One tile to the right
         robot.target_speed = 2.0;
         robot.state = RobotState::MovingToPickup;
         
         // First tick sets velocity toward target
-        robot.update_physics(0.1, false, false);
-        assert!((robot.velocity[0] - 2.0).abs() < 0.01, "Velocity should be set toward target");
+        robot.update_physics(0.1, false, false, &map);
+        assert!(robot.velocity[0] > 0.0, "Velocity should be set toward target");
         
         // Second tick moves position using velocity
-        robot.update_physics(0.5, false, false);
-        assert!(robot.position[0] > 5.0, "Position should have moved right");
+        let initial_x = robot.position[0];
+        robot.update_physics(0.1, false, false, &map);
+        assert!(robot.position[0] > initial_x, "Position should have moved right");
     }
 
     #[test]
     fn test_physics_paused_no_movement() {
         let mut robot = make_robot();
-        robot.target = Some([10.0, 0.25, 5.0]);
+        let map = make_test_map();
+        robot.position = [4.0, 0.25, 4.0]; // Station position
+        robot.target = Some([5.0, 0.25, 4.0]); // Valid target
         robot.target_speed = 2.0;
         robot.state = RobotState::MovingToPickup;
         
-        robot.update_physics(1.0, true, false); // Paused
+        robot.update_physics(1.0, true, false, &map); // Paused
         
         // Robot should not have moved
-        assert_eq!(robot.position, [5.0, 0.25, 5.0]);
+        assert_eq!(robot.position, [4.0, 0.25, 4.0]);
     }
 
     #[test]
@@ -326,11 +378,13 @@ mod tests {
         // After fixing the waypoint bug: arrival at waypoint should NOT
         // auto-transition to Picking. The coordinator sends explicit Pickup command.
         let mut robot = make_robot();
-        robot.target = Some([5.05, 0.25, 5.0]); // Very close target
+        let map = make_test_map();
+        robot.position = [4.0, 0.25, 4.0]; // Station position
+        robot.target = Some([4.05, 0.25, 4.0]); // Very close target
         robot.target_speed = 2.0;
         robot.state = RobotState::MovingToPickup;
         
-        robot.update_physics(0.1, false, false);
+        robot.update_physics(0.1, false, false, &map);
         
         // Should have arrived (target cleared) but stay in MovingToPickup
         // until coordinator sends Pickup command
@@ -342,12 +396,14 @@ mod tests {
     fn test_station_arrival_transitions_to_charging() {
         // MovingToStation should still auto-transition to Charging
         let mut robot = make_robot();
+        let map = make_test_map();
         robot.battery = 50.0; // Not full so it stays in Charging
-        robot.target = Some([5.05, 0.25, 5.0]);
+        robot.position = [4.0, 0.25, 4.0]; // Station position
+        robot.target = Some([4.05, 0.25, 4.0]); // Very close target (station)
         robot.target_speed = 2.0;
         robot.state = RobotState::MovingToStation;
         
-        robot.update_physics(0.1, false, false);
+        robot.update_physics(0.1, false, false, &map);
         
         assert!(robot.target.is_none());
         assert_eq!(robot.state, RobotState::Charging);
@@ -356,21 +412,30 @@ mod tests {
     #[test]
     fn test_battery_drains_while_moving() {
         let mut robot = make_robot();
-        robot.velocity = [2.0, 0.0, 0.0]; // Moving
+        let map = make_test_map();
+        // Start robot at station with target, let physics set velocity naturally
+        robot.position = [4.0, 0.25, 4.0];
+        robot.target = Some([5.0, 0.25, 4.0]); // Walkable ground to the right
+        robot.target_speed = 1.0; // Slow speed
+        
+        // First tick sets velocity
+        robot.update_physics(0.1, false, false, &map);
         
         let initial_battery = robot.battery;
-        robot.update_physics(1.0, false, false);
+        // Second tick moves and drains battery
+        robot.update_physics(0.1, false, false, &map);
         
-        assert!(robot.battery < initial_battery);
+        assert!(robot.battery < initial_battery, "Battery should drain while moving");
     }
 
     #[test]
     fn test_battery_charges_at_station() {
         let mut robot = make_robot();
+        let map = make_test_map();
         robot.battery = 50.0;
         robot.state = RobotState::Charging;
         
-        robot.update_physics(1.0, false, false);
+        robot.update_physics(1.0, false, false, &map);
         
         assert!(robot.battery > 50.0);
     }
@@ -433,7 +498,7 @@ mod tests {
         // When robot is away from station, ReturnToCharge just makes it idle
         // (coordinator should pathfind back if needed)
         let mut robot = make_robot();
-        robot.position = [10.0, 0.25, 10.0]; // Away from station
+        robot.position = [7.0, 0.25, 7.0]; // Away from station (4,4)
         
         robot.apply_command(&PathCommand::ReturnToCharge);
         
@@ -446,7 +511,7 @@ mod tests {
         // When robot is at station, ReturnToCharge starts charging
         let mut robot = make_robot();
         robot.battery = 50.0;
-        robot.position = [5.0, 0.25, 5.0]; // At station
+        robot.position = [4.0, 0.25, 4.0]; // At station (4,4)
         
         robot.apply_command(&PathCommand::ReturnToCharge);
         
@@ -464,9 +529,35 @@ mod tests {
         let update = robot.to_update();
         
         assert_eq!(update.id, 1);
-        assert_eq!(update.position, [5.0, 0.25, 5.0]);
+        assert_eq!(update.position, [4.0, 0.25, 4.0]);
         assert_eq!(update.battery, 75.0);
         assert_eq!(update.carrying_cargo, Some(99));
         assert_eq!(update.state, RobotState::MovingToDrop);
+        assert_eq!(update.station_position, [4.0, 0.25, 4.0]);
+    }
+    
+    #[test]
+    fn test_wall_collision_detection() {
+        let mut robot = make_robot();
+        let map = make_test_map();
+        // Try to move robot into wall at (0, 4)
+        robot.position = [1.0, 0.25, 4.0]; // Start at (1, 4) which is Ground
+        robot.target = Some([0.0, 0.25, 4.0]); // Try to move to wall
+        robot.target_speed = 2.0;
+        robot.state = RobotState::MovingToPickup;
+        
+        // First tick sets velocity toward wall
+        robot.update_physics(0.1, false, false, &map);
+        // Robot should have velocity toward target
+        assert!(robot.velocity[0] < 0.0, "Should have negative x velocity");
+        
+        // Try to move toward wall - should get blocked
+        robot.update_physics(0.5, false, false, &map); // Large dt to definitely hit wall
+        
+        // Robot should be blocked
+        assert_eq!(robot.state, RobotState::Blocked, "Robot should be in Blocked state");
+        assert_eq!(robot.velocity, [0.0, 0.0, 0.0], "Velocity should be zeroed");
+        assert!(robot.target.is_none(), "Target should be cleared");
     }
 }
+

@@ -65,7 +65,7 @@ pub async fn run(session: Session, map: GridMap) {
         
         // Physics update for all robots
         for robot in &mut robots {
-            robot.update_physics(dt, paused, chaos);
+            robot.update_physics(dt, paused, chaos, &map);
         }
         
         // Batch and publish all robot updates (with chaos packet loss)

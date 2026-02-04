@@ -43,6 +43,11 @@ pub struct TrackedRobot {
     // Timeout tracking
     pub last_progress: Instant,  // Last time we saw progress on current task
     pub task_started: Option<Instant>,  // When current task was assigned
+
+    // Fault handling
+    pub blocked_since: Option<Instant>,  // When robot entered Blocked state
+    pub faulted_since: Option<Instant>,  // When robot entered Faulted state
+    pub replan_attempts: u32,  // Consecutive replans due to deviations/collisions
 }
 
 impl TrackedRobot {
@@ -58,6 +63,9 @@ impl TrackedRobot {
             return_reason: None,
             last_progress: Instant::now(),
             task_started: None,
+            blocked_since: None,
+            faulted_since: None,
+            replan_attempts: 0,
         }
     }
     

@@ -102,6 +102,39 @@ pub mod coordinator {
         // 1 grid cell / 2.0 units/sec = 0.5 sec = 500ms
         pub const MOVE_TIME_MS: u64 = 500;
     }
+
+    /// Collision detection and avoidance settings
+    pub mod collision {
+        /// Radius for inter-robot collision detection (world units)
+        pub const ROBOT_COLLISION_RADIUS: f32 = 0.4;
+        
+        /// Maximum allowed path deviation before triggering replan (tiles)
+        pub const MAX_PATH_DEVIATION_TILES: f32 = 2.0;
+        
+        /// Time without progress before transitioning to Blocked (seconds)
+        pub const BLOCKED_TIMEOUT_SECS: u64 = 5;
+        
+        /// Maximum consecutive replan attempts before transitioning to Faulted
+        pub const MAX_REPLAN_ATTEMPTS: u32 = 3;
+        
+        /// Backoff delay between replan attempts (milliseconds)
+        pub const REPLAN_BACKOFF_MS: u64 = 2000;
+        
+        /// Fault cleanup delay: how long to reserve the faulted position (seconds)
+        /// Robot waits this duration before being reset to station
+        pub const FAULT_CLEANUP_DELAY_SECS: u64 = 10;
+    }
+    
+    /// Sensor validation and anomaly detection settings
+    pub mod sensor {
+        /// Maximum position change per physics tick (world units)
+        /// Used to detect teleportation/chaos drift anomalies
+        pub const MAX_POSITION_DELTA: f32 = 0.5;
+        
+        /// Tolerance for position validation against grid (world units)
+        /// Robot center can be this far from grid cell center
+        pub const GRID_VALIDATION_TOLERANCE: f32 = 0.6;
+    }
 }
 
 /// Scheduler layer settings (task queue & robot allocation)

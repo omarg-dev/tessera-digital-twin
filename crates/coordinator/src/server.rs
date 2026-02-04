@@ -7,6 +7,7 @@ use tokio::time;
 use tokio::sync::mpsc;
 use protocol::*;
 use protocol::config::coordinator as coord_config;
+use protocol::config::coordinator::{collision as collision_config, sensor as sensor_config};
 use protocol::logs;
 use serde_json::{to_vec, from_slice};
 use std::collections::HashMap;
@@ -49,6 +50,11 @@ pub async fn run(session: Session, map: GridMap) {
         .declare_publisher(topics::TASK_STATUS)
         .await
         .expect("Failed to declare TASK_STATUS publisher");
+
+    let robot_control_publisher = session
+        .declare_publisher(topics::ROBOT_CONTROL)
+        .await
+        .expect("Failed to declare ROBOT_CONTROL publisher");
     
     // Subscribers
     let robot_subscriber = session
@@ -200,29 +206,48 @@ pub async fn run(session: Session, map: GridMap) {
             // Try batched format first (current standard)
             if let Ok(batch) = from_slice::<RobotUpdateBatch>(&sample.payload().to_bytes()) {
                 for update in batch.updates {
-                    let robot = robots.entry(update.id).or_insert_with(|| {
-                        println!("+ Robot {} connected", update.id);
-                        TrackedRobot::new(update.clone())
-                    });
-                    robot.last_update = update;
+                    handle_robot_update(
+                        &map,
+                        &mut robots,
+                        update,
+                        &status_publisher,
+                        &mut pathfinder,
+                        verbose,
+                    ).await;
                 }
             }
             // Fallback: legacy individual RobotUpdate
             else if let Ok(update) = from_slice::<RobotUpdate>(&sample.payload().to_bytes()) {
-                let robot = robots.entry(update.id).or_insert_with(|| {
-                    println!("+ Robot {} connected", update.id);
-                    TrackedRobot::new(update.clone())
-                });
-                robot.last_update = update;
+                handle_robot_update(
+                    &map,
+                    &mut robots,
+                    update,
+                    &status_publisher,
+                    &mut pathfinder,
+                    verbose,
+                ).await;
             }
         }
         
+        // Detect inter-robot collisions after updates
+        detect_inter_robot_collisions(&mut robots, &status_publisher, &mut pathfinder, verbose).await;
+
         // Task progression: detect state transitions and send next waypoint
         if !paused {
             // Advance WHCA* planning window for multi-robot collision avoidance
             pathfinder.tick();
             
-            task_manager::progress_tasks(&mut robots, &map, &mut pathfinder, &cmd_publisher, &status_publisher, &mut next_cmd_id, verbose, pending_tasks).await;
+            task_manager::progress_tasks(
+                &mut robots,
+                &map,
+                &mut pathfinder,
+                &cmd_publisher,
+                &status_publisher,
+                &robot_control_publisher,
+                &mut next_cmd_id,
+                verbose,
+                pending_tasks,
+            ).await;
         }
         
         // Handle command responses from firmware
@@ -398,4 +423,169 @@ fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
             }
         }
     });
+}
+
+/// Handle a single robot update with validation
+async fn handle_robot_update(
+    map: &GridMap,
+    robots: &mut HashMap<u32, TrackedRobot>,
+    update: RobotUpdate,
+    status_publisher: &zenoh::pubsub::Publisher<'_>,
+    pathfinder: &mut PathfinderInstance,
+    verbose: bool,
+) {
+    let robot = robots.entry(update.id).or_insert_with(|| {
+        println!("+ Robot {} connected", update.id);
+        TrackedRobot::new(update.clone())
+    });
+
+    let prev_update = robot.last_update.clone();
+    let validation = validate_robot_update(map, &prev_update, &update);
+
+    robot.last_update = update;
+
+    if let Err(reason) = validation {
+        task_manager::mark_robot_faulted(
+            robot,
+            robot.last_update.id,
+            reason,
+            status_publisher,
+            pathfinder,
+            verbose,
+        ).await;
+    }
+}
+
+/// Validate incoming robot update against map and sensor thresholds
+fn validate_robot_update(map: &GridMap, prev: &RobotUpdate, update: &RobotUpdate) -> Result<(), String> {
+    if update.position[0].is_nan() || update.position[2].is_nan() {
+        return Err("Invalid position: NaN detected".to_string());
+    }
+
+    // Teleport / anomaly detection
+    let dx = update.position[0] - prev.position[0];
+    let dz = update.position[2] - prev.position[2];
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist > sensor_config::MAX_POSITION_DELTA {
+        return Err(format!("Position jump {:.2} > {:.2}", dist, sensor_config::MAX_POSITION_DELTA));
+    }
+
+    // Map validation
+    let grid = pathfinding::world_to_grid(update.position);
+    if !map.is_walkable(grid.0, grid.1) {
+        return Err(format!("Non-walkable tile at ({}, {})", grid.0, grid.1));
+    }
+
+    // Grid alignment tolerance
+    let center = pathfinding::grid_to_world(grid);
+    let cx = update.position[0] - center[0];
+    let cz = update.position[2] - center[2];
+    let offset = (cx * cx + cz * cz).sqrt();
+    if offset > sensor_config::GRID_VALIDATION_TOLERANCE {
+        return Err(format!("Off-grid position offset {:.2} > {:.2}", offset, sensor_config::GRID_VALIDATION_TOLERANCE));
+    }
+
+    Ok(())
+}
+
+/// Detect inter-robot collisions (offender only unless head-on)
+async fn detect_inter_robot_collisions(
+    robots: &mut HashMap<u32, TrackedRobot>,
+    status_publisher: &zenoh::pubsub::Publisher<'_>,
+    pathfinder: &mut PathfinderInstance,
+    verbose: bool,
+) {
+    let ids: Vec<u32> = robots.keys().cloned().collect();
+    for i in 0..ids.len() {
+        for j in (i + 1)..ids.len() {
+            let id_a = ids[i];
+            let id_b = ids[j];
+            let (Some(robot_a), Some(robot_b)) = (robots.get(&id_a), robots.get(&id_b)) else { continue; };
+
+            let dx = robot_a.last_update.position[0] - robot_b.last_update.position[0];
+            let dz = robot_a.last_update.position[2] - robot_b.last_update.position[2];
+            let dist = (dx * dx + dz * dz).sqrt();
+
+            if dist > collision_config::ROBOT_COLLISION_RADIUS {
+                continue;
+            }
+
+            let speed_a = (robot_a.last_update.velocity[0].powi(2) + robot_a.last_update.velocity[2].powi(2)).sqrt();
+            let speed_b = (robot_b.last_update.velocity[0].powi(2) + robot_b.last_update.velocity[2].powi(2)).sqrt();
+
+            let head_on = speed_a > 0.1 && speed_b > 0.1 &&
+                (robot_a.last_update.velocity[0] * robot_b.last_update.velocity[0] +
+                 robot_a.last_update.velocity[2] * robot_b.last_update.velocity[2]) < 0.0;
+
+            if head_on {
+                if let Some(robot) = robots.get_mut(&id_a) {
+                    task_manager::mark_robot_faulted(
+                        robot,
+                        id_a,
+                        "Head-on collision".to_string(),
+                        status_publisher,
+                        pathfinder,
+                        verbose,
+                    ).await;
+                }
+                if let Some(robot) = robots.get_mut(&id_b) {
+                    task_manager::mark_robot_faulted(
+                        robot,
+                        id_b,
+                        "Head-on collision".to_string(),
+                        status_publisher,
+                        pathfinder,
+                        verbose,
+                    ).await;
+                }
+            } else {
+                // Offender is the moving robot if the other is stationary
+                if speed_a > speed_b {
+                    if let Some(robot) = robots.get_mut(&id_a) {
+                        task_manager::mark_robot_faulted(
+                            robot,
+                            id_a,
+                            format!("Collision with robot {}", id_b),
+                            status_publisher,
+                            pathfinder,
+                            verbose,
+                        ).await;
+                    }
+                } else if speed_b > speed_a {
+                    if let Some(robot) = robots.get_mut(&id_b) {
+                        task_manager::mark_robot_faulted(
+                            robot,
+                            id_b,
+                            format!("Collision with robot {}", id_a),
+                            status_publisher,
+                            pathfinder,
+                            verbose,
+                        ).await;
+                    }
+                } else {
+                    // Equal speeds: fault both conservatively
+                    if let Some(robot) = robots.get_mut(&id_a) {
+                        task_manager::mark_robot_faulted(
+                            robot,
+                            id_a,
+                            format!("Collision with robot {}", id_b),
+                            status_publisher,
+                            pathfinder,
+                            verbose,
+                        ).await;
+                    }
+                    if let Some(robot) = robots.get_mut(&id_b) {
+                        task_manager::mark_robot_faulted(
+                            robot,
+                            id_b,
+                            format!("Collision with robot {}", id_a),
+                            status_publisher,
+                            pathfinder,
+                            verbose,
+                        ).await;
+                    }
+                }
+            }
+        }
+    }
 }
