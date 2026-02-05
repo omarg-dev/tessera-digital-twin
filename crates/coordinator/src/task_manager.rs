@@ -287,10 +287,7 @@ pub async fn progress_tasks(
     
     // Second pass: reserve stationary robot positions for WHCA* collision avoidance
     for (robot_id, robot) in robots.iter() {
-        let robot_pos = (
-            robot.last_update.position[0].round() as usize,
-            robot.last_update.position[2].round() as usize,
-        );
+        let robot_pos = pathfinding::world_to_grid(robot.last_update.position);
         
         // Reserve position if robot is stationary (not actively moving)
         match robot.task_stage {

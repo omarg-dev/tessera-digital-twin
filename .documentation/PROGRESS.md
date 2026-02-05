@@ -228,6 +228,21 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-05: WHCA* Collision Prevention Tightening
+
+**Changes:**
+
+- **Reserve full paths even at zero velocity**: WHCA* now falls back to `DEFAULT_SPEED` when the robot is idle at assignment time, preventing empty reservations that allow head-on conflicts.
+- **Start + dwell reservations**: Paths now reserve the start cell immediately and the final cell for pickup/dropoff dwell time to reduce late-arrival collisions.
+- **Stationary grid alignment**: Stationary reservations now use `world_to_grid` conversion for consistent cell locking.
+
+**Files Updated:**
+
+- `coordinator/src/pathfinding/whca.rs` (fallback speed, start + dwell reservations)
+- `coordinator/src/task_manager.rs` (stationary reservation alignment)
+
+**Test Results:** Not run
+
 ### 2026-02-04: Collision Detection & Phase 4 Completion
 
 **Changes:**

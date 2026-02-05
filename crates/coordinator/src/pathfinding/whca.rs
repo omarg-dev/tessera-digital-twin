@@ -28,6 +28,7 @@
 
 use super::{GridPos, PathResult, Pathfinder, grid_to_world_path};
 use protocol::GridMap;
+use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::whca::{WINDOW_SIZE_MS, MAX_WAIT_TIME, RESERVATION_TOLERANCE_MS, MOVE_TIME_MS};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
@@ -80,14 +81,19 @@ impl WHCAPathfinder {
             return;
         }
         
-        let speed = (velocity[0].powi(2) + velocity[2].powi(2)).sqrt();
+        let mut speed = (velocity[0].powi(2) + velocity[2].powi(2)).sqrt();
         if speed < 0.01 {
-            // Robot not moving, reserve current position
-            self.reserve_stationary(robot_id, path[0]);
-            return;
+            // Robot velocity is often zero at assignment time; fall back to default speed.
+            speed = coord_config::DEFAULT_SPEED.max(0.01);
         }
         
         let mut time_ms = self.current_time_ms();
+
+        // Reserve starting cell at current time (prevents immediate overlaps)
+        for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
+            let t = (time_ms as i64 + offset) as u64;
+            self.reservations.insert((path[0].0, path[0].1, t), robot_id);
+        }
         
         for i in 0..path.len() - 1 {
             let from = path[i];
@@ -105,6 +111,16 @@ impl WHCAPathfinder {
             for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
                 let t = (time_ms as i64 + offset) as u64;
                 self.reservations.insert((to.0, to.1, t), robot_id);
+            }
+        }
+
+        // Reserve the final cell for dwell time (pickup/dropoff) to avoid head-on conflicts.
+        let dwell_secs = coord_config::PICKUP_DELAY_SECS.max(coord_config::DROPOFF_DELAY_SECS);
+        let dwell_ms = ((dwell_secs * 1000.0) as u64).min(self.window_size_ms);
+        if let Some(&end) = path.last() {
+            for offset_ms in 0..=dwell_ms {
+                let t = time_ms + offset_ms;
+                self.reservations.insert((end.0, end.1, t), robot_id);
             }
         }
         
