@@ -244,6 +244,7 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - **Wait command stabilization**: Reservation waits now send `Stop` and mark task progress to avoid cancelling pickup timers and false timeouts.
 - **Stationary history reservations**: Stationary robots now reserve only their last few tiles for a short duration, reducing overly conservative blocking after dropoff.
 - **Random task command**: Scheduler now supports `random`/`rand` to enqueue a random shelf→dropoff task for stress testing.
+- **Scheduler layout sync**: Scheduler now reads the shared `LAYOUT_FILE_PATH` so layout changes apply consistently.
 
 **Files Updated:**
 
@@ -264,6 +265,7 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - `scheduler/src/cli.rs` (random task command)
 - `scheduler/src/server.rs` (random task creation)
 - `scheduler/Cargo.toml` (rand dependency)
+- `scheduler/src/server.rs` (use shared layout config)
 
 **Test Results:** Not run
 
