@@ -48,10 +48,30 @@ impl PathfinderInstance {
         }
     }
 
+    /// Reserve a short history of stationary positions (multi-robot algorithms only)
+    pub fn reserve_stationary_history(
+        &mut self,
+        robot_id: u32,
+        positions: &std::collections::VecDeque<GridPos>,
+        current_pos: GridPos,
+    ) {
+        if let PathfinderInstance::WHCA(whca) = self {
+            whca.reserve_stationary_history(robot_id, positions, current_pos);
+        }
+    }
+
     /// Clear reservations for a robot (multi-robot algorithms only)
     pub fn clear_robot_reservations(&mut self, robot_id: u32) {
         if let PathfinderInstance::WHCA(whca) = self {
             whca.clear_robot_reservations(robot_id);
+        }
+    }
+
+    /// Check if a cell is reserved right now (multi-robot algorithms only)
+    pub fn is_reserved_now(&self, pos: GridPos, exclude_robot: Option<u32>) -> bool {
+        match self {
+            PathfinderInstance::WHCA(whca) => whca.is_reserved_now(pos, exclude_robot),
+            _ => false,
         }
     }
 }

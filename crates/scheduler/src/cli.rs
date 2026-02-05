@@ -14,6 +14,7 @@ pub enum StdinCmd {
         pickup: (usize, usize),
         dropoff: (usize, usize),
     },
+    RandomTask,
     CancelTask { task_id: u64 },
     SetPriority { task_id: u64, priority: protocol::Priority },
     History,
@@ -85,6 +86,7 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                     println!("  Examples: add S1 D1, add S2 S5, add 5 5 8 8");
                     None
                 }
+                "random" | "rand" => Some(StdinCmd::RandomTask),
                 "cancel" if parts.len() == 2 => {
                     if let Ok(task_id) = parts[1].parse::<u64>() {
                         Some(StdinCmd::CancelTask { task_id })
@@ -134,6 +136,7 @@ pub fn print_help() {
     println!("║   add S1 D1             - Add task (shelf→dropoff) ║");
     println!("║   add S1 S2             - Add task (shelf→shelf)   ║");
     println!("║   add <px> <py> <dx> <dy> - Add task by coords     ║");
+    println!("║   random, rand          - Add random shelf→dropoff ║");
     println!("║   cancel <id>           - Cancel pending task      ║");
     println!("║   priority <id> <level> - Set task priority        ║");
     println!("║                           (low/normal/high/critical)║");

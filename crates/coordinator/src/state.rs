@@ -1,7 +1,10 @@
 //! Robot state tracking for the coordinator layer
 
+use std::collections::VecDeque;
 use std::time::Instant;
 use protocol::RobotUpdate;
+
+use crate::pathfinding::GridPos;
 
 /// Tracks where the robot is in the task execution lifecycle
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +35,8 @@ pub enum ReturnReason {
 /// Robot state tracked by the server
 pub struct TrackedRobot {
     pub last_update: RobotUpdate,
+    pub last_tick: Option<u64>,
+    pub recent_positions: VecDeque<GridPos>,
     pub current_path: Vec<[f32; 3]>,
     pub path_index: usize,  // Current position in path
     pub current_task: Option<u64>,  // Assigned task ID
@@ -39,6 +44,7 @@ pub struct TrackedRobot {
     pub pickup_location: Option<[f32; 3]>,  // Pickup in world coords
     pub dropoff_location: Option<[f32; 3]>,  // Dropoff in world coords
     pub return_reason: Option<ReturnReason>,  // Why returning to station (if any)
+    pub skip_next_validation: bool,
     
     // Timeout tracking
     pub last_progress: Instant,  // Last time we saw progress on current task
@@ -54,6 +60,8 @@ impl TrackedRobot {
     pub fn new(update: RobotUpdate) -> Self {
         TrackedRobot {
             last_update: update,
+            last_tick: None,
+            recent_positions: VecDeque::new(),
             current_path: Vec::new(),
             path_index: 0,
             current_task: None,
@@ -61,6 +69,7 @@ impl TrackedRobot {
             pickup_location: None,
             dropoff_location: None,
             return_reason: None,
+            skip_next_validation: false,
             last_progress: Instant::now(),
             task_started: None,
             blocked_since: None,

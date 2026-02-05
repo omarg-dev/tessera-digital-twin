@@ -13,7 +13,7 @@
 //! - **renderer** - Visualization dimensions and colors
 
 /// Path to the warehouse layout file (relative to workspace root)
-pub const LAYOUT_FILE_PATH: &str = "assets/data/layout.txt";
+pub const LAYOUT_FILE_PATH: &str = "assets/data/layout2.txt";
 
 /// Log directory path for storing timestamped log files
 /// Log directory - absolute path from workspace root
@@ -101,6 +101,12 @@ pub mod coordinator {
          // Time step for planning (approximate time to move 1 cell at default speed)
         // 1 grid cell / 2.0 units/sec = 0.5 sec = 500ms
         pub const MOVE_TIME_MS: u64 = 500;
+
+        /// How many recent tiles to keep reserved for stationary robots
+        pub const STATIONARY_HISTORY_TILES: usize = 2;
+
+        /// How long to reserve stationary tiles (milliseconds)
+        pub const STATIONARY_RESERVATION_MS: u64 = 1500;
     }
 
     /// Collision detection and avoidance settings

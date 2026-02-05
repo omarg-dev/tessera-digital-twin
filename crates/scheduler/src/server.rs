@@ -5,6 +5,8 @@ use tokio::sync::mpsc;
 use tokio::time;
 use zenoh::Session;
 use serde_json::{from_slice, to_vec};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 use protocol::config::scheduler as sched_config;
 use protocol::{
@@ -117,6 +119,46 @@ async fn handle_stdin(
                     (None, _) => println!("✗ Invalid pickup location"),
                     (_, None) => println!("✗ Invalid dropoff location"),
                 }
+            }
+            StdinCmd::RandomTask => {
+                let shelves = map.get_shelves();
+                let dropoffs = map.get_dropoffs();
+                if shelves.is_empty() || dropoffs.is_empty() {
+                    println!("✗ Cannot create random task (shelves: {}, dropoffs: {})", shelves.len(), dropoffs.len());
+                    continue;
+                }
+
+                let mut rng = thread_rng();
+                let shelf = shelves.choose(&mut rng).unwrap();
+                let dropoff = dropoffs.choose(&mut rng).unwrap();
+
+                let id = queue.next_task_id();
+                let task = Task::new(id, TaskType::PickAndDeliver {
+                    pickup: (shelf.x, shelf.y),
+                    dropoff: (dropoff.x, dropoff.y),
+                    cargo_id: None,
+                }, Priority::Normal);
+                println!(
+                    "[{}ms] ✓ Task #{} added: ({},{}) → ({},{})",
+                    timestamp(),
+                    id,
+                    shelf.x,
+                    shelf.y,
+                    dropoff.x,
+                    dropoff.y
+                );
+                logs::save_log(
+                    "Scheduler",
+                    &format!(
+                        "Task {} created: pickup ({},{}) -> dropoff ({},{})",
+                        id,
+                        shelf.x,
+                        shelf.y,
+                        dropoff.x,
+                        dropoff.y
+                    ),
+                );
+                queue.enqueue(task);
             }
             StdinCmd::ListShelves => print_shelves(map),
             StdinCmd::ListDropoffs => print_dropoffs(map),

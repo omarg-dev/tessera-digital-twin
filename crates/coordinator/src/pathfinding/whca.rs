@@ -29,7 +29,14 @@
 use super::{GridPos, PathResult, Pathfinder, grid_to_world_path};
 use protocol::GridMap;
 use protocol::config::coordinator as coord_config;
-use protocol::config::coordinator::whca::{WINDOW_SIZE_MS, MAX_WAIT_TIME, RESERVATION_TOLERANCE_MS, MOVE_TIME_MS};
+use protocol::config::coordinator::whca::{
+    WINDOW_SIZE_MS,
+    MAX_WAIT_TIME,
+    RESERVATION_TOLERANCE_MS,
+    MOVE_TIME_MS,
+    STATIONARY_HISTORY_TILES,
+    STATIONARY_RESERVATION_MS,
+};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
 use std::time::Instant;
@@ -89,15 +96,15 @@ impl WHCAPathfinder {
         
         let mut time_ms = self.current_time_ms();
 
-        // Reserve starting cell at current time (prevents immediate overlaps)
-        for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
-            let t = (time_ms as i64 + offset) as u64;
-            self.reservations.insert((path[0].0, path[0].1, t), robot_id);
-        }
-        
         for i in 0..path.len() - 1 {
             let from = path[i];
             let to = path[i + 1];
+
+            // Reserve the current cell at the segment start time
+            for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
+                let t = (time_ms as i64 + offset) as u64;
+                self.reservations.insert((from.0, from.1, t), robot_id);
+            }
             
             // Calculate travel time for this segment
             let dx = to.0 as f32 - from.0 as f32;
@@ -136,13 +143,31 @@ impl WHCAPathfinder {
     /// Prevents other robots from pathfinding through stationary robots.
     pub fn reserve_stationary(&mut self, robot_id: u32, pos: GridPos) {
         let now_ms = self.current_time_ms();
-        // Reserve current position for entire planning window (in milliseconds)
-        for offset_ms in 0..self.window_size_ms {
+        let duration_ms = STATIONARY_RESERVATION_MS.min(self.window_size_ms);
+        // Reserve current position for a short stationary window
+        for offset_ms in 0..=duration_ms {
             let time = now_ms + offset_ms;
             self.reservations.insert((pos.0, pos.1, time), robot_id);
         }
         println!("[WHCA*] Reserved stationary position ({},{}) for robot {} ({}ms window)", 
-            pos.0, pos.1, robot_id, self.window_size_ms);
+            pos.0, pos.1, robot_id, duration_ms);
+    }
+
+    /// Reserve a short history of stationary positions (for large robots)
+    pub fn reserve_stationary_history(
+        &mut self,
+        robot_id: u32,
+        positions: &std::collections::VecDeque<GridPos>,
+        current_pos: GridPos,
+    ) {
+        let mut history: Vec<GridPos> = positions.iter().copied().collect();
+        if history.is_empty() {
+            history.push(current_pos);
+        }
+        let start = history.len().saturating_sub(STATIONARY_HISTORY_TILES.max(1));
+        for pos in history[start..].iter() {
+            self.reserve_stationary(robot_id, *pos);
+        }
     }
 
     /// Clear all reservations for a specific robot
@@ -168,6 +193,12 @@ impl WHCAPathfinder {
             }
         }
         false
+    }
+
+    /// Check if a cell is reserved right now (by another robot)
+    pub fn is_reserved_now(&self, pos: GridPos, exclude_robot: Option<u32>) -> bool {
+        let now_ms = self.current_time_ms();
+        self.is_reserved(pos.0, pos.1, now_ms, exclude_robot)
     }
 
     /// Check for edge collision (two robots swapping positions)

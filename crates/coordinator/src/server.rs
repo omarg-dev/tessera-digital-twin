@@ -210,6 +210,7 @@ pub async fn run(session: Session, map: GridMap) {
                         &map,
                         &mut robots,
                         update,
+                        Some(batch.tick),
                         &status_publisher,
                         &mut pathfinder,
                         verbose,
@@ -222,6 +223,7 @@ pub async fn run(session: Session, map: GridMap) {
                     &map,
                     &mut robots,
                     update,
+                    None,
                     &status_publisher,
                     &mut pathfinder,
                     verbose,
@@ -258,7 +260,7 @@ pub async fn run(session: Session, map: GridMap) {
             last_tick = std::time::Instant::now();
             
             if !paused {
-                send_path_commands(&mut robots, &cmd_publisher, &mut next_cmd_id, verbose).await;
+                send_path_commands(&mut robots, &cmd_publisher, &mut next_cmd_id, &mut pathfinder, verbose).await;
             }
         }
         
@@ -320,6 +322,7 @@ async fn send_path_commands(
     robots: &mut HashMap<u32, TrackedRobot>,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
+    pathfinder: &mut PathfinderInstance,
     _verbose: bool,
 ) {
     for (robot_id, robot) in robots.iter_mut() {
@@ -332,6 +335,23 @@ async fn send_path_commands(
             continue;
         };
         
+        // If the next cell is reserved by another robot, wait in place
+        let target_grid = pathfinding::world_to_grid(waypoint);
+        if pathfinder.is_reserved_now(target_grid, Some(*robot_id)) {
+            // Ensure our current cell stays reserved while waiting
+            let current_grid = pathfinding::world_to_grid(robot.last_update.position);
+            pathfinder.reserve_stationary(*robot_id, current_grid);
+            robot.mark_progress();
+            let wait_cmd = PathCmd {
+                cmd_id: *next_cmd_id,
+                robot_id: *robot_id,
+                command: PathCommand::Stop,
+            };
+            *next_cmd_id += 1;
+            cmd_publisher.put(to_vec(&wait_cmd).unwrap()).await.ok();
+            continue;
+        }
+
         // Check if robot reached current waypoint
         let pos = robot.last_update.position;
         let dist = ((pos[0] - waypoint[0]).powi(2) + (pos[2] - waypoint[2]).powi(2)).sqrt();
@@ -430,6 +450,7 @@ async fn handle_robot_update(
     map: &GridMap,
     robots: &mut HashMap<u32, TrackedRobot>,
     update: RobotUpdate,
+    tick: Option<u64>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
@@ -440,9 +461,23 @@ async fn handle_robot_update(
     });
 
     let prev_update = robot.last_update.clone();
-    let validation = validate_robot_update(map, &prev_update, &update);
+    let validation = if robot.skip_next_validation {
+        robot.skip_next_validation = false;
+        Ok(())
+    } else {
+        validate_robot_update(map, &prev_update, &update, robot.last_tick, tick)
+    };
 
     robot.last_update = update;
+    robot.last_tick = tick;
+    let grid_pos = pathfinding::world_to_grid(robot.last_update.position);
+    if robot.recent_positions.back().copied() != Some(grid_pos) {
+        robot.recent_positions.push_back(grid_pos);
+        let max_len = coord_config::whca::STATIONARY_HISTORY_TILES.max(1);
+        while robot.recent_positions.len() > max_len {
+            robot.recent_positions.pop_front();
+        }
+    }
 
     if let Err(reason) = validation {
         task_manager::mark_robot_faulted(
@@ -457,7 +492,13 @@ async fn handle_robot_update(
 }
 
 /// Validate incoming robot update against map and sensor thresholds
-fn validate_robot_update(map: &GridMap, prev: &RobotUpdate, update: &RobotUpdate) -> Result<(), String> {
+fn validate_robot_update(
+    map: &GridMap,
+    prev: &RobotUpdate,
+    update: &RobotUpdate,
+    prev_tick: Option<u64>,
+    current_tick: Option<u64>,
+) -> Result<(), String> {
     if update.position[0].is_nan() || update.position[2].is_nan() {
         return Err("Invalid position: NaN detected".to_string());
     }
@@ -466,8 +507,15 @@ fn validate_robot_update(map: &GridMap, prev: &RobotUpdate, update: &RobotUpdate
     let dx = update.position[0] - prev.position[0];
     let dz = update.position[2] - prev.position[2];
     let dist = (dx * dx + dz * dz).sqrt();
-    if dist > sensor_config::MAX_POSITION_DELTA {
-        return Err(format!("Position jump {:.2} > {:.2}", dist, sensor_config::MAX_POSITION_DELTA));
+    let max_delta = if let (Some(prev_tick), Some(current_tick)) = (prev_tick, current_tick) {
+        let tick_delta = current_tick.saturating_sub(prev_tick).max(1);
+        let dt_secs = tick_delta as f32 * (protocol::config::physics::TICK_INTERVAL_MS as f32 / 1000.0);
+        (coord_config::DEFAULT_SPEED * dt_secs) + sensor_config::MAX_POSITION_DELTA
+    } else {
+        sensor_config::MAX_POSITION_DELTA
+    };
+    if dist > max_delta {
+        return Err(format!("Position jump {:.2} > {:.2}", dist, max_delta));
     }
 
     // Map validation

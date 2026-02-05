@@ -235,11 +235,35 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - **Reserve full paths even at zero velocity**: WHCA* now falls back to `DEFAULT_SPEED` when the robot is idle at assignment time, preventing empty reservations that allow head-on conflicts.
 - **Start + dwell reservations**: Paths now reserve the start cell immediately and the final cell for pickup/dropoff dwell time to reduce late-arrival collisions.
 - **Stationary grid alignment**: Stationary reservations now use `world_to_grid` conversion for consistent cell locking.
+- **Dropoff path reservations**: When pickup completes, the new path to dropoff now clears old reservations and reserves the dropoff path immediately.
+- **Post-dropoff reservations**: Return-to-station paths are reserved immediately, and idle robots reserve their current cell right after task completion.
+- **Edge swap protection**: WHCA* now reserves each segment’s start cell at its departure time, improving head-on swap detection during returns.
+- **Reservation-based waiting**: Waypoint commands now wait in place if the next cell is reserved, preventing large-robot head-on swaps at dropoff.
+- **Wait-position reservation**: Robots now reserve their current cell when waiting on a reserved next cell, preventing the other robot from reserving the occupied tile.
+- **Position jump mitigation**: Position delta checks now scale with update tick gaps and skip one validation after restart to avoid false positives.
+- **Wait command stabilization**: Reservation waits now send `Stop` and mark task progress to avoid cancelling pickup timers and false timeouts.
+- **Stationary history reservations**: Stationary robots now reserve only their last few tiles for a short duration, reducing overly conservative blocking after dropoff.
+- **Random task command**: Scheduler now supports `random`/`rand` to enqueue a random shelf→dropoff task for stress testing.
 
 **Files Updated:**
 
-- `coordinator/src/pathfinding/whca.rs` (fallback speed, start + dwell reservations)
-- `coordinator/src/task_manager.rs` (stationary reservation alignment)
+- `coordinator/src/pathfinding/whca.rs` (fallback speed, start + dwell reservations, segment start reservations)
+- `coordinator/src/task_manager.rs` (stationary reservation alignment, dropoff path reservations, post-dropoff reservations)
+- `coordinator/src/pathfinding/dispatcher.rs` (reservation queries)
+- `coordinator/src/server.rs` (wait-in-place when target cell reserved)
+- `coordinator/src/server.rs` (reserve current cell while waiting)
+- `coordinator/src/server.rs` (Stop + progress on wait)
+- `coordinator/src/server.rs` (tick-aware position delta validation)
+- `coordinator/src/state.rs` (track last tick, skip-next-validation)
+- `coordinator/src/task_manager.rs` (skip validation after restart)
+- `protocol/src/config.rs` (stationary reservation history settings)
+- `coordinator/src/state.rs` (track recent grid history)
+- `coordinator/src/task_manager.rs` (stationary history reservation)
+- `coordinator/src/pathfinding/whca.rs` (history reservation window)
+- `coordinator/src/pathfinding/dispatcher.rs` (history reservation dispatch)
+- `scheduler/src/cli.rs` (random task command)
+- `scheduler/src/server.rs` (random task creation)
+- `scheduler/Cargo.toml` (rand dependency)
 
 **Test Results:** Not run
 

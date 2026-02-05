@@ -292,13 +292,13 @@ pub async fn progress_tasks(
         // Reserve position if robot is stationary (not actively moving)
         match robot.task_stage {
             TaskStage::Idle | TaskStage::Picking | TaskStage::Delivering => {
-                pathfinder.reserve_stationary(*robot_id, robot_pos);
+                pathfinder.reserve_stationary_history(*robot_id, &robot.recent_positions, robot_pos);
             }
             _ => {}
         }
 
         if matches!(robot.last_update.state, RobotState::Faulted | RobotState::Blocked) {
-            pathfinder.reserve_stationary(*robot_id, robot_pos);
+            pathfinder.reserve_stationary_history(*robot_id, &robot.recent_positions, robot_pos);
         }
     }
     
@@ -548,6 +548,8 @@ async fn handle_fault_cleanup(
             robot.replan_attempts = 0;
             robot.task_stage = TaskStage::Idle;
             robot.last_update.state = RobotState::Idle;
+            robot.last_tick = None;
+            robot.skip_next_validation = true;
         }
     }
 }
@@ -750,7 +752,7 @@ async fn handle_picking(
     robot_id: u32,
     task_id: u64,
     map: &GridMap,
-    pathfinder: &impl Pathfinder,
+    pathfinder: &mut PathfinderInstance,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,    next_cmd_id: &mut u64,    verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
@@ -779,6 +781,10 @@ async fn handle_picking(
                     robot.dropoff_location = Some(*last_wp);
                 }
                 
+                // Clear old reservations and reserve new path to dropoff
+                pathfinder.clear_robot_reservations(robot_id);
+                pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
+
                 robot.set_path(result.world_path);
                 
                 if let Some(first_wp) = robot.next_waypoint() {
@@ -911,6 +917,9 @@ async fn handle_delivering(
                 "Robot {} returning to station: {}", robot_id, reason_str
             ));
 
+            // Reserve the return path immediately to avoid head-on conflicts
+            pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
+
             robot.set_path(result.world_path);
             robot.task_stage = TaskStage::ReturningToStation;
             robot.return_reason = Some(return_reason);
@@ -925,6 +934,10 @@ async fn handle_delivering(
                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
             }
         }
+    } else {
+        // Staying idle at dropoff: reserve the current cell immediately
+        let current_grid = pathfinding::world_to_grid(robot.last_update.position);
+        pathfinder.reserve_stationary(robot_id, current_grid);
     }
 }
 
