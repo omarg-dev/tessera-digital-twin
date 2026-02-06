@@ -1,7 +1,7 @@
 //! Logs utility functions
 //! 
 //! Logs are saved in the workspace root's logs directory on a per-session basis.
-//! Structure: logs/YYYY-MM-DD_HH-MM/{crate}.log + merged.log
+//! Structure: logs/SESSION_START/RUN_START/{crate}.log + merged.log
 //! 
 //! Each crate writes to its own file to prevent interleaving.
 //! On shutdown, merge_logs() combines all session logs chronologically,
@@ -17,8 +17,9 @@ use crate::config::{LOG_DIR, LOG_MERGE_EXCLUDE};
 
 /// Cached workspace root path
 static WORKSPACE_ROOT: OnceLock<PathBuf> = OnceLock::new();
-static SESSION_DIR: OnceLock<PathBuf> = OnceLock::new();
-const SESSION_FILE_NAME: &str = "current_session.txt";
+static ORCH_SESSION_DIR: OnceLock<PathBuf> = OnceLock::new();
+const ORCH_SESSION_FILE: &str = "orchestrator_session.txt";
+const RUN_SESSION_FILE: &str = "current_run.txt";
 
 /// Find the workspace root by looking for Cargo.toml with [workspace]
 fn find_workspace_root() -> PathBuf {
@@ -49,17 +50,16 @@ fn get_log_dir() -> PathBuf {
     root.join(LOG_DIR)
 }
 
-/// Get the current session subdirectory (logs/YYYY-MM-DD_HH-MM/)
+/// Initialize or load the orchestrator session directory (logs/SESSION_START/)
 ///
-/// Uses a shared session marker file so all crates write to the same session.
-fn get_session_dir() -> PathBuf {
-    SESSION_DIR
+/// The orchestrator should call `start_orchestrator_session()` once at startup.
+fn get_orchestrator_session_dir() -> PathBuf {
+    ORCH_SESSION_DIR
         .get_or_init(|| {
             let log_dir = get_log_dir();
             let _ = create_dir_all(&log_dir);
-            let session_file = log_dir.join(SESSION_FILE_NAME);
+            let session_file = log_dir.join(ORCH_SESSION_FILE);
 
-            // If a session file exists and directory is present, reuse it.
             if let Ok(existing) = std::fs::read_to_string(&session_file) {
                 let stamp = existing.trim();
                 if !stamp.is_empty() {
@@ -70,30 +70,35 @@ fn get_session_dir() -> PathBuf {
                 }
             }
 
-            // Otherwise create a new session directory and marker file.
             let now = Local::now().format("%Y-%m-%d_%H-%M").to_string();
             let new_dir = log_dir.join(&now);
             let _ = create_dir_all(&new_dir);
 
-            // Try to create the session file atomically; if it already exists,
-            // read and use its value (another process won the race).
-            match OpenOptions::new().create_new(true).write(true).open(&session_file) {
-                Ok(mut file) => {
-                    let _ = writeln!(file, "{}", now);
-                    new_dir
-                }
-                Err(_) => {
-                    if let Ok(existing) = std::fs::read_to_string(&session_file) {
-                        let stamp = existing.trim();
-                        if !stamp.is_empty() {
-                            return log_dir.join(stamp);
-                        }
-                    }
-                    new_dir
-                }
-            }
+            let _ = std::fs::write(&session_file, format!("{}\n", now));
+            new_dir
         })
         .clone()
+}
+
+/// Initialize or load the current run directory (logs/SESSION_START/RUN_START/)
+///
+/// The orchestrator should call `start_run_session()` when `run/up` is executed.
+fn get_run_session_dir() -> PathBuf {
+    let orch_dir = get_orchestrator_session_dir();
+    let session_file = orch_dir.join(RUN_SESSION_FILE);
+
+    if let Ok(existing) = std::fs::read_to_string(&session_file) {
+        let stamp = existing.trim();
+        if !stamp.is_empty() {
+            let existing_dir = orch_dir.join(stamp);
+            if existing_dir.exists() {
+                return existing_dir;
+            }
+        }
+    }
+
+    // If no run session is active, fall back to orchestrator dir
+    orch_dir
 }
 
 /// Formatted timestamp HH:MM:SS.mmm
@@ -104,9 +109,9 @@ pub fn timestamp() -> String {
 
 /// Save a log entry to a per-crate file
 /// 
-/// Creates session subdirectories: logs/YYYY-MM-DD_HH-MM/{crate}.log
+/// Creates run subdirectories: logs/SESSION_START/RUN_START/{crate}.log
 pub fn save_log(crate_name: &str, log: &str) -> String {
-    let session_dir = get_session_dir();
+    let session_dir = get_run_session_dir();
     let crate_lower = crate_name.to_lowercase();
     let log_file_path = session_dir.join(format!("{}.log", crate_lower));
     let log_file_str = log_file_path.to_string_lossy().to_string();
@@ -140,12 +145,12 @@ pub fn save_log(crate_name: &str, log: &str) -> String {
     log_file_str
 }
 
-/// Merge all session log files into a single chronological file with deduplication
+/// Merge all run log files into a single chronological file with deduplication
 /// 
-/// Call this at shutdown to create logs/YYYY-MM-DD_HH-MM/merged.log
+/// Call this at shutdown to create logs/SESSION_START/RUN_START/merged.log
 /// Deduplicates consecutive repeated firmware logs to reduce clutter.
 pub fn merge_logs() {
-    let session_dir = get_session_dir();
+    let session_dir = get_run_session_dir();
     
     if !session_dir.exists() {
         return; // No logs to merge
@@ -256,12 +261,32 @@ pub fn merge_logs() {
         println!("✓ Merged logs into {}", merged_path.display());
     }
 
-    // Clear the session marker so the next run starts a new session
-    let session_file = get_log_dir().join(SESSION_FILE_NAME);
-    if let Ok(existing) = std::fs::read_to_string(&session_file) {
+    // Clear the run marker so the next run starts a new run directory
+    let orch_dir = get_orchestrator_session_dir();
+    let run_file = orch_dir.join(RUN_SESSION_FILE);
+    if let Ok(existing) = std::fs::read_to_string(&run_file) {
         let stamp = existing.trim();
-        if !stamp.is_empty() && get_log_dir().join(stamp) == session_dir {
-            let _ = std::fs::remove_file(&session_file);
+        if !stamp.is_empty() && orch_dir.join(stamp) == session_dir {
+            let _ = std::fs::remove_file(&run_file);
         }
     }
+}
+
+/// Start a new orchestrator session (logs/SESSION_START/)
+///
+/// Call this once when orchestrator starts.
+pub fn start_orchestrator_session() -> PathBuf {
+    get_orchestrator_session_dir()
+}
+
+/// Start a new run session (logs/SESSION_START/RUN_START/)
+///
+/// Call this when `run/up` is executed.
+pub fn start_run_session() -> PathBuf {
+    let orch_dir = get_orchestrator_session_dir();
+    let run_stamp = Local::now().format("%H-%M").to_string();
+    let run_dir = orch_dir.join(&run_stamp);
+    let _ = create_dir_all(&run_dir);
+    let _ = std::fs::write(orch_dir.join(RUN_SESSION_FILE), format!("{}\n", run_stamp));
+    run_dir
 }

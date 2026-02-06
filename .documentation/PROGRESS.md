@@ -228,6 +228,22 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-06: Orchestrator-Scoped Run Log Sessions
+
+**Changes:**
+
+- **Two-level log sessions**: Logs now group by orchestrator start time, with per-run subdirectories created on `run/up`.
+- **Run-level merges**: `merged.log` is created when `kill/down` (or restart/quit) ends a run.
+- **Marker files**: `orchestrator_session.txt` stores the top-level session, `current_run.txt` stores the active run.
+
+**Files Updated:**
+
+- `protocol/src/logs.rs` (orchestrator + run session handling)
+- `orchestrator/src/main.rs` (start/stop run session hooks)
+- `.github/copilot-instructions.md` (logging structure update)
+
+**Test Results:** Not run
+
 ### 2026-02-06: Reservation Wait Deadlock Breaker
 
 **Changes:**

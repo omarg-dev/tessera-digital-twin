@@ -26,6 +26,10 @@ async fn main() {
     println!("║     ORCHESTRATOR - System Controller       ║");
     println!("╚════════════════════════════════════════════╝");
 
+    // Initialize per-orchestrator session directory
+    let orch_dir = logs::start_orchestrator_session();
+    println!("✓ Log session: {}", orch_dir.display());
+
     let session = zenoh::open(zenoh::Config::default())
         .await
         .expect("Failed to open Zenoh session");
@@ -61,11 +65,13 @@ async fn main() {
         match Command::parse(&line) {
             // Process management
             Command::RunAll => {
+                logs::start_run_session();
                 if let Err(e) = processes.start_all() {
                     println!("✗ Failed to run: {}", e);
                 }
             }
             Command::Run(name) => {
+                logs::start_run_session();
                 if let Err(e) = processes.start(&name) {
                     println!("✗ Failed to run {}: {}", name, e);
                 }
@@ -81,6 +87,9 @@ async fn main() {
                 }
             }
             Command::Restart => {
+                println!("Merging logs...");
+                logs::merge_logs();
+                logs::start_run_session();
                 if let Err(e) = processes.restart_all() {
                     println!("✗ Failed to restart: {}", e);
                 }
@@ -129,6 +138,8 @@ async fn main() {
             Command::Help => cli::print_help(),
             Command::Quit => {
                 processes.kill_all();
+                println!("Merging logs...");
+                logs::merge_logs();
                 println!("Goodbye!");
                 break;
             }
