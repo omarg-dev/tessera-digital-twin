@@ -343,6 +343,10 @@ async fn send_path_commands(
             target_grid,
             coord_config::whca::MOVE_TIME_MS,
             Some(*robot_id),
+        )
+        || pathfinder.is_reserved_now(
+            target_grid,
+            Some(*robot_id),
         ) {
             robot.set_wait(target_grid);
 
