@@ -340,6 +340,31 @@ async fn send_path_commands(
         // If the next cell is reserved by another robot, wait in place
         let target_grid = pathfinding::world_to_grid(waypoint);
         if pathfinder.is_reserved_now(target_grid, Some(*robot_id)) {
+            robot.set_wait(target_grid);
+
+            if let Some(wait_secs) = robot.wait_elapsed_secs() {
+                if wait_secs >= collision_config::RESERVATION_WAIT_OVERRIDE_SECS {
+                    // Deadlock breaker: override reservation wait after timeout
+                    logs::save_log(
+                        "Coordinator",
+                        &format!(
+                            "Robot {} overriding reservation wait after {}s",
+                            robot_id, wait_secs
+                        ),
+                    );
+                    robot.clear_wait();
+
+                    let cmd = PathCmd {
+                        cmd_id: *next_cmd_id,
+                        robot_id: *robot_id,
+                        command: build_path_command(robot, waypoint),
+                    };
+                    *next_cmd_id += 1;
+                    cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                    continue;
+                }
+            }
+
             // Ensure our current cell stays reserved while waiting
             let current_grid = pathfinding::world_to_grid(robot.last_update.position);
             pathfinder.reserve_stationary(*robot_id, current_grid);
@@ -362,6 +387,7 @@ async fn send_path_commands(
             // Advance to next waypoint - this is progress!
             robot.advance_path();
             robot.mark_progress();
+            robot.clear_wait();
             
             if let Some(next) = robot.next_waypoint() {
                 let cmd = PathCmd {
@@ -373,6 +399,7 @@ async fn send_path_commands(
                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
             }
         } else {
+            robot.clear_wait();
             // Keep sending current waypoint command
             let cmd = PathCmd {
                 cmd_id: *next_cmd_id,

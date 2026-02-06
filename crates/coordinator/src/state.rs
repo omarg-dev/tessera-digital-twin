@@ -54,6 +54,10 @@ pub struct TrackedRobot {
     pub blocked_since: Option<Instant>,  // When robot entered Blocked state
     pub faulted_since: Option<Instant>,  // When robot entered Faulted state
     pub replan_attempts: u32,  // Consecutive replans due to deviations/collisions
+
+    // Reservation wait tracking (deadlock prevention)
+    pub waiting_since: Option<Instant>,  // When robot started waiting on reservation
+    pub waiting_for: Option<GridPos>,  // Grid cell we are waiting to enter
 }
 
 impl TrackedRobot {
@@ -75,6 +79,8 @@ impl TrackedRobot {
             blocked_since: None,
             faulted_since: None,
             replan_attempts: 0,
+            waiting_since: None,
+            waiting_for: None,
         }
     }
     
@@ -93,17 +99,40 @@ impl TrackedRobot {
         if self.path_index < self.current_path.len() {
             self.path_index += 1;
         }
+        self.clear_wait();
     }
     
     /// Assign a new path
     pub fn set_path(&mut self, path: Vec<[f32; 3]>) {
         self.current_path = path;
         self.path_index = 0;
+        self.clear_wait();
     }
     
     /// Mark progress on current task (resets timeout)
     pub fn mark_progress(&mut self) {
         self.last_progress = Instant::now();
+    }
+
+    /// Mark robot as waiting on a reserved cell
+    pub fn set_wait(&mut self, target: GridPos) {
+        if self.waiting_for != Some(target) {
+            self.waiting_for = Some(target);
+            self.waiting_since = Some(Instant::now());
+        } else if self.waiting_since.is_none() {
+            self.waiting_since = Some(Instant::now());
+        }
+    }
+
+    /// Clear reservation wait state
+    pub fn clear_wait(&mut self) {
+        self.waiting_since = None;
+        self.waiting_for = None;
+    }
+
+    /// How long have we been waiting on a reservation (seconds)
+    pub fn wait_elapsed_secs(&self) -> Option<u64> {
+        self.waiting_since.map(|since| since.elapsed().as_secs())
     }
     
     /// Check if task has timed out (no progress for too long)

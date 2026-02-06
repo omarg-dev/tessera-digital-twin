@@ -330,6 +330,25 @@ pub async fn progress_tasks(
     
     // Third pass: normal task progression
     for (robot_id, robot) in robots.iter_mut() {
+        // Deadlock breaker: if waiting too long on a reserved cell, attempt replan
+        if let Some(wait_secs) = robot.wait_elapsed_secs() {
+            if wait_secs >= collision_config::RESERVATION_WAIT_REPLAN_SECS {
+                let replanned = attempt_replan(
+                    robot,
+                    *robot_id,
+                    map,
+                    pathfinder,
+                    cmd_publisher,
+                    next_cmd_id,
+                    verbose,
+                ).await;
+                if replanned {
+                    robot.clear_wait();
+                    continue;
+                }
+            }
+        }
+
         // Replan immediately if robot has deviated from its path
         if should_replan_for_deviation(robot) {
             let replanned = attempt_replan(
@@ -431,6 +450,7 @@ async fn handle_task_timeouts(
             robot.task_started = None;
             robot.pickup_location = None;
             robot.dropoff_location = None;
+            robot.clear_wait();
             
             // Clear reservations from multi-robot coordination
             pathfinder.clear_robot_reservations(robot_id);
@@ -474,6 +494,7 @@ pub async fn mark_robot_faulted(
     robot.path_index = 0;
     robot.replan_attempts = 0;
     robot.blocked_since = None;
+    robot.clear_wait();
     robot.faulted_since = Some(std::time::Instant::now());
 
     // Update local state to reflect fault
@@ -918,6 +939,7 @@ async fn handle_delivering(
     robot.current_path.clear();
     robot.path_index = 0;
     robot.task_stage = TaskStage::Idle;
+    robot.clear_wait();
 
     // Return to station if no pending tasks or battery is low
     let battery = robot.last_update.battery;

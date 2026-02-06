@@ -228,6 +228,24 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-06: Reservation Wait Deadlock Breaker
+
+**Changes:**
+
+- **Wait tracking**: Coordinator now tracks how long a robot has been waiting on a reserved cell.
+- **Replan on prolonged waits**: After a short wait threshold, robots attempt a replan to break reservation deadlocks.
+- **Wait override**: After a longer timeout, robots override reservation waits and proceed, preventing total gridlock.
+- **Config knobs**: Added `RESERVATION_WAIT_REPLAN_SECS` and `RESERVATION_WAIT_OVERRIDE_SECS` to collision config.
+
+**Files Updated:**
+
+- `coordinator/src/state.rs` (wait tracking fields + helpers)
+- `coordinator/src/server.rs` (wait tracking + override in command dispatch)
+- `coordinator/src/task_manager.rs` (replan on wait timeout, clear waits on reset)
+- `protocol/src/config.rs` (wait timeout constants)
+
+**Test Results:** 103 tests passing
+
 ### 2026-02-06: WHCA* Self-Exclusion + Reservation GC Fix
 
 **Changes:**

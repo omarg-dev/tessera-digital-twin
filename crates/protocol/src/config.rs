@@ -131,6 +131,13 @@ pub mod coordinator {
         
         /// Backoff delay between replan attempts (milliseconds)
         pub const REPLAN_BACKOFF_MS: u64 = 2000;
+
+        /// How long a robot may wait on a reserved cell before forcing a replan (seconds)
+        pub const RESERVATION_WAIT_REPLAN_SECS: u64 = 3;
+
+        /// How long a robot may wait before overriding reservation wait (seconds)
+        /// Use to break deadlocks in tight corridors.
+        pub const RESERVATION_WAIT_OVERRIDE_SECS: u64 = 8;
         
         /// Fault cleanup delay: how long to reserve the faulted position (seconds)
         /// Robot waits this duration before being reset to station
