@@ -228,6 +228,24 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-06: WHCA* Self-Exclusion + Reservation GC Fix
+
+**Changes:**
+
+- **Self-exclusion fix**: WHCA* now excludes the planning robot from its own reservation checks, preventing false “No path to pickup” failures caused by stale self-reservations.
+- **Robot-aware pathfinding methods**: Added `find_path_for_robot()` and `find_path_to_non_walkable_for_robot()` on WHCA* and dispatcher, and routed coordinator task flow through them.
+- **Reservation GC correction**: WHCA* `tick()` now retains reservations until their actual time has elapsed (instead of a fixed 1s window), preventing premature clearing and mid-path collisions.
+- **A* fallback on congestion**: When WHCA* fails due to reservation congestion, planner falls back to A* so tasks still get a valid path.
+
+**Files Updated:**
+
+- `coordinator/src/pathfinding/whca.rs` (self-exclusion API, GC fix, A* fallback)
+- `coordinator/src/pathfinding/dispatcher.rs` (robot-aware pathfinding methods)
+- `coordinator/src/task_manager.rs` (robot-aware pathfinding calls, signature update)
+- `.github/copilot-instructions.md` (logging note, test count)
+
+**Test Results:** 103 tests passing
+
 ### 2026-02-05: WHCA* Collision Prevention Tightening
 
 **Changes:**
