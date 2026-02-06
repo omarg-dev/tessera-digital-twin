@@ -219,6 +219,17 @@ impl WHCAPathfinder {
         self.is_reserved(pos.0, pos.1, now_ms, exclude_robot)
     }
 
+    /// Check if a cell is reserved at a future time (by another robot)
+    pub fn is_reserved_soon(
+        &self,
+        pos: GridPos,
+        offset_ms: u64,
+        exclude_robot: Option<u32>,
+    ) -> bool {
+        let t = self.current_time_ms() + offset_ms;
+        self.is_reserved(pos.0, pos.1, t, exclude_robot)
+    }
+
     /// Check for edge collision (two robots swapping positions)
     fn has_edge_collision(&self, from: GridPos, to: GridPos, time_ms: u64, exclude_robot: Option<u32>) -> bool {
         // Check if another robot is moving from 'to' to 'from' at the same time

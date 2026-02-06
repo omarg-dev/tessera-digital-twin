@@ -75,6 +75,19 @@ impl PathfinderInstance {
         }
     }
 
+    /// Check if a cell is reserved in the near future (multi-robot algorithms only)
+    pub fn is_reserved_soon(
+        &self,
+        pos: GridPos,
+        offset_ms: u64,
+        exclude_robot: Option<u32>,
+    ) -> bool {
+        match self {
+            PathfinderInstance::WHCA(whca) => whca.is_reserved_soon(pos, offset_ms, exclude_robot),
+            _ => false,
+        }
+    }
+
     /// Find path with robot self-exclusion (WHCA* won't collide with own reservations)
     ///
     /// Falls back to A* if WHCA* fails due to reservation congestion.

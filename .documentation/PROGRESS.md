@@ -228,6 +228,21 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-06: Arrival-Time Reservation Check
+
+**Changes:**
+
+- **Reservation forecast**: Coordinator now checks if the next cell will be reserved at arrival time (not just “reserved now”), reducing head-on collisions.
+- **Dispatcher support**: Added `is_reserved_soon()` to WHCA* and dispatcher for arrival-time checks.
+
+**Files Updated:**
+
+- `coordinator/src/pathfinding/whca.rs` (future reservation checks)
+- `coordinator/src/pathfinding/dispatcher.rs` (dispatch helper)
+- `coordinator/src/server.rs` (arrival-time wait check)
+
+**Test Results:** Not run
+
 ### 2026-02-06: Reservation Footprint Reduction
 
 **Changes:**

@@ -337,9 +337,13 @@ async fn send_path_commands(
             continue;
         };
         
-        // If the next cell is reserved by another robot, wait in place
+        // If the next cell will be reserved at arrival time, wait in place
         let target_grid = pathfinding::world_to_grid(waypoint);
-        if pathfinder.is_reserved_now(target_grid, Some(*robot_id)) {
+        if pathfinder.is_reserved_soon(
+            target_grid,
+            coord_config::whca::MOVE_TIME_MS,
+            Some(*robot_id),
+        ) {
             robot.set_wait(target_grid);
 
             if let Some(wait_secs) = robot.wait_elapsed_secs() {
