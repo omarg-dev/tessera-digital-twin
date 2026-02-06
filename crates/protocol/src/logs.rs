@@ -1,10 +1,10 @@
 //! Logs utility functions
 //! 
-//! Logs are saved in the workspace root's logs directory on a per-run basis.
+//! Logs are saved in the workspace root's logs directory on a per-session basis.
 //! Structure: logs/YYYY-MM-DD_HH-MM/{crate}.log + merged.log
 //! 
 //! Each crate writes to its own file to prevent interleaving.
-//! On shutdown, merge_logs() combines all hourly logs chronologically,
+//! On shutdown, merge_logs() combines all session logs chronologically,
 //! with deduplication of repetitive firmware logs.
 
 use chrono::Local;
@@ -18,6 +18,7 @@ use crate::config::{LOG_DIR, LOG_MERGE_EXCLUDE};
 /// Cached workspace root path
 static WORKSPACE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static SESSION_DIR: OnceLock<PathBuf> = OnceLock::new();
+const SESSION_FILE_NAME: &str = "current_session.txt";
 
 /// Find the workspace root by looking for Cargo.toml with [workspace]
 fn find_workspace_root() -> PathBuf {
@@ -49,11 +50,50 @@ fn get_log_dir() -> PathBuf {
 }
 
 /// Get the current session subdirectory (logs/YYYY-MM-DD_HH-MM/)
+///
+/// Uses a shared session marker file so all crates write to the same session.
 fn get_session_dir() -> PathBuf {
-    SESSION_DIR.get_or_init(|| {
-        let now = Local::now();
-        get_log_dir().join(now.format("%Y-%m-%d_%H-%M").to_string())
-    }).clone()
+    SESSION_DIR
+        .get_or_init(|| {
+            let log_dir = get_log_dir();
+            let _ = create_dir_all(&log_dir);
+            let session_file = log_dir.join(SESSION_FILE_NAME);
+
+            // If a session file exists and directory is present, reuse it.
+            if let Ok(existing) = std::fs::read_to_string(&session_file) {
+                let stamp = existing.trim();
+                if !stamp.is_empty() {
+                    let existing_dir = log_dir.join(stamp);
+                    if existing_dir.exists() {
+                        return existing_dir;
+                    }
+                }
+            }
+
+            // Otherwise create a new session directory and marker file.
+            let now = Local::now().format("%Y-%m-%d_%H-%M").to_string();
+            let new_dir = log_dir.join(&now);
+            let _ = create_dir_all(&new_dir);
+
+            // Try to create the session file atomically; if it already exists,
+            // read and use its value (another process won the race).
+            match OpenOptions::new().create_new(true).write(true).open(&session_file) {
+                Ok(mut file) => {
+                    let _ = writeln!(file, "{}", now);
+                    new_dir
+                }
+                Err(_) => {
+                    if let Ok(existing) = std::fs::read_to_string(&session_file) {
+                        let stamp = existing.trim();
+                        if !stamp.is_empty() {
+                            return log_dir.join(stamp);
+                        }
+                    }
+                    new_dir
+                }
+            }
+        })
+        .clone()
 }
 
 /// Formatted timestamp HH:MM:SS.mmm
@@ -64,7 +104,7 @@ pub fn timestamp() -> String {
 
 /// Save a log entry to a per-crate file
 /// 
-/// Creates hourly subdirectories: logs/YYYY-MM-DD_HH/{crate}.log
+/// Creates session subdirectories: logs/YYYY-MM-DD_HH-MM/{crate}.log
 pub fn save_log(crate_name: &str, log: &str) -> String {
     let session_dir = get_session_dir();
     let crate_lower = crate_name.to_lowercase();
@@ -214,5 +254,14 @@ pub fn merge_logs() {
             let _ = writeln!(merged_file, "{}", line);
         }
         println!("✓ Merged logs into {}", merged_path.display());
+    }
+
+    // Clear the session marker so the next run starts a new session
+    let session_file = get_log_dir().join(SESSION_FILE_NAME);
+    if let Ok(existing) = std::fs::read_to_string(&session_file) {
+        let stamp = existing.trim();
+        if !stamp.is_empty() && get_log_dir().join(stamp) == session_dir {
+            let _ = std::fs::remove_file(&session_file);
+        }
     }
 }

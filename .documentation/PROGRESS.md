@@ -246,6 +246,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 **Test Results:** 103 tests passing
 
+### 2026-02-06: Per-Session Log Directory Stabilization
+
+**Changes:**
+
+- **Session marker**: Added a shared `current_session.txt` marker so all crates write into the same session directory instead of splitting by start-minute.
+- **Session cleanup**: `merge_logs()` now clears the session marker to ensure the next run starts a new session directory.
+- **Doc alignment**: Log module comments updated to reflect session-based behavior.
+
+**Files Updated:**
+
+- `protocol/src/logs.rs` (session marker, cleanup on merge)
+
+**Test Results:** Not run
+
 ### 2026-02-05: WHCA* Collision Prevention Tightening
 
 **Changes:**
