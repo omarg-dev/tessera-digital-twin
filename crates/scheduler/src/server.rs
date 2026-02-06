@@ -77,7 +77,7 @@ pub async fn run(session: Session) {
 
         // Allocate tasks
         if !paused {
-            allocate_tasks(&mut queue, &allocator, &mut robots, &assignment_pub, verbose).await;
+            allocate_tasks(&mut queue, &allocator, &mut robots, &map, &assignment_pub, verbose).await;
         }
 
         // Broadcast queue state
@@ -291,6 +291,7 @@ async fn allocate_tasks(
     queue: &mut dyn TaskQueue,
     allocator: &dyn Allocator,
     robots: &mut HashMap<u32, RobotInfo>,
+    map: &GridMap,
     publisher: &zenoh::pubsub::Publisher<'_>,
     verbose: bool,
 ) {
@@ -298,7 +299,17 @@ async fn allocate_tasks(
 
     for task_id in pending_ids {
         let Some(task) = queue.get(task_id).cloned() else { continue };
-        let Some(robot_id) = allocator.allocate(&task, robots) else { continue };
+
+        let Some(pickup) = task.pickup_location() else { continue };
+        let mut reachable_robots: HashMap<u32, RobotInfo> = HashMap::new();
+        for (id, robot) in robots.iter() {
+            let start = world_to_grid(robot.position);
+            if is_reachable(map, start, pickup) {
+                reachable_robots.insert(*id, robot.clone());
+            }
+        }
+
+        let Some(robot_id) = allocator.allocate(&task, &reachable_robots) else { continue };
 
         // Mark robot assigned
         if let Some(robot) = robots.get_mut(&robot_id) {
@@ -318,6 +329,64 @@ async fn allocate_tasks(
             }
         }
     }
+}
+
+fn world_to_grid(pos: [f32; 3]) -> (usize, usize) {
+    ((pos[0] + 0.5) as usize, (pos[2] + 0.5) as usize)
+}
+
+fn is_reachable(map: &GridMap, start: (usize, usize), goal: (usize, usize)) -> bool {
+    if start.0 >= map.width || start.1 >= map.height {
+        return false;
+    }
+    if !map.is_walkable(start.0, start.1) {
+        return false;
+    }
+
+    let mut goals: Vec<(usize, usize)> = Vec::new();
+    if map.is_walkable(goal.0, goal.1) {
+        goals.push(goal);
+    } else {
+        for (dx, dy) in [(1i32,0i32), (-1,0), (0,1), (0,-1)] {
+            let nx = goal.0 as i32 + dx;
+            let ny = goal.1 as i32 + dy;
+            if nx < 0 || ny < 0 { continue; }
+            let nx = nx as usize;
+            let ny = ny as usize;
+            if nx >= map.width || ny >= map.height { continue; }
+            if map.is_walkable(nx, ny) {
+                goals.push((nx, ny));
+            }
+        }
+    }
+    if goals.is_empty() {
+        return false;
+    }
+
+    let mut visited = vec![vec![false; map.width]; map.height];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(start);
+    visited[start.1][start.0] = true;
+
+    while let Some((x, y)) = queue.pop_front() {
+        if goals.iter().any(|g| g.0 == x && g.1 == y) {
+            return true;
+        }
+        for (dx, dy) in [(1i32,0i32), (-1,0), (0,1), (0,-1)] {
+            let nx = x as i32 + dx;
+            let ny = y as i32 + dy;
+            if nx < 0 || ny < 0 { continue; }
+            let nx = nx as usize;
+            let ny = ny as usize;
+            if nx >= map.width || ny >= map.height { continue; }
+            if visited[ny][nx] { continue; }
+            if !map.is_walkable(nx, ny) { continue; }
+            visited[ny][nx] = true;
+            queue.push_back((nx, ny));
+        }
+    }
+
+    false
 }
 
 async fn broadcast_state(

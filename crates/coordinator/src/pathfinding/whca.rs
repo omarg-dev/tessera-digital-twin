@@ -36,6 +36,7 @@ use protocol::config::coordinator::whca::{
     MOVE_TIME_MS,
     STATIONARY_HISTORY_TILES,
     STATIONARY_RESERVATION_MS,
+    COLLISION_BUFFER_TILES,
 };
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
@@ -68,6 +69,20 @@ impl WHCAPathfinder {
     /// Get current time in milliseconds since start
     fn current_time_ms(&self) -> u64 {
         self.start_time.elapsed().as_millis() as u64
+    }
+
+    fn reserve_cell_with_buffer(&mut self, pos: GridPos, time_ms: u64, robot_id: u32) {
+        let radius = COLLISION_BUFFER_TILES as i32;
+        for dx in -radius..=radius {
+            for dy in -radius..=radius {
+                if dx.abs() + dy.abs() > radius {
+                    continue;
+                }
+                let x = (pos.0 as i32 + dx).max(0) as usize;
+                let y = (pos.1 as i32 + dy).max(0) as usize;
+                self.reservations.insert((x, y, time_ms), robot_id);
+            }
+        }
     }
 
     /// Clear old reservations
@@ -103,7 +118,7 @@ impl WHCAPathfinder {
             // Reserve the current cell at the segment start time
             for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
                 let t = (time_ms as i64 + offset) as u64;
-                self.reservations.insert((from.0, from.1, t), robot_id);
+                self.reserve_cell_with_buffer(from, t, robot_id);
             }
             
             // Calculate travel time for this segment
@@ -117,7 +132,7 @@ impl WHCAPathfinder {
             // Reserve destination cell at predicted arrival time with tolerance
             for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
                 let t = (time_ms as i64 + offset) as u64;
-                self.reservations.insert((to.0, to.1, t), robot_id);
+                self.reserve_cell_with_buffer(to, t, robot_id);
             }
         }
 
@@ -127,7 +142,7 @@ impl WHCAPathfinder {
         if let Some(&end) = path.last() {
             for offset_ms in 0..=dwell_ms {
                 let t = time_ms + offset_ms;
-                self.reservations.insert((end.0, end.1, t), robot_id);
+                self.reserve_cell_with_buffer(end, t, robot_id);
             }
         }
         
@@ -147,7 +162,7 @@ impl WHCAPathfinder {
         // Reserve current position for a short stationary window
         for offset_ms in 0..=duration_ms {
             let time = now_ms + offset_ms;
-            self.reservations.insert((pos.0, pos.1, time), robot_id);
+            self.reserve_cell_with_buffer(pos, time, robot_id);
         }
         println!("[WHCA*] Reserved stationary position ({},{}) for robot {} ({}ms window)", 
             pos.0, pos.1, robot_id, duration_ms);

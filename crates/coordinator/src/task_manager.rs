@@ -30,6 +30,10 @@ pub enum AssignmentResult {
     Accepted { waypoints: usize, cost: u32 },
     /// Robot not found
     RobotNotFound,
+    /// Robot is faulted or blocked
+    RobotFaultedOrBlocked,
+    /// Robot is busy with another task
+    RobotBusy,
     /// Robot returning to station with low battery
     LowBatteryReturn { battery: f32 },
     /// No pickup location in task
@@ -67,6 +71,14 @@ pub async fn handle_task_assignment(
         send_task_failure(status_publisher, task.id, robot_id, format!("Robot {} not found", robot_id)).await;
         return AssignmentResult::RobotNotFound;
     };
+
+    // Reject assignments for faulted/blocked robots
+    if matches!(robot.last_update.state, RobotState::Faulted | RobotState::Blocked) {
+        println!("✗ Task {} rejected: Robot {} is {:?}", task.id, robot_id, robot.last_update.state);
+        send_task_failure(status_publisher, task.id, robot_id,
+            format!("Robot {:?}", robot.last_update.state)).await;
+        return AssignmentResult::RobotFaultedOrBlocked;
+    }
     
     // If robot is returning to station due to no pending tasks, interrupt the return
     if robot.task_stage == TaskStage::ReturningToStation && robot.return_reason == Some(ReturnReason::NoPendingTasks) {
@@ -94,6 +106,20 @@ pub async fn handle_task_assignment(
                 format!("Robot returning to station (low battery: {:.1}%)", battery)).await;
             return AssignmentResult::LowBatteryReturn { battery };
         }
+    }
+
+    // Reject assignments if robot is mid-task (except returning/charging with enough battery)
+    let battery = robot.last_update.battery;
+    let eligible_for_new_task = matches!(robot.task_stage, TaskStage::Idle)
+        || (robot.task_stage == TaskStage::ReturningToStation
+            && robot.return_reason == Some(ReturnReason::NoPendingTasks))
+        || (matches!(robot.last_update.state, RobotState::Charging)
+            && battery >= battery_config::MIN_BATTERY_FOR_TASK);
+    if !eligible_for_new_task {
+        println!("✗ Task {} rejected: Robot {} busy ({:?})", task.id, robot_id, robot.task_stage);
+        send_task_failure(status_publisher, task.id, robot_id,
+            format!("Robot busy ({:?})", robot.task_stage)).await;
+        return AssignmentResult::RobotBusy;
     }
     
     // Get pickup location

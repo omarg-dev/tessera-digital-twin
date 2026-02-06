@@ -150,6 +150,8 @@ pub async fn run(session: Session, map: GridMap) {
                         format!("rejected: low battery ({:.1}%)", battery)
                     }
                     task_manager::AssignmentResult::RobotNotFound => "rejected: robot not found".to_string(),
+                    task_manager::AssignmentResult::RobotFaultedOrBlocked => "rejected: robot faulted/blocked".to_string(),
+                    task_manager::AssignmentResult::RobotBusy => "rejected: robot busy".to_string(),
                     task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
                     task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
                     task_manager::AssignmentResult::InvalidTileCombination => "rejected: invalid pickup/dropoff".to_string(),
@@ -514,8 +516,9 @@ fn validate_robot_update(
     } else {
         sensor_config::MAX_POSITION_DELTA
     };
-    if dist > max_delta {
-        return Err(format!("Position jump {:.2} > {:.2}", dist, max_delta));
+    let soft_delta = max_delta * sensor_config::POSITION_JUMP_SOFT_LIMIT_MULT;
+    if dist > soft_delta {
+        return Err(format!("Position jump {:.2} > {:.2}", dist, soft_delta));
     }
 
     // Map validation
@@ -529,8 +532,8 @@ fn validate_robot_update(
     let cx = update.position[0] - center[0];
     let cz = update.position[2] - center[2];
     let offset = (cx * cx + cz * cz).sqrt();
-    if offset > sensor_config::GRID_VALIDATION_TOLERANCE {
-        return Err(format!("Off-grid position offset {:.2} > {:.2}", offset, sensor_config::GRID_VALIDATION_TOLERANCE));
+    if offset > sensor_config::GRID_VALIDATION_SOFT_LIMIT {
+        return Err(format!("Off-grid position offset {:.2} > {:.2}", offset, sensor_config::GRID_VALIDATION_SOFT_LIMIT));
     }
 
     Ok(())

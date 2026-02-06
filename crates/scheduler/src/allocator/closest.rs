@@ -39,15 +39,13 @@ impl Allocator for ClosestIdleAllocator {
         let mut best_distance = f32::MAX;
 
         for robot in robots.values() {
-            // Skip unavailable robots
-            // Allow Idle or Charging robots, plus robots returning to station (MovingToPickup/MovingToDrop)
-            // so they can accept new tasks immediately.
+                // Skip unavailable robots
+                // Allow Idle or Charging robots, plus robots returning to station.
             let available_state = matches!(
                 robot.state,
                 RobotState::Idle
                     | RobotState::Charging
-                    | RobotState::MovingToPickup
-                    | RobotState::MovingToDrop
+                    | RobotState::MovingToStation
             );
             if !available_state { continue; }
             if robot.assigned_task.is_some() { continue; }

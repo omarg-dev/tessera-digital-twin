@@ -21,6 +21,9 @@ pub const LAYOUT_FILE_PATH: &str = "assets/data/layout2.txt";
 /// but falls back to relative path which works when run from workspace root
 pub const LOG_DIR: &str = "logs";
 
+/// Crate log files to exclude when merging (lowercase crate names)
+pub const LOG_MERGE_EXCLUDE: &[&str] = &["firmware"];
+
 /// Physics simulation settings
 pub mod physics {
     /// Physics tick interval in milliseconds (20 Hz)
@@ -107,6 +110,9 @@ pub mod coordinator {
 
         /// How long to reserve stationary tiles (milliseconds)
         pub const STATIONARY_RESERVATION_MS: u64 = 1500;
+
+        /// Collision buffer radius (tiles) reserved around each reserved cell
+        pub const COLLISION_BUFFER_TILES: usize = 1;
     }
 
     /// Collision detection and avoidance settings
@@ -136,10 +142,16 @@ pub mod coordinator {
         /// Maximum position change per physics tick (world units)
         /// Used to detect teleportation/chaos drift anomalies
         pub const MAX_POSITION_DELTA: f32 = 0.5;
+
+        /// Soft limit multiplier for position jumps (allow small overshoots)
+        pub const POSITION_JUMP_SOFT_LIMIT_MULT: f32 = 2.0;
         
         /// Tolerance for position validation against grid (world units)
         /// Robot center can be this far from grid cell center
         pub const GRID_VALIDATION_TOLERANCE: f32 = 0.6;
+
+        /// Soft limit for grid validation (allow small overshoots)
+        pub const GRID_VALIDATION_SOFT_LIMIT: f32 = 0.8;
     }
 }
 

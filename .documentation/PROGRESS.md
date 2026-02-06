@@ -245,6 +245,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - **Stationary history reservations**: Stationary robots now reserve only their last few tiles for a short duration, reducing overly conservative blocking after dropoff.
 - **Random task command**: Scheduler now supports `random`/`rand` to enqueue a random shelf→dropoff task for stress testing.
 - **Scheduler layout sync**: Scheduler now reads the shared `LAYOUT_FILE_PATH` so layout changes apply consistently.
+- **Assignment gating**: Coordinator now rejects task assignments for faulted/blocked/busy robots, but still allows return-to-station (non-low-battery) robots.
+- **Collision buffer**: WHCA* now reserves a small buffer around reserved cells to reduce multi-robot contact in tight corridors.
+- **Softer fault thresholds**: Position jump and off-grid checks now use soft limits to reduce false positives under load.
+- **Scheduler reachability filter**: Tasks now allocate only to robots that can reach the pickup tile (BFS-based), reducing immediate "no path" failures.
+- **Full CLI map rendering**: Scheduler map output now renders the full grid without truncation.
+- **Per-run log sessions**: Logs now write to a per-initialization directory (YYYY-MM-DD_HH-MM) instead of hourly buckets.
+- **Merge exclusions**: Log merges can exclude specific crates via config (e.g., firmware).
 
 **Files Updated:**
 
@@ -266,6 +273,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - `scheduler/src/server.rs` (random task creation)
 - `scheduler/Cargo.toml` (rand dependency)
 - `scheduler/src/server.rs` (use shared layout config)
+- `coordinator/src/task_manager.rs` (assignment eligibility gating)
+- `coordinator/src/pathfinding/whca.rs` (collision buffer reservations)
+- `protocol/src/config.rs` (collision buffer + soft limits)
+- `coordinator/src/server.rs` (soft limit validation)
+- `scheduler/src/server.rs` (reachability filter for allocation)
+- `scheduler/src/allocator/closest.rs` (availability state alignment)
+- `scheduler/src/cli.rs` (full map rendering)
+- `protocol/src/logs.rs` (per-run logging, merge exclusions)
+- `protocol/src/config.rs` (merge exclusion list)
 
 **Test Results:** Not run
 

@@ -322,7 +322,7 @@ pub fn print_history(queue: &dyn TaskQueue) {
 
 /// Print ASCII map of the warehouse
 pub fn print_map(map: &GridMap, robots: &HashMap<u32, RobotInfo>) {
-    println!("\n┌─ WAREHOUSE MAP ({}x{}) ─────────────────────────────┐", map.width, map.height);
+    let row_label_width = map.height.saturating_sub(1).to_string().len();
     
     // Build a grid
     let mut grid = vec![vec![' '; map.width]; map.height];
@@ -351,26 +351,27 @@ pub fn print_map(map: &GridMap, robots: &HashMap<u32, RobotInfo>) {
         }
     }
     
-    // Print header row with column numbers
-    print!("│   ");
-    for x in 0..map.width.min(20) {
-        print!("{}", x % 10);
-    }
-    if map.width > 20 { print!("..."); }
-    println!();
+    // Build header line and borders
+    let col_header: String = (0..map.width)
+        .map(|x| char::from(b'0' + (x % 10) as u8))
+        .collect();
+    let header_line = format!(" {:>width$} {}", "", col_header, width = row_label_width);
+    let border = "─".repeat(header_line.len());
+    let title = format!(" WAREHOUSE MAP ({}x{})", map.width, map.height);
+    let title_line = format!("{}{}", title, " ".repeat(border.len().saturating_sub(title.len())));
+
+    println!("\n┌{}┐", border);
+    println!("│{}│", title_line);
+    println!("│{}│", header_line);
     
     // Print grid
-    for (y, row) in grid.iter().enumerate().take(25) {
-        print!("│ {:2} ", y);
-        for ch in row.iter().take(20) {
-            print!("{}", ch);
-        }
-        if map.width > 20 { print!("..."); }
-        println!();
+    for (y, row) in grid.iter().enumerate() {
+        let row_str: String = row.iter().collect();
+        let line = format!(" {:>width$} {}", y, row_str, width = row_label_width);
+        println!("│{}│", line);
     }
-    if map.height > 25 { println!("│ ... ({} more rows)", map.height - 25); }
-    
-    println!("└──────────────────────────────────────────────────┘");
+
+    println!("└{}┘", border);
     println!("  Legend: # Wall, S Shelf, D Dropoff, _ Station, R Robot, . Ground");
     println!();
 }
