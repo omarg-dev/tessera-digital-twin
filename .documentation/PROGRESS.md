@@ -146,18 +146,23 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 **Planned Features:**
 
-- [ ] Performance metrics dashboard
-- [ ] Performance optimization (benchmark 1000+ robots)
 - [ ] Cargo/package entity tracking (visual cargo on robots)
 - [ ] UI polish (better HUD, status panels)
+- [ ] Performance metrics dashboard (FPS, task throughput, etc.)
+
+## MVP Showcase
+
+A polished demo showcasing the core features of the distributed architecture, pathfinding, and task management.
+
 - [ ] Demo scenarios (scripted warehouse operations)
 - [ ] Video recording / GIF generation
 - [ ] README with architecture diagrams
 - [ ] Documentation cleanup
+- [ ] Performance optimization (benchmark 1000+ robots)
 
-**Future Firmware Enhancements:**
+**Phase 6: Future Firmware Enhancements:**
 
-These improvements would increase simulation realism but are LOW priority (Phase 5+):
+These improvements would increase simulation realism but are not needed for an MVP (Phase 5+):
 
 - [ ] **Non-linear Battery Model** (Low priority)
   - Exponential discharge curves (faster drain at low SOC)
@@ -166,13 +171,12 @@ These improvements would increase simulation realism but are LOW priority (Phase
   - **Current**: Linear drain with random variation (0.03-0.07 %/sec)
   - **Impact**: More realistic battery behavior for logistics planning
 
-- [ ] **Error State Recovery** (Medium priority, Phase 5)
-  - Add `Blocked` state when robot cannot progress toward waypoint
-  - Add `Faulted` state for simulated hardware failures
-  - Automatic retry logic (backoff, alternate paths)
-  - Diagnostic reporting to coordinator
-  - **Current**: Robots either succeed or timeout (30s no-progress)
-  - **Impact**: Better mirrors real AMR behavior with recoverable errors
+- [ ] **WHCA* Pathfinding Optimization** (Medium priority, Phase 5)
+  - Use actual robot execution time instead of coordinator ticks
+  - Only advance WHCA* time when robots change grid cells
+  - Requires robot state notifications to coordinator
+  - **Current**: WHCA* uses fixed tick-based timing, causing reservation mismatches
+  - **Impact**: More accurate collision avoidance under load
 
 **Rationale:** These enhancements are "nice to have" for maximum realism, but the current firmware implementation is sufficient for demonstrating the distributed architecture, pathfinding, and task management capabilities. Priority should remain on Phase 5 polish (UI, performance, demo scenarios) before diving into firmware micro-optimizations.
 
