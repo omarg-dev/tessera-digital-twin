@@ -74,6 +74,39 @@ impl PathfinderInstance {
             _ => false,
         }
     }
+
+    /// Find path with robot self-exclusion (WHCA* won't collide with own reservations)
+    ///
+    /// Falls back to A* if WHCA* fails due to reservation congestion.
+    /// For A* strategy, robot_id is ignored (no reservation table).
+    pub fn find_path_for_robot(
+        &self,
+        map: &GridMap,
+        start: GridPos,
+        goal: GridPos,
+        robot_id: u32,
+    ) -> Option<PathResult> {
+        match self {
+            PathfinderInstance::AStar(astar) => astar.find_path(map, start, goal),
+            PathfinderInstance::WHCA(whca) => whca.find_path_for_robot(map, start, goal, robot_id),
+        }
+    }
+
+    /// Find path to non-walkable tile with robot self-exclusion
+    ///
+    /// Falls back to A* if WHCA* fails due to reservation congestion.
+    pub fn find_path_to_non_walkable_for_robot(
+        &self,
+        map: &GridMap,
+        start: GridPos,
+        goal: GridPos,
+        robot_id: u32,
+    ) -> Option<PathResult> {
+        match self {
+            PathfinderInstance::AStar(astar) => astar.find_path_to_non_walkable(map, start, goal),
+            PathfinderInstance::WHCA(whca) => whca.find_path_to_non_walkable_for_robot(map, start, goal, robot_id),
+        }
+    }
 }
 
 impl Pathfinder for PathfinderInstance {

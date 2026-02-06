@@ -87,11 +87,14 @@ impl WHCAPathfinder {
 
     /// Clear old reservations
     ///
-    /// Called periodically to remove stale reservations
+    /// Called periodically to remove stale reservations.
+    /// Keeps reservations that are still within the planning window.
     pub fn tick(&mut self) {
         let now_ms = self.current_time_ms();
-        // Clear reservations more than 1 second old
-        self.reservations.retain(|&(_, _, t), _| t + 1000 >= now_ms);
+        // Keep reservations that haven't expired yet (future or recent)
+        // A reservation at time t is stale if t < now - tolerance
+        let cutoff = now_ms.saturating_sub(RESERVATION_TOLERANCE_MS as u64 + MOVE_TIME_MS);
+        self.reservations.retain(|&(_, _, t), _| t >= cutoff);
     }
 
     /// Reserve a path for a robot in the reservation table
@@ -373,6 +376,87 @@ impl WHCAPathfinder {
     }
 }
 
+impl WHCAPathfinder {
+    /// Find path with self-exclusion (robot won't collide with its own reservations)
+    ///
+    /// This is the primary method to use from the coordinator/task manager.
+    /// Falls back to plain A* if WHCA* fails (reservation congestion).
+    pub fn find_path_for_robot(
+        &self,
+        map: &GridMap,
+        start: GridPos,
+        goal: GridPos,
+        robot_id: u32,
+    ) -> Option<PathResult> {
+        // Try WHCA* first (respects reservations, excludes self)
+        if let Some(result) = self.find_path_whca(map, start, goal, Some(robot_id)) {
+            return Some(result);
+        }
+        // Fallback: plain A* ignoring reservations (better than no path)
+        println!("[WHCA*] Reservation-aware search failed for robot {}, falling back to A*", robot_id);
+        super::AStarPathfinder::new().find_path(map, start, goal)
+    }
+
+    /// Find path to non-walkable tile (e.g. shelf) with self-exclusion
+    ///
+    /// Falls back to A* if WHCA* fails.
+    pub fn find_path_to_non_walkable_for_robot(
+        &self,
+        map: &GridMap,
+        start: GridPos,
+        goal: GridPos,
+        robot_id: u32,
+    ) -> Option<PathResult> {
+        // Start must be walkable
+        if !map.is_walkable(start.0, start.1) {
+            return None;
+        }
+
+        // For walkable goals, use normal robot-aware pathfinding
+        if map.is_walkable(goal.0, goal.1) {
+            return self.find_path_for_robot(map, start, goal, robot_id);
+        }
+
+        // Goal is non-walkable - find path to adjacent tile
+        if start == goal || is_adjacent(start, goal) {
+            return Some(PathResult {
+                grid_path: vec![start],
+                world_path: grid_to_world_path(&[start]),
+                cost: 0,
+            });
+        }
+
+        // Try WHCA* to each walkable neighbor, pick cheapest
+        let mut best_path: Option<PathResult> = None;
+        let mut best_cost = u32::MAX;
+
+        for (dx, dy) in DIRS {
+            let nx = goal.0 as i32 + dx;
+            let ny = goal.1 as i32 + dy;
+            if nx < 0 || ny < 0 { continue; }
+            let (nx, ny) = (nx as usize, ny as usize);
+            if nx >= map.width || ny >= map.height { continue; }
+            if !map.is_walkable(nx, ny) { continue; }
+
+            // Use self-exclusion for each attempt
+            if let Some(path) = self.find_path_whca(map, start, (nx, ny), Some(robot_id)) {
+                if path.cost < best_cost {
+                    best_cost = path.cost;
+                    best_path = Some(path);
+                }
+            }
+        }
+
+        // Fallback: try plain A* if WHCA* couldn't find any path
+        if best_path.is_none() {
+            println!("[WHCA*] Non-walkable search failed for robot {}, falling back to A*", robot_id);
+            best_path = super::AStarPathfinder::new().find_path_to_non_walkable(map, start, goal);
+        }
+
+        best_path
+    }
+}
+
 impl Default for WHCAPathfinder {
     fn default() -> Self {
         Self::with_defaults()
@@ -386,7 +470,9 @@ impl Pathfinder for WHCAPathfinder {
         start: GridPos,
         goal: GridPos,
     ) -> Option<PathResult> {
+        // Trait method has no robot_id context — try without exclusion, fallback to A*
         self.find_path_whca(map, start, goal, None)
+            .or_else(|| super::AStarPathfinder::new().find_path(map, start, goal))
     }
 
     fn find_path_to_non_walkable(
@@ -399,13 +485,9 @@ impl Pathfinder for WHCAPathfinder {
         if !map.is_walkable(start.0, start.1) {
             return None;
         }
-
-        // For walkable goals, use normal pathfinding
         if map.is_walkable(goal.0, goal.1) {
             return self.find_path(map, start, goal);
         }
-
-        // Goal is non-walkable - find path to adjacent tile
         if start == goal || is_adjacent(start, goal) {
             return Some(PathResult {
                 grid_path: vec![start],
@@ -413,39 +495,8 @@ impl Pathfinder for WHCAPathfinder {
                 cost: 0,
             });
         }
-
-        // Find closest walkable neighbor of goal
-        let mut best_path: Option<PathResult> = None;
-        let mut best_cost = u32::MAX;
-
-        for (dx, dy) in DIRS {
-            let nx = goal.0 as i32 + dx;
-            let ny = goal.1 as i32 + dy;
-
-            if nx < 0 || ny < 0 {
-                continue;
-            }
-
-            let nx = nx as usize;
-            let ny = ny as usize;
-
-            if nx >= map.width || ny >= map.height {
-                continue;
-            }
-
-            if !map.is_walkable(nx, ny) {
-                continue;
-            }
-
-            if let Some(path) = self.find_path(map, start, (nx, ny)) {
-                if path.cost < best_cost {
-                    best_cost = path.cost;
-                    best_path = Some(path);
-                }
-            }
-        }
-
-        best_path
+        // Fallback: use A* for non-walkable since we have no robot_id
+        super::AStarPathfinder::new().find_path_to_non_walkable(map, start, goal)
     }
 
     fn find_path_avoiding(
@@ -456,8 +507,8 @@ impl Pathfinder for WHCAPathfinder {
         _other_robots: &[(u32, GridPos)],
     ) -> Option<PathResult> {
         // The reservation table already handles collision avoidance
-        // other_robots parameter is for compatibility with trait
-        self.find_path_whca(map, start, goal, None)
+        // No robot_id available via trait — fallback included
+        self.find_path(map, start, goal)
     }
 
     fn name(&self) -> &'static str {

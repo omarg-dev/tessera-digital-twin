@@ -17,7 +17,7 @@ use protocol::logs;
 use serde_json::to_vec;
 
 use crate::state::{TrackedRobot, TaskStage, ReturnReason};
-use crate::pathfinding::{self, Pathfinder, GridPos, PathfinderInstance};
+use crate::pathfinding::{self, GridPos, PathfinderInstance};
 
 // ============================================================================
 // Task Assignment
@@ -168,7 +168,7 @@ pub async fn handle_task_assignment(
         task.id, robot_id, robot_world_pos[0], robot_world_pos[1], robot_world_pos[2], start.0, start.1
     ));
     
-    let Some(path_result) = pathfinder.find_path_to_non_walkable(map, start, pickup) else {
+    let Some(path_result) = pathfinder.find_path_to_non_walkable_for_robot(map, start, pickup, robot_id) else {
         println!("✗ No path found from Robot {} to pickup {:?}", robot_id, pickup);
         logs::save_log("Coordinator", &format!("[ERROR] Pathfinding failed: Robot {} cannot reach pickup {:?}", robot_id, pickup));
         send_task_failure(status_publisher, task.id, robot_id, format!("No path to pickup {:?}", pickup)).await;
@@ -618,7 +618,7 @@ async fn attempt_replan(
     let start = pathfinding::world_to_grid(robot.last_update.position);
     let goal = pathfinding::world_to_grid(target_world);
 
-    let Some(result) = pathfinder.find_path(map, start, goal) else { return false; };
+    let Some(result) = pathfinder.find_path_for_robot(map, start, goal, robot_id) else { return false; };
 
     // Clear old reservations and reserve new path
     pathfinder.clear_robot_reservations(robot_id);
@@ -697,7 +697,7 @@ async fn handle_idle_low_battery(
     robot: &mut TrackedRobot,
     robot_id: u32,
     map: &GridMap,
-    pathfinder: &impl Pathfinder,
+    pathfinder: &PathfinderInstance,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,    next_cmd_id: &mut u64,    verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
@@ -708,7 +708,7 @@ async fn handle_idle_low_battery(
         let current_grid = pathfinding::world_to_grid(robot_pos);
         let station_grid = pathfinding::world_to_grid(station_pos);
         
-        if let Some(result) = pathfinder.find_path(map, current_grid, station_grid) {
+        if let Some(result) = pathfinder.find_path_for_robot(map, current_grid, station_grid, robot_id) {
             if verbose {
                 println!("[{}ms] ⚠ Robot {} low battery ({:.1}%), returning to station", 
                     timestamp(), robot_id, battery);
@@ -797,7 +797,7 @@ async fn handle_picking(
             let start = pathfinding::world_to_grid(robot_pos);
             let dropoff_grid = pathfinding::world_to_grid(dropoff_world);
             
-            if let Some(result) = pathfinder.find_path_to_non_walkable(map, start, dropoff_grid) {
+            if let Some(result) = pathfinder.find_path_to_non_walkable_for_robot(map, start, dropoff_grid, robot_id) {
                 if verbose {
                     println!("[{}ms] 🚚 Robot {} path to dropoff: {} waypoints (cost: {})", 
                         timestamp(), robot_id, result.world_path.len(), result.cost);
@@ -934,7 +934,7 @@ async fn handle_delivering(
         let current_grid = pathfinding::world_to_grid(robot.last_update.position);
         let station_grid = pathfinding::world_to_grid(station_pos);
 
-        if let Some(result) = pathfinder.find_path(map, current_grid, station_grid) {
+        if let Some(result) = pathfinder.find_path_for_robot(map, current_grid, station_grid, robot_id) {
             if verbose {
                 println!("[{}ms] 🏠 Robot {} returning to station ({}) - {} waypoints", 
                     timestamp(), robot_id, reason_str, result.world_path.len());
