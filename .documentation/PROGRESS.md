@@ -228,6 +228,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-06: Reservation Footprint Reduction
+
+**Changes:**
+
+- **Collision buffer disabled**: Set `COLLISION_BUFFER_TILES` to 0 to prevent reservations from inflating into adjacent tiles and causing corridor deadlocks.
+
+**Files Updated:**
+
+- `protocol/src/config.rs` (collision buffer set to 0)
+
+**Test Results:** Not run
+
 ### 2026-02-06: Orchestrator-Scoped Run Log Sessions
 
 **Changes:**

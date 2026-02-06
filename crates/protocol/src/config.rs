@@ -112,7 +112,8 @@ pub mod coordinator {
         pub const STATIONARY_RESERVATION_MS: u64 = 1500;
 
         /// Collision buffer radius (tiles) reserved around each reserved cell
-        pub const COLLISION_BUFFER_TILES: usize = 1;
+        /// Set to 0 to avoid over-reserving narrow corridors.
+        pub const COLLISION_BUFFER_TILES: usize = 0;
     }
 
     /// Collision detection and avoidance settings
