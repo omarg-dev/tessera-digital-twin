@@ -209,6 +209,8 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - [ ] Battery state subscription
 - [ ] Hardware-in-the-loop testing mode
 - [ ] Graceful fallback to mock_firmware when ROS2 unavailable
+- [ ] Benchamark with Gazebo or Isaac Sim for performance validation
+- [ ] Benchmark with Aziz supercomputer for large-scale simulation
 
 **Architecture Impact:**
 
