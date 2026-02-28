@@ -213,6 +213,12 @@ pub mod visual {
     /// Maximum cargo capacity for all shelves (4 levels x 4 boxes = 16)
     pub const SHELF_MAX_CAPACITY: u32 = 16;
 
+    /// Scale factor for cargo boxes on shelves (1.0 = full model size)
+    pub const BOX_SCALE: f32 = 0.8;
+
+    /// Y offset for placeholder planes (station/dropoff) to sit above the floor
+    pub const PLACEHOLDER_Y_OFFSET: f32 = 0.001;
+
     /// Colors (RGB 0.0-1.0)
     pub mod colors {
         /// Ground tile color

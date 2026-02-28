@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::components::*;
-use protocol::config::visual::{TILE_SIZE, colors, SHELF_MAX_CAPACITY};
+use protocol::config::visual::{TILE_SIZE, colors, SHELF_MAX_CAPACITY, BOX_SCALE, PLACEHOLDER_Y_OFFSET};
 
 // ── Asset paths ──
 
@@ -18,6 +18,10 @@ pub mod assets {
     pub const WALL: &str = "models/wall.glb";
     /// wall segment with window cutout
     pub const WALL_WINDOW: &str = "models/wall_window.glb";
+    /// inner corner wall piece
+    pub const CORNER_INNER: &str = "models/structure-corner-inner.glb";
+    /// outer corner wall piece
+    pub const CORNER_OUTER: &str = "models/structure-corner-outer.glb";
     /// shelf unit (3 usable levels)
     pub const SHELF: &str = "models/shelf.glb";
     /// small cargo box
@@ -56,28 +60,64 @@ pub fn pick_weighted(variants: &[WeightedVariant]) -> &'static str {
     variants.last().expect("variants must not be empty").path
 }
 
-// ── Wall orientation ──
+// ── Wall classification ──
 
-/// Determine Y-axis rotation for a wall based on neighboring walls.
-/// Walls in vertical runs (neighbors above/below only) get 90 degree rotation.
-/// Horizontal runs and corners keep default orientation (0 degrees).
-pub fn wall_rotation(grid: &[Vec<&str>], row: usize, col: usize) -> f32 {
+/// What kind of wall piece to place at a grid cell.
+pub enum WallKind {
+    /// Straight wall segment (with a Y rotation in radians)
+    Straight(f32),
+    /// Inner corner piece (concave, with a Y rotation in radians)
+    CornerInner(f32),
+    /// Outer corner piece (convex, with a Y rotation in radians)
+    CornerOuter(f32),
+}
+
+/// Classify a wall tile based on its 4-connected neighbors.
+/// Returns the wall kind and its Y-axis rotation.
+///
+/// Corner detection:
+///   inner corner = 2 adjacent orthogonal wall neighbors (L-shape)
+///   outer corner = walls on 3 sides (T-shape treated as straight)
+///   straight     = walls in a line
+pub fn classify_wall(grid: &[Vec<&str>], row: usize, col: usize) -> WallKind {
     let rows = grid.len();
     let cols = if rows > 0 { grid[0].len() } else { 0 };
 
-    let is_wall = |r: usize, c: usize| -> bool {
+    let w = |r: usize, c: usize| -> bool {
         r < rows && c < cols && grid[r][c] == "#"
     };
 
-    let has_horizontal = (col > 0 && is_wall(row, col - 1))
-        || (col + 1 < cols && is_wall(row, col + 1));
-    let has_vertical = (row > 0 && is_wall(row - 1, col))
-        || (row + 1 < rows && is_wall(row + 1, col));
+    let up    = row > 0 && w(row - 1, col);
+    let down  = row + 1 < rows && w(row + 1, col);
+    let left  = col > 0 && w(row, col - 1);
+    let right = col + 1 < cols && w(row, col + 1);
 
-    if has_vertical && !has_horizontal {
-        std::f32::consts::FRAC_PI_2
-    } else {
-        0.0
+    let count = [up, down, left, right].iter().filter(|&&b| b).count();
+    use std::f32::consts::{FRAC_PI_2, PI};
+
+    match count {
+        // exactly 2 neighbors at a right angle = inner corner
+        2 if up && right   => WallKind::CornerInner(PI),
+        2 if right && down => WallKind::CornerInner(FRAC_PI_2),
+        2 if down && left  => WallKind::CornerInner(0.0),
+        2 if left && up    => WallKind::CornerInner(-FRAC_PI_2),
+        // 3 neighbors = outer corner (the open side determines rotation)
+        3 if !up    => WallKind::CornerOuter(0.0),
+        3 if !right => WallKind::CornerOuter(FRAC_PI_2),
+        3 if !down  => WallKind::CornerOuter(PI),
+        3 if !left  => WallKind::CornerOuter(-FRAC_PI_2),
+        // 4 neighbors = intersection, treat as straight
+        4 => WallKind::Straight(0.0),
+        // 1 or 2 in-line neighbors = straight segment
+        _ => {
+            if (up || down) && !left && !right {
+                // vertical run: rotate 90 degrees, facing outward (PI offset)
+                WallKind::Straight(FRAC_PI_2 + PI)
+            } else {
+                // horizontal run or isolated: default facing with PI offset
+                WallKind::Straight(PI)
+            }
+        }
     }
 }
 
@@ -129,7 +169,7 @@ pub fn spawn_floor(commands: &mut Commands, asset_server: &AssetServer, pos: Vec
     ));
 }
 
-/// Spawn a wall segment with random variant and neighbor-based rotation
+/// Spawn a wall piece (straight, inner corner, or outer corner) with correct rotation
 pub fn spawn_wall(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -138,11 +178,16 @@ pub fn spawn_wall(
     row: usize,
     col: usize,
 ) {
-    let variant = pick_weighted(WALL_VARIANTS);
-    let rotation = wall_rotation(grid, row, col);
+    let kind = classify_wall(grid, row, col);
+
+    let (model_path, rotation) = match kind {
+        WallKind::Straight(rot) => (pick_weighted(WALL_VARIANTS), rot),
+        WallKind::CornerInner(rot) => (assets::CORNER_INNER, rot),
+        WallKind::CornerOuter(rot) => (assets::CORNER_OUTER, rot),
+    };
 
     commands.spawn((
-        SceneRoot(load_scene(asset_server, variant)),
+        SceneRoot(load_scene(asset_server, model_path)),
         Transform::from_translation(pos)
             .with_rotation(Quat::from_rotation_y(rotation)),
         Wall,
@@ -167,7 +212,8 @@ pub fn spawn_shelf(
         for offset in offsets.iter().take(box_count) {
             parent.spawn((
                 SceneRoot(load_scene(asset_server, assets::BOX_SMALL)),
-                Transform::from_translation(*offset),
+                Transform::from_translation(*offset)
+                    .with_scale(Vec3::splat(BOX_SCALE)),
                 BoxCargo,
             ));
         }
@@ -187,7 +233,7 @@ pub fn spawn_station(
             base_color: Color::srgb(colors::STATION.0, colors::STATION.1, colors::STATION.2),
             ..default()
         })),
-        Transform::from_translation(pos),
+        Transform::from_translation(pos + Vec3::Y * PLACEHOLDER_Y_OFFSET),
         Station,
     ));
     // TODO: replace with .glb model when available
@@ -217,7 +263,7 @@ pub fn spawn_dropoff(
             base_color: Color::srgb(colors::DROPOFF.0, colors::DROPOFF.1, colors::DROPOFF.2),
             ..default()
         })),
-        Transform::from_translation(pos),
+        Transform::from_translation(pos + Vec3::Y * PLACEHOLDER_Y_OFFSET),
         Dropoff,
     ));
 }

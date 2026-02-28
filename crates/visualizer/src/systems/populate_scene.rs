@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::systems::models;
-use protocol::config::{LAYOUT_FILE_PATH, visual::TILE_SIZE, visual::SHELF_MAX_CAPACITY, visual::lighting};
+use protocol::config::{LAYOUT_FILE_PATH, visual::TILE_SIZE, visual::SHELF_MAX_CAPACITY, visual::BOX_SCALE, visual::lighting};
 
 /// Check if environment reload is requested and trigger repopulation
 pub fn check_reload_environment(
@@ -59,8 +59,8 @@ pub fn populate_environment(
                     models::spawn_floor(&mut commands, &asset_server, pos);
                 }
                 "#" => {
-                    // floor beneath the wall (wall model is thin, not a solid block)
-                    models::spawn_floor(&mut commands, &asset_server, pos);
+                    // // floor beneath the wall (wall model is thin, not a solid block)
+                    // models::spawn_floor(&mut commands, &asset_server, pos);
                     models::spawn_wall(&mut commands, &asset_server, pos, &token_grid, row, col);
                 }
                 "_" => {
@@ -128,7 +128,8 @@ pub fn sync_shelf_boxes(
                         SceneRoot(asset_server.load(
                             format!("{}#Scene0", models::assets::BOX_SMALL)
                         )),
-                        Transform::from_translation(offset),
+                        Transform::from_translation(offset)
+                            .with_scale(Vec3::splat(BOX_SCALE)),
                         BoxCargo,
                     )).id();
                     commands.entity(shelf_entity).add_child(child);
