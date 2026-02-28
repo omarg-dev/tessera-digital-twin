@@ -29,6 +29,7 @@ mod ui;
 #[cfg(test)]
 mod tests;
 
+use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use systems::{
@@ -46,8 +47,27 @@ fn main() {
     println!("╚════════════════════════════════════════════╝");
     let session = resources::open_zenoh_session();
 
+    // resolve workspace-root assets/ regardless of working directory
+    let assets_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            let mut dir = p.parent()?.to_path_buf();
+            // walk up until we find the assets/ folder (handles target/debug, target/release, etc.)
+            for _ in 0..10 {
+                if dir.join("assets").is_dir() {
+                    return Some(dir.join("assets").to_string_lossy().into_owned());
+                }
+                dir = dir.parent()?.to_path_buf();
+            }
+            None
+        })
+        .unwrap_or_else(|| "assets".to_string());
+
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            file_path: assets_dir,
+            ..default()
+        }))
         .add_plugins(EguiPlugin::default())
         // Resources
         .insert_resource(session)
