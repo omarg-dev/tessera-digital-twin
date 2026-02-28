@@ -210,8 +210,8 @@ pub mod visual {
     /// Shelf mesh dimensions (width, height, depth)
     pub const SHELF_SIZE: (f32, f32, f32) = (0.8, 0.6, 0.8);
 
-    /// Maximum cargo capacity for all shelves
-    pub const SHELF_MAX_CAPACITY: u32 = 10;
+    /// Maximum cargo capacity for all shelves (3 levels x 4 boxes = 12)
+    pub const SHELF_MAX_CAPACITY: u32 = 12;
 
     /// Colors (RGB 0.0-1.0)
     pub mod colors {

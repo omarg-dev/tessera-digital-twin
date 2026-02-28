@@ -33,7 +33,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use systems::{
     camera::{spawn_camera, camera_controls, camera_follow_selected},
-    populate_scene::{populate_environment, populate_lighting, check_reload_environment},
+    populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes},
     zenoh_receiver::{setup_zenoh_receiver, collect_robot_updates},
     sync_robots::sync_robots,
     commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
@@ -80,7 +80,7 @@ fn main() {
         ))
         // UI runs inside the egui context pass (after Update, before rendering)
         .add_systems(EguiPrimaryContextPass, ui::draw_ui)
-        // Run environment reload in PostUpdate to ensure despawn commands are applied first
-        .add_systems(PostUpdate, check_reload_environment)
+        // Run environment reload and box sync in PostUpdate
+        .add_systems(PostUpdate, (check_reload_environment, sync_shelf_boxes))
         .run();
 }

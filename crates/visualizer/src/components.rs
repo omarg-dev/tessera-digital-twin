@@ -36,3 +36,7 @@ pub struct Station;
 /// Dropoff zone marker
 #[derive(Component)]
 pub struct Dropoff;
+
+/// Cargo box on a shelf (child of a Shelf entity)
+#[derive(Component)]
+pub struct BoxCargo;

@@ -6862,6 +6862,7 @@ dependencies = [
  "bevy-inspector-egui",
  "bevy_egui",
  "protocol",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "tokio",
