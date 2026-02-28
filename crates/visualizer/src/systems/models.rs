@@ -644,4 +644,120 @@ mod tests {
         assert!(matches!(kind, WallKind::Straight(_)));
         assert_eq!(rotation_of(&kind), STRAIGHT_EW);
     }
+
+    // ── Layout diagnostic ──
+
+    /// Prints a classified wall map of the active layout.
+    /// Run with: cargo test -p visualizer -- layout_wall_diagnostic --nocapture
+    ///
+    /// Legend:
+    ///   ─  straight E-W         │  straight N-S
+    ///   ┌  inner corner (E+S)   ┐  inner corner (S+W)
+    ///   └  inner corner (N+E)   ┘  inner corner (N+W)   (diagonal empty)
+    ///   ╔  outer corner (E+S)   ╗  outer corner (S+W)
+    ///   ╚  outer corner (N+E)   ╝  outer corner (N+W)   (diagonal filled)
+    ///   ?  unknown fallback
+    ///   .  non-wall tile
+    #[test]
+    fn layout_wall_diagnostic() {
+        // resolve path relative to workspace root (tests run from crate dir)
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap() // crates/
+            .parent().unwrap(); // workspace root
+        let layout_path = workspace_root.join(protocol::config::LAYOUT_FILE_PATH);
+
+        let contents = std::fs::read_to_string(&layout_path)
+            .unwrap_or_else(|e| panic!("failed to read layout file {:?}: {}", layout_path, e));
+
+        let token_grid: Vec<Vec<&str>> = contents.lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty() && !l.starts_with('/'))
+            .map(|l| l.split_whitespace().collect())
+            .collect();
+
+        println!("\n=== Wall Classification Diagnostic ===");
+        println!("Layout: {}", protocol::config::LAYOUT_FILE_PATH);
+        println!("Grid size: {} rows x {} cols\n", token_grid.len(),
+            token_grid.first().map_or(0, |r| r.len()));
+
+        // symbol for each wall kind + rotation
+        let symbol = |kind: &WallKind| -> &str {
+            match kind {
+                WallKind::Straight(r) => {
+                    if (*r - STRAIGHT_EW).abs() < 0.01 { "─" }
+                    else if (*r - STRAIGHT_NS).abs() < 0.01 { "│" }
+                    else { "?" }
+                }
+                WallKind::CornerInner(r) => {
+                    if (*r - CORNER_ROTATIONS[0]).abs() < 0.01 { "└" } // N+E
+                    else if (*r - CORNER_ROTATIONS[1]).abs() < 0.01 { "┌" } // E+S
+                    else if (*r - CORNER_ROTATIONS[2]).abs() < 0.01 { "┐" } // S+W
+                    else if (*r - CORNER_ROTATIONS[3]).abs() < 0.01 { "┘" } // W+N
+                    else { "?" }
+                }
+                WallKind::CornerOuter(r) => {
+                    if (*r - CORNER_ROTATIONS[0]).abs() < 0.01 { "╚" } // N+E
+                    else if (*r - CORNER_ROTATIONS[1]).abs() < 0.01 { "╔" } // E+S
+                    else if (*r - CORNER_ROTATIONS[2]).abs() < 0.01 { "╗" } // S+W
+                    else if (*r - CORNER_ROTATIONS[3]).abs() < 0.01 { "╝" } // W+N
+                    else { "?" }
+                }
+            }
+        };
+
+        // print classified map
+        for (row, tokens) in token_grid.iter().enumerate() {
+            let mut line = String::new();
+            for (col, &token) in tokens.iter().enumerate() {
+                if token == "#" {
+                    let kind = classify_wall_from_grid(&token_grid, row, col);
+                    line.push_str(symbol(&kind));
+                } else if token == "~" {
+                    line.push(' ');
+                } else {
+                    line.push('.');
+                }
+                line.push(' ');
+            }
+            println!("  row {:2}: {}", row, line);
+        }
+
+        // summary counts
+        let mut straight_ew = 0u32;
+        let mut straight_ns = 0u32;
+        let mut inner = [0u32; 4];
+        let mut outer = [0u32; 4];
+
+        for (row, tokens) in token_grid.iter().enumerate() {
+            for (col, &token) in tokens.iter().enumerate() {
+                if token != "#" { continue; }
+                let kind = classify_wall_from_grid(&token_grid, row, col);
+                match kind {
+                    WallKind::Straight(r) => {
+                        if (r - STRAIGHT_EW).abs() < 0.01 { straight_ew += 1; }
+                        else { straight_ns += 1; }
+                    }
+                    WallKind::CornerInner(r) => {
+                        for i in 0..4 {
+                            if (r - CORNER_ROTATIONS[i]).abs() < 0.01 { inner[i] += 1; }
+                        }
+                    }
+                    WallKind::CornerOuter(r) => {
+                        for i in 0..4 {
+                            if (r - CORNER_ROTATIONS[i]).abs() < 0.01 { outer[i] += 1; }
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n=== Summary ===");
+        println!("  Straight E-W (─): {}", straight_ew);
+        println!("  Straight N-S (│): {}", straight_ns);
+        println!("  Inner corners:  N+E(└)={} E+S(┌)={} S+W(┐)={} W+N(┘)={}",
+            inner[0], inner[1], inner[2], inner[3]);
+        println!("  Outer corners:  N+E(╚)={} E+S(╔)={} S+W(╗)={} W+N(╝)={}",
+            outer[0], outer[1], outer[2], outer[3]);
+        println!();
+    }
 }

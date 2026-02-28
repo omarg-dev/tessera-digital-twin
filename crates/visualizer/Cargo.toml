@@ -17,3 +17,7 @@ protocol = { path = "../protocol" }
 [[bin]]
 name = "visualizer"
 path = "src/main.rs"
+
+[[example]]
+name = "wall_debug"
+path = "examples/wall_debug.rs"
