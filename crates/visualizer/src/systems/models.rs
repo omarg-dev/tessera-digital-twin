@@ -72,13 +72,14 @@ pub enum WallKind {
     CornerOuter(f32),
 }
 
-/// Classify a wall tile based on its 4-connected neighbors.
+/// Classify a wall tile based on its 4-connected and diagonal neighbors.
 /// Returns the wall kind and its Y-axis rotation.
 ///
-/// Corner detection:
-///   inner corner = 2 adjacent orthogonal wall neighbors (L-shape)
-///   outer corner = walls on 3 sides (T-shape treated as straight)
-///   straight     = walls in a line
+/// Corner detection uses the diagonal cell between two orthogonal wall neighbors:
+///   - diagonal is wall   → outer corner (factory sees the convex outside edge)
+///   - diagonal is empty  → inner corner (factory is inside the concave L-turn)
+///
+/// 3+ neighbors (T-junctions, crossings) are not in the tileset, fall back to straight.
 pub fn classify_wall(grid: &[Vec<&str>], row: usize, col: usize) -> WallKind {
     let rows = grid.len();
     let cols = if rows > 0 { grid[0].len() } else { 0 };
@@ -95,29 +96,40 @@ pub fn classify_wall(grid: &[Vec<&str>], row: usize, col: usize) -> WallKind {
     let count = [up, down, left, right].iter().filter(|&&b| b).count();
     use std::f32::consts::{FRAC_PI_2, PI};
 
-    match count {
-        // exactly 2 neighbors at a right angle = inner corner
-        2 if up && right   => WallKind::CornerInner(PI),
-        2 if right && down => WallKind::CornerInner(FRAC_PI_2),
-        2 if down && left  => WallKind::CornerInner(0.0),
-        2 if left && up    => WallKind::CornerInner(-FRAC_PI_2),
-        // 3 neighbors = outer corner (the open side determines rotation)
-        3 if !up    => WallKind::CornerOuter(0.0),
-        3 if !right => WallKind::CornerOuter(FRAC_PI_2),
-        3 if !down  => WallKind::CornerOuter(PI),
-        3 if !left  => WallKind::CornerOuter(-FRAC_PI_2),
-        // 4 neighbors = intersection, treat as straight
-        4 => WallKind::Straight(0.0),
-        // 1 or 2 in-line neighbors = straight segment
-        _ => {
-            if (up || down) && !left && !right {
-                // vertical run: rotate 90 degrees, facing outward (PI offset)
-                WallKind::Straight(FRAC_PI_2 + PI)
+    // 2 orthogonal neighbors → corner piece
+    // check the diagonal between the two wall neighbors to pick inner vs outer
+    if count == 2 {
+        let (is_corner, diag_is_wall, rotation) = if up && right {
+            let d = row > 0 && col + 1 < cols && w(row - 1, col + 1);
+            (true, d, -FRAC_PI_2)
+        } else if right && down {
+            let d = row + 1 < rows && col + 1 < cols && w(row + 1, col + 1);
+            (true, d, 0.0)
+        } else if down && left {
+            let d = row + 1 < rows && col > 0 && w(row + 1, col - 1);
+            (true, d, FRAC_PI_2)
+        } else if left && up {
+            let d = row > 0 && col > 0 && w(row - 1, col - 1);
+            (true, d, PI)
+        } else {
+            (false, false, 0.0) // in-line, not a corner
+        };
+
+        if is_corner {
+            return if diag_is_wall {
+                WallKind::CornerOuter(rotation)
             } else {
-                // horizontal run or isolated: default facing with PI offset
-                WallKind::Straight(PI)
-            }
+                WallKind::CornerInner(rotation)
+            };
         }
+    }
+
+    // 3+ neighbors (T-junctions, crossings) → straight fallback (tileset incomplete)
+    // 1 neighbor, 0 neighbors, or 2 in-line → straight segment
+    if (up || down) && !left && !right {
+        WallKind::Straight(FRAC_PI_2 + PI)
+    } else {
+        WallKind::Straight(PI)
     }
 }
 
