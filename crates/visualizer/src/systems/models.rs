@@ -217,13 +217,13 @@ pub fn classify_wall_from_grid(grid: &[Vec<&str>], row: usize, col: usize) -> Wa
 pub const BOXES_PER_SHELF: usize = SHELF_MAX_CAPACITY as usize;
 
 /// Y-heights of the 3 usable shelf levels (relative to shelf origin)
-const SHELF_LEVEL_HEIGHTS: [f32; 4] = [0.3, 0.6, 0.9, 1.2];
+const SHELF_LEVEL_HEIGHTS: [f32; 4] = [0.3, 0.8, 1.3, 1.8];
 
 /// X offsets for the 2-column box grid per shelf level
-const BOX_X_OFFSETS: [f32; 2] = [-0.20, 0.20];
+const BOX_X_OFFSETS: [f32; 2] = [-0.2, 0.2];
 
 /// Z offsets for the 2-row box grid per shelf level
-const BOX_Z_OFFSETS: [f32; 2] = [-0.15, 0.15];
+const BOX_Z_OFFSETS: [f32; 2] = [-0.2, 0.2];
 
 /// Generate local-space positions for up to 12 boxes on a shelf.
 /// Layout: 3 levels x 4 boxes (2x2 grid) = 12 total positions.

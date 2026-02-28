@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::systems::models;
 use protocol::config::{LAYOUT_FILE_PATH, visual::TILE_SIZE, visual::SHELF_MAX_CAPACITY, visual::BOX_SCALE, visual::lighting};
+use protocol::grid_map::{GridMap, TileType};
 
 /// Check if environment reload is requested and trigger repopulation
 pub fn check_reload_environment(
@@ -23,70 +24,62 @@ pub fn check_reload_environment(
     }
 }
 
-/// Read from a .txt map file and populate the warehouse layout with .glb models
+/// Read from a .txt map file and populate the warehouse layout with .glb models.
+/// Uses protocol::GridMap for tile parsing (consistent with coordinator/scheduler),
+/// plus a raw token grid for wall neighbor analysis.
 pub fn populate_environment(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // read layout file directly (blocking I/O, fine for startup)
-    let contents = match std::fs::read_to_string(LAYOUT_FILE_PATH) {
-        Ok(c) => c,
+    // load map via protocol::GridMap (same parser as coordinator + scheduler)
+    let map = match GridMap::load_from_file(LAYOUT_FILE_PATH) {
+        Ok(m) => m,
         Err(e) => {
-            warn!("Failed to load layout file: {}", e);
+            warn!("Failed to load layout file via GridMap: {}", e);
             return;
         }
     };
 
-    // Phase 1: parse grid for neighbor analysis (wall orientation)
+    // raw token grid for wall neighbor analysis (classify_wall needs string tokens)
+    let contents = std::fs::read_to_string(LAYOUT_FILE_PATH).unwrap();
     let token_grid: Vec<Vec<&str>> = contents.lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty() && !l.starts_with('/'))
         .map(|l| l.split_whitespace().collect())
         .collect();
 
-    let rows = token_grid.len();
-    let cols = token_grid.first().map_or(0, |r| r.len());
+    // spawn environment entities from the parsed GridMap tiles
+    for tile in &map.tiles {
+        let pos = Vec3::new(tile.x as f32 * TILE_SIZE, 0.0, tile.y as f32 * TILE_SIZE);
 
-    // Phase 2: spawn environment entities
-    for (row, tokens) in token_grid.iter().enumerate() {
-        for (col, token) in tokens.iter().enumerate() {
-            let pos = Vec3::new(col as f32 * TILE_SIZE, 0.0, row as f32 * TILE_SIZE);
-
-            match *token {
-                "." => {
-                    models::spawn_floor(&mut commands, &asset_server, pos);
-                }
-                "#" => {
-                    // // floor beneath the wall (wall model is thin, not a solid block)
-                    // models::spawn_floor(&mut commands, &asset_server, pos);
-                    models::spawn_wall(&mut commands, &asset_server, pos, &token_grid, row, col);
-                }
-                "_" => {
-                    models::spawn_floor(&mut commands, &asset_server, pos);
-                    models::spawn_station(&mut commands, &mut meshes, &mut materials, pos);
-                }
-                "v" => {
-                    models::spawn_floor(&mut commands, &asset_server, pos);
-                    models::spawn_dropoff(&mut commands, &mut meshes, &mut materials, pos);
-                }
-                _ if token.starts_with("x") && token.len() > 1 => {
-                    let cargo: u32 = token[1..]
-                        .parse()
-                        .unwrap_or(SHELF_MAX_CAPACITY);
-
-                    models::spawn_floor(&mut commands, &asset_server, pos);
-                    models::spawn_shelf(&mut commands, &asset_server, pos, cargo);
-                }
-                _ => {
-                    // unknown token, skip (includes ~ for N/A tile)
-                }
+        match tile.tile_type {
+            TileType::Ground => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+            }
+            TileType::Wall => {
+                models::spawn_wall(&mut commands, &asset_server, pos, &token_grid, tile.y, tile.x);
+            }
+            TileType::Station => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+                models::spawn_station(&mut commands, &mut meshes, &mut materials, pos);
+            }
+            TileType::Dropoff => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+                models::spawn_dropoff(&mut commands, &mut meshes, &mut materials, pos);
+            }
+            TileType::Shelf(capacity) => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+                models::spawn_shelf(&mut commands, &asset_server, pos, capacity as u32);
+            }
+            TileType::Empty => {
+                // N/A tile (~), skip
             }
         }
     }
 
-    info!("Warehouse layout loaded: {}x{}", cols, rows);
+    info!("Warehouse layout loaded: {}x{} (GridMap)", map.width, map.height);
 }
 
 /// Sync visual box entities with shelf cargo count.

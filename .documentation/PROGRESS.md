@@ -256,6 +256,85 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-02-13: Visualizer GridMap Consistency Refactor (Phase 5)
+
+**Changes:**
+
+- **Visualizer uses protocol::GridMap**: `populate_environment()` now loads the layout via `GridMap::load_from_file()` (the same parser used by coordinator and scheduler) instead of manually parsing token strings. Tile types are matched via `TileType` enum (`Ground`, `Wall`, `Station`, `Dropoff`, `Shelf(cap)`, `Empty`).
+- **Token grid retained for wall analysis**: Raw string grid is still built from the layout file and passed to `spawn_wall()` for 3x3 neighborhood classification, since `classify_wall()` operates on string tokens.
+- **Shelf capacity from GridMap**: Shelf cargo is now read from `TileType::Shelf(capacity)` instead of parsing `"xN"` tokens manually, ensuring the visualizer and backend crates agree on capacity values.
+
+**Key Files:**
+
+- `crates/visualizer/src/systems/populate_scene.rs` (rewritten `populate_environment` to use GridMap)
+
+**Design Decisions:**
+
+1. **Consistency over DRY**: Even though the token grid is still needed for wall neighbor analysis, using GridMap for tile type determination ensures the visualizer interprets the layout identically to coordinator and scheduler.
+2. **No functional change**: The visual output is identical; this is a pure consistency/maintainability refactor.
+
+**Test Results:** 136 tests passing (no new tests; refactor only)
+
+### 2026-02-13: 3x3 Wall Classification Rewrite + Shelf Capacity Enforcement (Phase 5)
+
+**Changes:**
+
+- **Neighborhood struct**: Introduced `Neighborhood` with 8 boolean fields (`n`, `ne`, `e`, `se`, `s`, `sw`, `w`, `nw`) for full 3x3 tile analysis around each wall tile, replacing the error-prone cardinal-only approach.
+- **3x3 tile-rule classification**: Rewrote `classify_wall()` to use explicit pattern matching on all 8 neighbors. Correctly identifies: inner corners (2 adjacent walls + diagonal), outer corners (2 adjacent walls, no diagonal), straight walls (opposite-axis walls), end caps, T-junctions, cross intersections, and isolated walls.
+- **23 wall classification unit tests**: Comprehensive test suite covering every wall variant (4 rotations each for straight, inner corner, outer corner, end cap; plus cross and isolated).
+- **ShelfInventory in protocol**: New `ShelfInventory` struct with `HashMap<(usize, usize), ShelfStock>` tracking current/max capacity per shelf tile. Methods: `from_map()`, `try_reserve()`, `undo_reserve()`, `decrement()`, `increment()`, `is_full()`, `available()`.
+- **10 ShelfInventory unit tests**: Tests for initialization from GridMap, reservation flow, undo, capacity limits, increment/decrement, unknown shelf handling.
+- **Scheduler capacity enforcement**: `allocate_tasks()` now calls `inventory.try_reserve()` before assigning tasks, with `undo_reserve()` on assignment failure. Prevents over-allocating to full shelves.
+- **Coordinator capacity verification**: Task assignment verifies shelf availability via `inventory.available() > 0`. Pickup decrements inventory, delivery increments destination inventory. New `AssignmentResult::ShelfCapacity` variant for rejection.
+- **TrackedRobot grid tracking**: Added `pickup_grid` and `dropoff_grid` fields to `TrackedRobot` for inventory operations at task lifecycle stages.
+
+**Key Files:**
+
+- `crates/visualizer/src/systems/models.rs` (Neighborhood struct, classify_wall rewrite, 23 tests)
+- `crates/protocol/src/grid_map.rs` (ShelfInventory, ShelfStock, 10 tests)
+- `crates/protocol/src/lib.rs` (re-exported ShelfInventory)
+- `crates/scheduler/src/server.rs` (inventory init, capacity checks, undo)
+- `crates/coordinator/src/task_manager.rs` (inventory verification, pickup/dropoff tracking)
+- `crates/coordinator/src/server.rs` (inventory init, passed to task_manager)
+- `crates/coordinator/src/state.rs` (pickup_grid, dropoff_grid fields)
+
+**Design Decisions:**
+
+1. **Neighborhood over index math**: Explicit boolean fields are readable and testable vs. computing `grid[row-1][col+1]` inline. The struct is constructed once per wall tile.
+2. **Shelf enforcement at two layers**: Scheduler reserves optimistically (can undo), coordinator verifies authoritatively. This prevents races where two schedulers might reserve the same slot.
+3. **Inventory starts full**: `ShelfInventory::from_map()` initializes all shelves at max capacity (matching visual boxes), then decrements as items are picked up.
+
+**Test Results:** 136 tests passing (23 wall + 10 inventory + 103 existing)
+
+### 2026-02-13: .glb Model Integration + Visual Fixes (Phase 5)
+
+**Changes:**
+
+- **3D model pipeline**: Replaced all primitive Bevy meshes (cubes, planes) with .glb models loaded via `SceneRoot(asset_server.load("path#Scene0"))`. Models: floor, wall, wall_window, structure-corner-inner, structure-corner-outer, shelf, box-small, box-large, box-long, box-wide.
+- **models.rs module**: New `systems/models.rs` with spawn functions (`spawn_floor`, `spawn_wall`, `spawn_shelf`, `spawn_station`, `spawn_dropoff`), asset path constants, weighted variant selection for walls (70% solid, 30% window), and box offset layout for shelf cargo.
+- **sync_shelf_boxes system**: Reactive system that spawns/despawns box entities as children of shelves when `Shelf.cargo` changes, using `Changed<Shelf>` query filter.
+- **Asset path fixes**: Configured `AssetPlugin { file_path: "assets".into(), .. }` to resolve paths from workspace root regardless of orchestrator CWD. Moved all models to `assets/models/` subfolder.
+- **Visual tuning**: `BOX_SCALE` constant for box sizing, `PLACEHOLDER_Y_OFFSET` for station/dropoff markers, wall rotation PI offset correction, ground tiles under walls removed (wall model is solid).
+- **Lighting config**: Added `protocol::config::visual::lighting` module with `DIRECTIONAL_ILLUMINANCE` and `AMBIENT_BRIGHTNESS` constants.
+
+**Key Files:**
+
+- `crates/visualizer/src/systems/models.rs` (new: all model spawn logic, asset constants, weighted variants)
+- `crates/visualizer/src/systems/populate_scene.rs` (refactored to use models module)
+- `crates/visualizer/src/systems/mod.rs` (added models module)
+- `crates/visualizer/src/components.rs` (added BoxCargo, Ground components)
+- `crates/visualizer/src/main.rs` (asset plugin config, sync_shelf_boxes registration)
+- `crates/protocol/src/config.rs` (BOX_SCALE, PLACEHOLDER_Y_OFFSET, lighting constants)
+- `assets/models/` (floor.glb, wall.glb, wall_window.glb, shelf.glb, box-small.glb, etc.)
+
+**Design Decisions:**
+
+1. **SceneRoot loading**: Bevy 0.17 pattern for .glb models; `#Scene0` fragment selects the default scene from each file.
+2. **Weighted wall variants**: Random selection per wall tile adds visual variety without layout changes.
+3. **Box-as-child pattern**: Boxes are spawned as children of shelf entities, so they inherit transforms and despawn automatically.
+
+**Test Results:** 136 tests passing
+
 ### 2026-02-12: Interactive UI Features & Config Centralization (Phase 5)
 
 **Changes:**
