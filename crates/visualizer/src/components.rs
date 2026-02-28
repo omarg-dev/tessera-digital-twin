@@ -22,12 +22,11 @@ pub struct Ground;
 #[derive(Component)]
 pub struct Wall;
 
-/// Shelf tile with storage capacity
+/// Shelf tile with cargo storage
 #[derive(Component)]
 pub struct Shelf {
-    /// TODO: Display capacity in shelf tooltip/UI
-    #[allow(dead_code)]
-    pub capacity: u32,
+    /// Number of cargo items currently on this shelf
+    pub cargo: u32,
 }
 
 /// Charging station marker

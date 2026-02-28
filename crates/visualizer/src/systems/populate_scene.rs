@@ -75,13 +75,13 @@ pub fn populate_environment(
                 }
                 _ if token.starts_with("x") && token.len() > 1 => {
                     // Shelf Cube tile with capacity(c): xc
-                    let capacity: u32 = token[1..]
+                    let cargo: u32 = token[1..]
                         .parse()
-                        .unwrap_or(5); // default capacity if parse fails
+                        .unwrap_or(5); // default cargo count if parse fails
 
                     let shelf_size = Vec3::new(SHELF_SIZE.0, SHELF_SIZE.1, SHELF_SIZE.2);
                     instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Cube(shelf_size), colors::SHELF, Shelf { capacity });
+                        TileShape::Cube(shelf_size), colors::SHELF, Shelf { cargo });
                     
                     // Also spawn ground tile beneath shelf
                     instantiate(&mut commands, &mut meshes, &mut materials, pos,

@@ -28,7 +28,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 | 2     | Zenoh Integration & Robot Sync            | ✅ Complete   | Real-time robot updates, dynamic spawning, HUD            |
 | 3     | Distributed Architecture & Pathfinding    | ✅ Complete   | Multi-crate architecture, A* pathfinding, map validation  |
 | 4     | Task & Cargo Management                   | ✅ Complete   | Task queue, allocation, execution loop, collision detection  |
-| 5     | Polish & Presentation                     | ⏳ Planned    | Performance optimization, UI polish, demo scenarios       |
+| 5     | Polish & Presentation                     | 🔄 In Progress | Digital Twin Command Center UI, performance, demo scenarios |
 | 6     | ROS2 Bridge & Hardware Validation         | ⏳ Planned    | External physics integration, real robot support          |
 
 ---
@@ -140,15 +140,37 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 ---
 
-## Phase 5: Polish & Presentation ⏳
+## Phase 5: Polish & Presentation 🔄
 
 **Goal:** Production-ready demo for portfolio/internship showcase.
 
-**Planned Features:**
+**Completed Features:**
 
+- [x] Digital Twin Command Center UI (4-panel egui layout)
+- [x] Top HUD panel: pause/play, speed controls (1x/10x/Max), FPS counter, layer toggles
+- [x] Left Object Manager: tabbed robot/shelf browser with search filter
+- [x] Right Inspector: context-sensitive entity details (battery bar, state, position, actions)
+- [x] Bottom Log Console: scrollable log viewer with auto-scroll and clear
+- [x] Camera input guard (egui panels don't interfere with 3D orbit/pan/zoom)
+- [x] `UiState` resource for centralized UI state management
+- [x] `LogBuffer` resource for ring-buffered log display
+- [x] `bevy-inspector-egui` dependency added for dev/debug panels
+- [x] **Pause/Resume** buttons publish `SystemCommand` over Zenoh (all crates respond)
+- [x] **Kill/Restart/Enable** buttons publish `RobotControl` over Zenoh (firmware responds)
+- [x] External commands (from orchestrator) sync `UiState.is_paused` and log to bottom panel
+- [x] **Live QueueState** display: subscribes to scheduler topic, shows pending/total/completed/robots
+- [x] Top HUD shows live task throughput from scheduler QueueState
+- [x] Robot state changes and spawns logged to bottom panel in real-time
+- [x] All UI actions logged to bottom panel (`[UI] Kill Robot #2`, `[System] Paused`, etc.)
+- [x] Background Zenoh publisher thread (mpsc channel bridge from Bevy to async)
+
+**Pending Features:**
+
+- [ ] 3D gizmos: path trails, traffic heatmap overlay, debug grid
+- [ ] Robot ID labels rendered in 3D viewport
+- [ ] Analytics dashboard (throughput graphs, battery histograms)
 - [ ] Cargo/package entity tracking (visual cargo on robots)
-- [ ] UI polish (better HUD, status panels)
-- [ ] Performance metrics dashboard (FPS, task throughput, etc.)
+- [ ] Keyboard shortcuts: P=pause, R=resume, Space=reset, Esc=quit
 
 ## MVP Showcase
 
@@ -233,6 +255,126 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-02-12: Interactive UI Features & Config Centralization (Phase 5)
+
+**Changes:**
+
+- **Sim/Real-time toggle**: Added top panel button to switch between simulation and real-time modes (visual only, implementation pending).
+- **Inspector tabs**: Replaced single-heading inspector with tab-based system for modularity (currently Details tab, easily extensible).
+- **Shelf inspector controls**:
+  - Clicking shelf in Objects list shows cargo count (e.g., "Cargo: 5 / 10")
+  - "Add transport task" button with dropdown menu: Dropoff + collapsible Shelves submenu
+  - Dropdown publishes `TaskRequest` via `UiAction::SubmitTransportTask` → Zenoh `TASK_REQUESTS` topic
+- **Camera follow system**:
+  - Clicking any entity in Objects list zooms camera to entity and enables follow mode
+  - `camera_follow_selected` system smoothly lerps focus to entity position each frame
+  - Right-click orbit does NOT break follow (only middle-mouse pan breaks it)
+  - Camera zoom adjusts to comfortable viewing radius with configurable lerp speed
+- **Collapsible sections**: Robots and Shelves in Objects tab now have collapsible headers showing counts (e.g., "Robots (3)")
+- **Config centralization**: Moved all hardcoded values to `protocol::config::visual`:
+  - `SHELF_MAX_CAPACITY = 10` (shared capacity for all shelves)
+  - `camera::FOLLOW_ZOOM_RADIUS`, `FOLLOW_FOCUS_LERP`, `FOLLOW_ZOOM_LERP` (follow behavior)
+  - `camera::ORBIT_SENSITIVITY`, `PAN_SENSITIVITY`, `SCROLL_LINE_SPEED`, `SCROLL_PIXEL_SPEED` (camera controls)
+  - `ui::TOP_PANEL_HEIGHT`, panel width/height ranges, `LOG_BUFFER_CAPACITY` (UI layout)
+- **Component rename**: `Shelf.capacity` → `Shelf.cargo` for semantic clarity (capacity = max limit, cargo = current items)
+- **Dropdown fix**: Rewrote transport shelves dropdown using `CollapsingState::load_with_default_open()` + `show_header/body` pattern instead of broken `CollapsingHeader::new().open()` which prevented user interaction
+
+**Pending Features (TODOs):**
+
+- [ ] Highlight transport destination location in 3D scene
+- [ ] Click shelf/robot in 3D scene to select (same as list click)
+
+**Key Files:**
+
+- `crates/protocol/src/config.rs` (added visual::camera + visual::ui modules, SHELF_MAX_CAPACITY)
+- `crates/visualizer/src/components.rs` (renamed Shelf.capacity → cargo)
+- `crates/visualizer/src/resources.rs` (added InspectorTab, UiAction::SubmitTransportTask, camera_following flag)
+- `crates/visualizer/src/ui/panels.rs` (complete rewrite with all new features + config constants)
+- `crates/visualizer/src/systems/camera.rs` (added camera_follow_selected, uses config constants)
+- `crates/visualizer/src/systems/commands.rs` (added TASK_REQUESTS publisher, SubmitTransportTask bridge)
+- `crates/visualizer/src/systems/populate_scene.rs` (updated shelf spawning to use cargo field)
+- `crates/visualizer/src/tests.rs` (updated shelf tests for cargo rename)
+
+**Design Decisions:**
+
+1. **Tab-based inspector**: Enables adding new inspector views (e.g., Analytics, Settings) without UI restructuring
+2. **Config-driven constants**: All magic numbers now centralized for easier tuning and consistency
+3. **Smooth camera follow**: Uses lerp for natural motion instead of instant snap
+4. **Smart follow break**: Rotation doesn't break follow (user examining entity), but pan does (user looking elsewhere)
+5. **CollapsingState pattern**: Proper egui state management for user-interactive collapsible sections
+
+**Test Results:** 103 tests passing (no regressions)
+
+### 2026-02-12: Digital Twin Command Center UI (Phase 5)
+
+**Changes:**
+
+- **4-panel egui layout**: Implemented a docking Command Center with Top (HUD), Left (Object Manager), Right (Inspector), and Bottom (Logs) panels.
+- **Simulation controls**: Pause/Play toggle and speed buttons (1x, 10x, Max) in top panel.
+- **Global KPIs**: Real-time Active Robot count and FPS display in top HUD.
+- **Layer toggles**: Checkboxes for Paths, Heatmap, and IDs (wired to `UiState` booleans for future 3D gizmo systems).
+- **Object Manager**: Tabbed left panel with Objects and Tasks tabs. Objects tab has a search bar and sorted, filterable lists of Robots (with state icons) and Shelves. Clicking a row selects the entity.
+- **Inspector**: Right panel shows context-sensitive details — Robot ID, state, position, battery (color-coded ProgressBar), cargo, task, and action buttons (Kill, Return to Charge). Shows placeholder for non-robot entities.
+- **Log Console**: Bottom panel with Logs and Analytics tabs. Logs tab has auto-scroll toggle, Clear button, and a scrollable monospace console reading from `LogBuffer`.
+- **UiState resource**: Centralized UI state with `selected_entity`, `filter_query`, layer toggles, `sim_speed`, `is_paused`, and tab state.
+- **LogBuffer resource**: Ring buffer (512 capacity) for in-UI log display with auto-scroll support.
+- **Camera input guard**: `camera_controls` now checks `egui::Context::wants_pointer_input()` and `is_pointer_over_area()` to prevent orbit/pan/zoom when interacting with UI panels.
+- **bevy-inspector-egui 0.35**: Added as dependency for future dev/debug panel integration.
+
+**Key Files:**
+
+- `crates/visualizer/Cargo.toml` (added `bevy-inspector-egui`)
+- `crates/visualizer/src/ui/mod.rs` (NEW - UI module root, `draw_ui` system)
+- `crates/visualizer/src/ui/panels.rs` (NEW - all four panel implementations)
+- `crates/visualizer/src/resources.rs` (added `UiState`, `LogBuffer`, `ObjectTab`, `BottomTab`)
+- `crates/visualizer/src/main.rs` (registered UI resources, system on `EguiPrimaryContextPass`)
+- `crates/visualizer/src/systems/camera.rs` (added egui input guard)
+
+**Design Decisions:**
+
+1. **UI-only, no logic**: Action buttons print `info!()` and toggle `UiState` booleans. No Zenoh commands published yet — clean separation for future wiring.
+2. **EguiPrimaryContextPass schedule**: UI system runs in the egui context pass (after Update, before rendering) per bevy_egui 0.38 best practices.
+3. **Result-based system**: `draw_ui` returns `Result` to handle `EguiContexts::ctx_mut()` fallibility per bevy_egui 0.38 API.
+
+**Test Results:** 11 tests passing (all existing visualizer tests, no regressions)
+
+### 2026-02-12: Functional UI Wiring (Phase 5)
+
+**Changes:**
+
+- **Pause/Resume** buttons publish `SystemCommand` over Zenoh (all crates respond).
+- **Kill/Restart/Enable** buttons publish `RobotControl` over Zenoh (firmware responds).
+- **External commands** (from orchestrator) sync `UiState.is_paused` and log to bottom panel.
+- **Live QueueState** display: subscribes to scheduler topic, shows pending/total/completed/robots.
+- **Top HUD** shows live task throughput from scheduler QueueState.
+- **Robot state changes** and spawns logged to bottom panel in real-time.
+- **All UI actions** logged to bottom panel (`[UI] Kill Robot #2`, `[System] Paused`, etc.).
+- **Background Zenoh publisher thread** (mpsc channel bridge from Bevy to async).
+
+**Architecture:**
+
+- `UiAction` Bevy `Message` carries button clicks from UI → `bridge_ui_commands` system → `CommandSender` mpsc → background thread → Zenoh publish.
+- `QueueStateReceiver` mpsc ← background thread ← Zenoh subscribe → `QueueStateData` resource → panels read each frame.
+- `handle_system_commands` receives external Pause/Resume/Verbose and syncs `UiState` + `LogBuffer`.
+
+**Key Files:**
+
+- `crates/visualizer/src/systems/commands.rs` (added `setup_publishers`, `bridge_ui_commands`)
+- `crates/visualizer/src/systems/queue_receiver.rs` (NEW - QueueState subscriber)
+- `crates/visualizer/src/systems/sync_robots.rs` (added LogBuffer state-change logging)
+- `crates/visualizer/src/resources.rs` (added `OutboundCommand`, `CommandSender`, `QueueStateData`, `QueueStateReceiver`, `UiAction`)
+- `crates/visualizer/src/ui/panels.rs` (wired buttons, live QueueState display, throughput KPIs)
+- `crates/visualizer/src/ui/mod.rs` (updated `draw_ui` with new resource params)
+- `crates/visualizer/src/main.rs` (registered new systems, message, resources)
+
+**Design Decisions:**
+
+1. **One-frame action delay**: UI runs on `EguiPrimaryContextPass` (after Update). Actions written as Bevy Messages, consumed by `bridge_ui_commands` in the next frame's Update — imperceptible latency.
+2. **Background publisher thread**: Zenoh publishing is async; Bevy systems are sync. A dedicated `std::thread` with `tokio::Runtime` bridges the gap via mpsc channel (same pattern as existing subscribers).
+3. **External state sync**: When orchestrator publishes Pause/Resume, `handle_system_commands` updates `UiState.is_paused` so the UI button reflects external state changes.
+
+**Test Results:** 11 tests passing (no regressions)
 
 ### 2026-02-06: Arrival-Time Reservation Check
 
@@ -1206,10 +1348,10 @@ Robots now intelligently return to their charging stations when appropriate:
 | protocol | 23 | Serialization, grid parsing, commands, QueueState, chaos |
 | orchestrator | 9 | CLI parsing, process management, robot control |
 | scheduler | 17 | Queue operations, allocator logic, cleanup, charging robot allocation |
-| coordinator | 24 | Pathfinding (A\* + WHCA\*), coordinate conversion, task timeout |
-| mock_firmware | 14 | Physics, battery, state machine |
+| coordinator | 28 | Pathfinding (A\* + WHCA\*), coordinate conversion, task timeout |
+| mock_firmware | 15 | Physics, battery, state machine, collision detection |
 | visualizer | 11 | Components, resources, position tracking, state lifecycle |
-| **Total** | **98** | N/A |
+| **Total** | **103** | N/A |
 
 ---
 

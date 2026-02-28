@@ -203,13 +203,16 @@ pub mod orchestrator {
 pub mod visual {
     /// Tile size in world units
     pub const TILE_SIZE: f32 = 1.0;
-    
+
     /// Robot mesh size
     pub const ROBOT_SIZE: f32 = 0.5;
-    
+
     /// Shelf mesh dimensions (width, height, depth)
     pub const SHELF_SIZE: (f32, f32, f32) = (0.8, 0.6, 0.8);
-    
+
+    /// Maximum cargo capacity for all shelves
+    pub const SHELF_MAX_CAPACITY: u32 = 10;
+
     /// Colors (RGB 0.0-1.0)
     pub mod colors {
         /// Ground tile color
@@ -225,13 +228,13 @@ pub mod visual {
         /// Robot color (cyan)
         pub const ROBOT: (f32, f32, f32) = (0.2, 0.7, 0.9);
     }
-    
+
     /// Lighting settings
     pub mod lighting {
         pub const DIRECTIONAL_ILLUMINANCE: f32 = 15_000.0;
         pub const AMBIENT_BRIGHTNESS: f32 = 500.0;
     }
-    
+
     /// Camera defaults
     pub mod camera {
         /// Camera focus point (center of view)
@@ -239,14 +242,50 @@ pub mod visual {
         pub const DEFAULT_RADIUS: f32 = 25.0;
         pub const DEFAULT_PITCH: f32 = 0.8; // ~45 degrees
         pub const DEFAULT_YAW: f32 = 0.0;
-        
+
         /// Pitch limits (radians) - prevents camera flipping
         pub const PITCH_MIN: f32 = 0.1;
         pub const PITCH_MAX: f32 = 1.5;
-        
+
         /// Zoom limits (radius)
         pub const ZOOM_MIN: f32 = 5.0;
         pub const ZOOM_MAX: f32 = 100.0;
+
+        /// Radius the camera zooms to when following an entity
+        pub const FOLLOW_ZOOM_RADIUS: f32 = 12.0;
+        /// Lerp factor for camera focus tracking (0.0 = no movement, 1.0 = instant)
+        pub const FOLLOW_FOCUS_LERP: f32 = 0.15;
+        /// Lerp factor for radius zoom-in while following
+        pub const FOLLOW_ZOOM_LERP: f32 = 0.08;
+
+        /// Mouse orbit sensitivity (radians per pixel)
+        pub const ORBIT_SENSITIVITY: f32 = 0.005;
+        /// Mouse pan sensitivity (world units per pixel)
+        pub const PAN_SENSITIVITY: f32 = 0.05;
+        /// Scroll zoom speed (units per scroll line)
+        pub const SCROLL_LINE_SPEED: f32 = 2.0;
+        /// Scroll zoom speed (units per pixel for trackpad)
+        pub const SCROLL_PIXEL_SPEED: f32 = 0.1;
+    }
+
+    /// UI panel layout settings
+    pub mod ui {
+        /// Top HUD bar height
+        pub const TOP_PANEL_HEIGHT: f32 = 36.0;
+        /// Side panel default width (left and right)
+        pub const SIDE_PANEL_DEFAULT_WIDTH: f32 = 280.0;
+        /// Side panel minimum width
+        pub const SIDE_PANEL_MIN_WIDTH: f32 = 200.0;
+        /// Side panel maximum width
+        pub const SIDE_PANEL_MAX_WIDTH: f32 = 400.0;
+        /// Bottom panel default height
+        pub const BOTTOM_PANEL_DEFAULT_HEIGHT: f32 = 180.0;
+        /// Bottom panel minimum height
+        pub const BOTTOM_PANEL_MIN_HEIGHT: f32 = 80.0;
+        /// Bottom panel maximum height
+        pub const BOTTOM_PANEL_MAX_HEIGHT: f32 = 400.0;
+        /// Log buffer ring capacity
+        pub const LOG_BUFFER_CAPACITY: usize = 512;
     }
 }
 
