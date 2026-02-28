@@ -13,6 +13,7 @@ use protocol::*;
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::collision as collision_config;
 use protocol::config::battery as battery_config;
+use protocol::grid_map::ShelfInventory;
 use protocol::logs;
 use serde_json::to_vec;
 
@@ -42,6 +43,8 @@ pub enum AssignmentResult {
     NoDropoffLocation,
     /// Invalid pickup/dropoff tile combination
     InvalidTileCombination,
+    /// Shelf capacity check failed (empty pickup or full dropoff)
+    ShelfCapacity { reason: String },
     /// No path found to pickup
     NoPathToPickup,
 }
@@ -52,6 +55,7 @@ pub async fn handle_task_assignment(
     robots: &mut HashMap<u32, TrackedRobot>,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
@@ -159,6 +163,22 @@ pub async fn handle_task_assignment(
         return AssignmentResult::InvalidTileCombination;
     }
 
+    // Shelf capacity enforcement: verify pickup has stock and dropoff has room
+    if !inventory.can_pickup(pickup) {
+        let stock = inventory.stock_at(pickup);
+        let reason = format!("pickup shelf ({},{}) empty ({:?})", pickup.0, pickup.1, stock);
+        println!("✗ Task {} rejected: {}", task.id, reason);
+        send_task_failure(status_publisher, task.id, robot_id, reason.clone()).await;
+        return AssignmentResult::ShelfCapacity { reason };
+    }
+    if !inventory.can_dropoff(dropoff_grid) {
+        let stock = inventory.stock_at(dropoff_grid);
+        let reason = format!("dropoff shelf ({},{}) full ({:?})", dropoff_grid.0, dropoff_grid.1, stock);
+        println!("✗ Task {} rejected: {}", task.id, reason);
+        send_task_failure(status_publisher, task.id, robot_id, reason.clone()).await;
+        return AssignmentResult::ShelfCapacity { reason };
+    }
+
     // Calculate path to pickup BEFORE accepting task
     let robot_world_pos = robot.last_update.position;
     let start = pathfinding::world_to_grid(robot_world_pos);
@@ -194,6 +214,8 @@ pub async fn handle_task_assignment(
     let dropoff_world = pathfinding::grid_to_world(dropoff_grid);
     robot.pickup_location = Some(pickup_arrival);
     robot.dropoff_location = Some(dropoff_world);
+    robot.pickup_grid = Some(pickup);
+    robot.dropoff_grid = Some(dropoff_grid);
     
     if verbose {
         println!("[{}ms] → Robot {} path to pickup: {} waypoints (cost: {})", timestamp(), robot_id, waypoints, cost);
@@ -295,6 +317,7 @@ pub async fn progress_tasks(
     robots: &mut HashMap<u32, TrackedRobot>,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     robot_control_publisher: &zenoh::pubsub::Publisher<'_>,
@@ -383,7 +406,7 @@ pub async fn progress_tasks(
                 handle_moving_to_pickup(robot, *robot_id, task_id, cmd_publisher, next_cmd_id, verbose).await;
             }
             TaskStage::Picking => {
-                handle_picking(robot, *robot_id, task_id, map, pathfinder, cmd_publisher, next_cmd_id, verbose).await;
+                handle_picking(robot, *robot_id, task_id, map, pathfinder, inventory, cmd_publisher, next_cmd_id, verbose).await;
             }
             TaskStage::MovingToDropoff => {
                 handle_moving_to_dropoff(
@@ -396,6 +419,7 @@ pub async fn progress_tasks(
                     robot, *robot_id, task_id,
                     map,
                     pathfinder,
+                    inventory,
                     cmd_publisher,
                     status_publisher,
                     next_cmd_id,
@@ -450,6 +474,8 @@ async fn handle_task_timeouts(
             robot.task_started = None;
             robot.pickup_location = None;
             robot.dropoff_location = None;
+            robot.pickup_grid = None;
+            robot.dropoff_grid = None;
             robot.clear_wait();
             
             // Clear reservations from multi-robot coordination
@@ -489,6 +515,8 @@ pub async fn mark_robot_faulted(
     robot.task_started = None;
     robot.pickup_location = None;
     robot.dropoff_location = None;
+    robot.pickup_grid = None;
+    robot.dropoff_grid = None;
     robot.return_reason = None;
     robot.current_path.clear();
     robot.path_index = 0;
@@ -800,6 +828,7 @@ async fn handle_picking(
     task_id: u64,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,    next_cmd_id: &mut u64,    verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
@@ -808,6 +837,21 @@ async fn handle_picking(
     if matches!(robot.last_update.state, RobotState::MovingToDrop) {
         robot.task_stage = TaskStage::MovingToDropoff;
         robot.mark_progress();
+        
+        // Decrement shelf inventory on confirmed pickup
+        if let Some(pickup_grid) = robot.pickup_grid {
+            if inventory.pickup(pickup_grid) {
+                if verbose {
+                    let stock = inventory.stock_at(pickup_grid);
+                    println!("[{}ms] 📦 Shelf ({},{}) stock decremented: {:?}",
+                        timestamp(), pickup_grid.0, pickup_grid.1, stock);
+                }
+                logs::save_log("Coordinator", &format!(
+                    "Task {} pickup: shelf ({},{}) stock now {:?}",
+                    task_id, pickup_grid.0, pickup_grid.1, inventory.stock_at(pickup_grid)
+                ));
+            }
+        }
         
         if verbose {
             println!("[{}ms] ✓ Robot {} loaded cargo for task {}", timestamp(), robot_id, task_id);
@@ -904,6 +948,7 @@ async fn handle_delivering(
     task_id: u64,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
@@ -913,6 +958,21 @@ async fn handle_delivering(
     // Firmware transitions to Idle after Drop is applied
     if !matches!(robot.last_update.state, RobotState::Idle) {
         return;
+    }
+
+    // Increment shelf inventory on confirmed delivery (if target is a shelf)
+    if let Some(dropoff_grid) = robot.dropoff_grid {
+        if inventory.dropoff(dropoff_grid) {
+            if verbose {
+                let stock = inventory.stock_at(dropoff_grid);
+                println!("[{}ms] 📦 Shelf ({},{}) stock incremented: {:?}",
+                    timestamp(), dropoff_grid.0, dropoff_grid.1, stock);
+            }
+            logs::save_log("Coordinator", &format!(
+                "Task {} delivery: shelf ({},{}) stock now {:?}",
+                task_id, dropoff_grid.0, dropoff_grid.1, inventory.stock_at(dropoff_grid)
+            ));
+        }
     }
 
     // Task completed!
@@ -936,6 +996,8 @@ async fn handle_delivering(
     robot.current_task = None;
     robot.pickup_location = None;
     robot.dropoff_location = None;
+    robot.pickup_grid = None;
+    robot.dropoff_grid = None;
     robot.current_path.clear();
     robot.path_index = 0;
     robot.task_stage = TaskStage::Idle;

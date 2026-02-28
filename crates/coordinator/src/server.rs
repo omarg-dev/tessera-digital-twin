@@ -9,6 +9,7 @@ use protocol::*;
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::{collision as collision_config, sensor as sensor_config};
 use protocol::logs;
+use protocol::grid_map::ShelfInventory;
 use serde_json::{to_vec, from_slice};
 use std::collections::HashMap;
 
@@ -98,6 +99,7 @@ pub async fn run(session: Session, map: GridMap) {
     let mut robots: HashMap<u32, TrackedRobot> = HashMap::new();
     let mut paused = false;
     let mut verbose = true;
+    let mut inventory = ShelfInventory::from_map(&map);
     let mut pending_tasks: usize = 0;  // From QueueState broadcasts
     let mut next_cmd_id: u64 = 1;  // Unique ID for command tracking
     
@@ -136,6 +138,7 @@ pub async fn run(session: Session, map: GridMap) {
                     &mut robots,
                     &map,
                     &mut pathfinder,
+                    &mut inventory,
                     &cmd_publisher,
                     &status_publisher,
                     &mut next_cmd_id,
@@ -155,6 +158,7 @@ pub async fn run(session: Session, map: GridMap) {
                     task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
                     task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
                     task_manager::AssignmentResult::InvalidTileCombination => "rejected: invalid pickup/dropoff".to_string(),
+                    task_manager::AssignmentResult::ShelfCapacity { reason } => format!("rejected: {}", reason),
                     task_manager::AssignmentResult::NoPathToPickup => "rejected: no path to pickup".to_string(),
                 };
 
@@ -245,6 +249,7 @@ pub async fn run(session: Session, map: GridMap) {
                 &mut robots,
                 &map,
                 &mut pathfinder,
+                &mut inventory,
                 &cmd_publisher,
                 &status_publisher,
                 &robot_control_publisher,

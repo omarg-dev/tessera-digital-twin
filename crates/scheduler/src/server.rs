@@ -10,8 +10,8 @@ use rand::thread_rng;
 
 use protocol::config::scheduler as sched_config;
 use protocol::{
-    timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, Task, TaskAssignment,
-    TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
+    timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
+    Task, TaskAssignment, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
 };
 
 use crate::allocator::{Allocator, AllocatorInstance, RobotInfo};
@@ -30,6 +30,9 @@ pub async fn run(session: Session) {
         map.get_shelves().len(),
         map.get_dropoffs().len(),
     );
+
+    // Shelf inventory for capacity enforcement (shelves start full)
+    let mut inventory = ShelfInventory::from_map(&map);
 
     // Publishers
     let assignment_pub = session.declare_publisher(topics::TASK_ASSIGNMENTS).await.unwrap();
@@ -73,11 +76,11 @@ pub async fn run(session: Session) {
         handle_robot_updates(&robot_sub, &mut robots);
         
         // Task status updates (from coordinator)
-        handle_status_updates(&status_sub, &mut queue, &mut robots);
+        handle_status_updates(&status_sub, &mut queue, &mut robots, &mut inventory);
 
         // Allocate tasks
         if !paused {
-            allocate_tasks(&mut queue, &allocator, &mut robots, &map, &assignment_pub, verbose).await;
+            allocate_tasks(&mut queue, &allocator, &mut robots, &map, &mut inventory, &assignment_pub, verbose).await;
         }
 
         // Broadcast queue state
@@ -266,12 +269,25 @@ fn handle_status_updates(
     sub: &zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
     queue: &mut dyn TaskQueue,
     robots: &mut HashMap<u32, RobotInfo>,
+    inventory: &mut ShelfInventory,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
         if let Ok(update) = from_slice::<TaskStatusUpdate>(&sample.payload().to_bytes()) {
             if let Some(task) = queue.get_mut(update.task_id) {
                 println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
                 logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
+
+                // Undo inventory reservations on task failure
+                if matches!(update.status, TaskStatus::Failed { .. }) {
+                    if let Some(pickup) = task.pickup_location() {
+                        inventory.undo_pickup(pickup);
+                    }
+                    if let Some(dropoff) = task.target_location() {
+                        inventory.undo_dropoff(dropoff);
+                    }
+                    logs::save_log("Scheduler", &format!("Task {} failed: inventory reservations undone", task.id));
+                }
+
                 task.status = update.status.clone();
 
                 // Free robot on completion/failure
@@ -292,6 +308,7 @@ async fn allocate_tasks(
     allocator: &dyn Allocator,
     robots: &mut HashMap<u32, RobotInfo>,
     map: &GridMap,
+    inventory: &mut ShelfInventory,
     publisher: &zenoh::pubsub::Publisher<'_>,
     verbose: bool,
 ) {
@@ -299,6 +316,28 @@ async fn allocate_tasks(
 
     for task_id in pending_ids {
         let Some(task) = queue.get(task_id).cloned() else { continue };
+
+        // Shelf capacity enforcement: skip tasks that can't be fulfilled
+        if let Some(pickup) = task.pickup_location() {
+            if !inventory.can_pickup(pickup) {
+                if verbose {
+                    let stock = inventory.stock_at(pickup);
+                    println!("[{}ms] ⏸ Task {} skipped: pickup shelf ({},{}) empty ({:?})",
+                        timestamp(), task_id, pickup.0, pickup.1, stock);
+                }
+                continue;
+            }
+        }
+        if let Some(dropoff) = task.target_location() {
+            if !inventory.can_dropoff(dropoff) {
+                if verbose {
+                    let stock = inventory.stock_at(dropoff);
+                    println!("[{}ms] ⏸ Task {} skipped: dropoff shelf ({},{}) full ({:?})",
+                        timestamp(), task_id, dropoff.0, dropoff.1, stock);
+                }
+                continue;
+            }
+        }
 
         let Some(pickup) = task.pickup_location() else { continue };
         let mut reachable_robots: HashMap<u32, RobotInfo> = HashMap::new();
@@ -314,6 +353,14 @@ async fn allocate_tasks(
         // Mark robot assigned
         if let Some(robot) = robots.get_mut(&robot_id) {
             robot.assigned_task = Some(task_id);
+        }
+
+        // Reserve inventory: decrement pickup shelf, increment dropoff shelf
+        if let Some(pickup_pos) = task.pickup_location() {
+            inventory.pickup(pickup_pos);
+        }
+        if let Some(dropoff_pos) = task.target_location() {
+            inventory.dropoff(dropoff_pos);
         }
 
         // Update task status

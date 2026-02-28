@@ -214,7 +214,7 @@ pub mod visual {
     pub const SHELF_MAX_CAPACITY: u32 = 16;
 
     /// Scale factor for cargo boxes on shelves (1.0 = full model size)
-    pub const BOX_SCALE: f32 = 0.7;
+    pub const BOX_SCALE: f32 = 0.6;
 
     /// Y offset for placeholder planes (station/dropoff) to sit above the floor
     pub const PLACEHOLDER_Y_OFFSET: f32 = 0.001;

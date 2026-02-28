@@ -43,6 +43,8 @@ pub struct TrackedRobot {
     pub task_stage: TaskStage,  // Where in task execution
     pub pickup_location: Option<[f32; 3]>,  // Pickup in world coords
     pub dropoff_location: Option<[f32; 3]>,  // Dropoff in world coords
+    pub pickup_grid: Option<(usize, usize)>,  // Pickup shelf grid position (for inventory)
+    pub dropoff_grid: Option<(usize, usize)>,  // Dropoff shelf grid position (for inventory)
     pub return_reason: Option<ReturnReason>,  // Why returning to station (if any)
     pub skip_next_validation: bool,
     
@@ -72,6 +74,8 @@ impl TrackedRobot {
             task_stage: TaskStage::Idle,
             pickup_location: None,
             dropoff_location: None,
+            pickup_grid: None,
+            dropoff_grid: None,
             return_reason: None,
             skip_next_validation: false,
             last_progress: Instant::now(),
