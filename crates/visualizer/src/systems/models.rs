@@ -13,19 +13,19 @@ use protocol::config::visual::{TILE_SIZE, colors, SHELF_MAX_CAPACITY};
 
 pub mod assets {
     /// floor tile
-    pub const FLOOR: &str = "floor.glb";
+    pub const FLOOR: &str = "models/floor.glb";
     /// standard wall segment
-    pub const WALL: &str = "wall.glb";
+    pub const WALL: &str = "models/wall.glb";
     /// wall segment with window cutout
-    pub const WALL_WINDOW: &str = "wall_window.glb";
+    pub const WALL_WINDOW: &str = "models/wall_window.glb";
     /// shelf unit (3 usable levels)
-    pub const SHELF: &str = "shelf.glb";
+    pub const SHELF: &str = "models/shelf.glb";
     /// small cargo box
-    pub const BOX_SMALL: &str = "box-small.glb";
+    pub const BOX_SMALL: &str = "models/box-small.glb";
     // /// robot chassis model
-    // pub const ROBOT: &str = "robot.glb";
+    // pub const ROBOT: &str = "models/robot.glb";
     // /// charging station model
-    // pub const STATION: &str = "station.glb";
+    // pub const STATION: &str = "models/station.glb";
 }
 
 // ── Weighted variant selection ──
@@ -87,7 +87,7 @@ pub fn wall_rotation(grid: &[Vec<&str>], row: usize, col: usize) -> f32 {
 pub const BOXES_PER_SHELF: usize = SHELF_MAX_CAPACITY as usize;
 
 /// Y-heights of the 3 usable shelf levels (relative to shelf origin)
-const SHELF_LEVEL_HEIGHTS: [f32; 3] = [0.15, 0.475, 0.8];
+const SHELF_LEVEL_HEIGHTS: [f32; 4] = [0.3, 0.6, 0.9, 1.2];
 
 /// X offsets for the 2-column box grid per shelf level
 const BOX_X_OFFSETS: [f32; 2] = [-0.15, 0.15];
