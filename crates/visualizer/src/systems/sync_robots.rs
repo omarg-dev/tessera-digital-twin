@@ -1,10 +1,7 @@
 use bevy::prelude::*;
 use crate::resources::{LogBuffer, RobotUpdates, RobotIndex};
 use crate::components::{Robot, Shelf};
-use protocol::config::visual::{colors, ROBOT_SIZE};
-
-/// Maximum squared distance to match a robot pickup/drop to a shelf
-const CARGO_SHELF_DISTANCE_SQ: f32 = 2.25; // 1.5 units
+use protocol::config::visual::{colors, ROBOT_SIZE, CARGO_SHELF_DISTANCE_SQ};
 
 /// Applies `RobotUpdate`s to matching robots (by `Robot.id`) in the world.
 /// If a robot ID is not found, spawns a new robot entity.

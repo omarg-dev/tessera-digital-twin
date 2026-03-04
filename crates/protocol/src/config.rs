@@ -219,6 +219,9 @@ pub mod visual {
     /// Y offset for placeholder planes (station/dropoff) to sit above the floor
     pub const PLACEHOLDER_Y_OFFSET: f32 = 0.001;
 
+    /// Maximum squared distance to match a robot pickup/drop to a shelf (1.5 units)
+    pub const CARGO_SHELF_DISTANCE_SQ: f32 = 2.25;
+
     /// Colors (RGB 0.0-1.0)
     pub mod colors {
         /// Ground tile color

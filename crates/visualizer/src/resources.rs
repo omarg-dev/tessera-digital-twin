@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use protocol::config::visual::ui as ui_cfg;
 use protocol::{QueueState, RobotControl, RobotUpdate, SystemCommand, TaskRequest};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use zenoh::Session;
@@ -141,16 +141,16 @@ impl Default for UiState {
 /// Ring buffer for system log lines displayed in the bottom panel
 #[derive(Resource)]
 pub struct LogBuffer {
-    pub lines: Vec<String>,
+    pub lines: VecDeque<String>,
     pub capacity: usize,
-    /// Auto-scroll to bottom when new entries arrive
+    /// auto-scroll to bottom when new entries arrive
     pub auto_scroll: bool,
 }
 
 impl Default for LogBuffer {
     fn default() -> Self {
         Self {
-            lines: Vec::with_capacity(ui_cfg::LOG_BUFFER_CAPACITY),
+            lines: VecDeque::with_capacity(ui_cfg::LOG_BUFFER_CAPACITY),
             capacity: ui_cfg::LOG_BUFFER_CAPACITY,
             auto_scroll: true,
         }
@@ -160,9 +160,9 @@ impl Default for LogBuffer {
 impl LogBuffer {
     pub fn push(&mut self, line: String) {
         if self.lines.len() >= self.capacity {
-            self.lines.remove(0);
+            self.lines.pop_front();
         }
-        self.lines.push(line);
+        self.lines.push_back(line);
     }
 }
 
