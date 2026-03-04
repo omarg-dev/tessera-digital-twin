@@ -6,28 +6,35 @@
 
 use bevy::prelude::*;
 use protocol::config::visual::ui as ui_cfg;
+use protocol::grid_map::GridMap;
 use protocol::{QueueState, RobotControl, RobotUpdate, SystemCommand, TaskRequest};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use zenoh::Session;
 
-/// Shared Zenoh session for all visualizer subscribers
+/// Shared Zenoh session and Tokio runtime for all visualizer background tasks.
+/// One runtime is created at startup and shared by all subscribers/publishers.
 #[derive(Resource, Clone)]
-pub struct ZenohSession(pub Session);
+pub struct ZenohSession {
+    pub session: Session,
+    pub runtime: Arc<Runtime>,
+}
 
-/// Open a single Zenoh session for the visualizer (blocking startup).
+/// Open a single Zenoh session and create one shared Tokio runtime.
 ///
-/// This avoids multiple sessions per process and keeps the visualizer lean.
+/// All background subscribers and publishers use `runtime.spawn()` instead
+/// of creating their own `thread::spawn` + `Runtime::new()` pairs.
 pub fn open_zenoh_session() -> ZenohSession {
-    let rt = Runtime::new().expect("Failed to create Tokio runtime for Zenoh session");
+    let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
     let session = rt.block_on(async {
         zenoh::open(zenoh::Config::default())
             .await
             .expect("Failed to open Zenoh session")
     });
 
-    ZenohSession(session)
+    ZenohSession { session, runtime: rt }
 }
 
 /// Receives robot updates from Zenoh (firmware publishes, we display)
@@ -46,12 +53,17 @@ pub struct RobotIndex {
     pub by_id: HashMap<u32, Entity>,
 }
 
-/// Tracks the last seen position for each robot (for movement detection in zenoh_receiver)
-/// Prevents processing duplicate updates when robot hasn't moved
+/// Tracks the last seen position and state for each robot (for dedup in zenoh_receiver).
+/// Prevents processing duplicate updates when neither position nor state changed.
 #[derive(Resource, Default)]
 pub struct RobotLastPositions {
     pub by_id: HashMap<u32, [f32; 3]>,
+    pub state_by_id: HashMap<u32, protocol::RobotState>,
 }
+
+/// Warehouse grid map, shared as a Bevy resource for tile lookups.
+#[derive(Resource)]
+pub struct WarehouseMap(pub GridMap);
 
 // ── UI State ──────────────────────────────────────────────────────
 
@@ -97,6 +109,8 @@ pub struct UiState {
     /// Layer toggle: show robot ID labels
     pub show_ids: bool,
     /// Simulation speed multiplier (1.0 = real-time)
+    /// TODO: wire to firmware tick rate when speed control is implemented
+    #[allow(dead_code)]
     pub sim_speed: f32,
     /// Whether the simulation is paused
     pub is_paused: bool,

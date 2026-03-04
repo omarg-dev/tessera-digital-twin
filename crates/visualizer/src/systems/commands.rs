@@ -4,8 +4,6 @@
 use bevy::prelude::*;
 use protocol::{RobotControl, SystemCommand, topics};
 use serde_json::from_slice;
-use std::thread;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use zenoh::Session;
 
@@ -30,16 +28,12 @@ pub struct ReloadEnvironment;
 /// Initialize system command listener
 pub fn setup_system_listener(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<SystemCommand>(16);
-    let session = session.0.clone();
+    let sess = session.session.clone();
 
-    // Spawn background thread to listen for system commands
-    thread::spawn(move || {
-        let rt = Runtime::new().expect("Failed to create Tokio runtime for system commands");
-        rt.block_on(async move {
-            if let Err(e) = run_system_listener(session, tx).await {
-                eprintln!("System command listener exited: {}", e);
-            }
-        });
+    session.runtime.spawn(async move {
+        if let Err(e) = run_system_listener(sess, tx).await {
+            eprintln!("System command listener exited: {}", e);
+        }
     });
 
     commands.insert_resource(SystemCommandReceiver(rx));
@@ -86,7 +80,6 @@ pub fn handle_system_commands(
                 log_buffer.push(format!("[System] Chaos {}", if *on { "ON" } else { "OFF" }));
             }
         }
-        cmd.apply_with_log("Visualizer", None, None, None);
     }
 }
 
@@ -95,15 +88,12 @@ pub fn handle_system_commands(
 /// Initialize background Zenoh publishers for UI commands
 pub fn setup_publishers(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<OutboundCommand>(64);
-    let session = session.0.clone();
+    let sess = session.session.clone();
 
-    thread::spawn(move || {
-        let rt = Runtime::new().expect("Failed to create Tokio runtime for UI publishers");
-        rt.block_on(async move {
-            if let Err(e) = run_publisher_loop(session, rx).await {
-                eprintln!("UI publisher loop exited: {}", e);
-            }
-        });
+    session.runtime.spawn(async move {
+        if let Err(e) = run_publisher_loop(sess, rx).await {
+            eprintln!("UI publisher loop exited: {}", e);
+        }
     });
 
     commands.insert_resource(CommandSender(tx));

@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 use protocol::{RobotUpdate, RobotUpdateBatch, topics};
 use serde_json::from_slice;
-use std::thread;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use zenoh::sample::Sample;
 use zenoh::Session;
@@ -12,20 +10,16 @@ use crate::resources::{RobotUpdates, ZenohReceiver, RobotLastPositions, ZenohSes
 
 /// Initializes Zenoh subscriber and creates a receiver channel
 pub fn setup_zenoh_receiver(mut commands: Commands, session: Res<ZenohSession>) {
-    let (tx, rx) = mpsc::channel::<RobotUpdate>(256); // Buffer for batch updates
-    let session = session.0.clone();
+    let (tx, rx) = mpsc::channel::<RobotUpdate>(256);
+    let sess = session.session.clone();
 
-    // Spawn a background thread with its own Tokio runtime for Zenoh async work
-    thread::spawn(move || {
-        let rt = Runtime::new().expect("Failed to create Tokio runtime for Zenoh receiver");
-        rt.block_on(async move {
-            if let Err(e) = run_zenoh_listener(session, tx).await {
-                eprintln!("Zenoh listener exited: {}", e);
-            }
-        });
+    // spawn on the shared runtime (no extra thread or runtime)
+    session.runtime.spawn(async move {
+        if let Err(e) = run_zenoh_listener(sess, tx).await {
+            eprintln!("Zenoh listener exited: {}", e);
+        }
     });
 
-    // Store the receiving end in Bevy so frame systems can poll it
     commands.insert_resource(ZenohReceiver(rx));
     commands.init_resource::<RobotUpdates>();
 }
@@ -92,16 +86,23 @@ pub fn collect_robot_updates(
             Ok(update) => {
                 received_count += 1;
                 
-                // Only store the update if the position changed vs last seen for this id
-                let last = last_positions.by_id.get(&update.id);
-                let moved = match last {
+                // pass through if position or state changed vs last seen
+                let last_pos = last_positions.by_id.get(&update.id);
+                let last_state = last_positions.state_by_id.get(&update.id);
+
+                let moved = match last_pos {
                     Some(prev) => prev != &update.position,
                     None => true,
                 };
+                let state_changed = match last_state {
+                    Some(prev) => prev != &update.state,
+                    None => true,
+                };
                 
-                if moved {
+                if moved || state_changed {
                     applied_count += 1;
                     last_positions.by_id.insert(update.id, update.position);
+                    last_positions.state_by_id.insert(update.id, update.state.clone());
                     robot_updates.updates.push(update);
                 }
             }

@@ -84,14 +84,10 @@ fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiA
     }
 
     let speeds: &[(&str, f32)] = &[("1x", 1.0), ("10x", 10.0), ("Max", f32::MAX)];
-    for &(label, factor) in speeds {
-        let btn = egui::Button::new(label).selected(
-            (ui_state.sim_speed - factor).abs() < 0.01
-                || (factor == f32::MAX && ui_state.sim_speed == f32::MAX),
-        );
-        if ui.add(btn).clicked() {
-            ui_state.sim_speed = factor;
-        }
+    for &(label, _factor) in speeds {
+        let btn = egui::Button::new(label).selected(label == "1x");
+        let response = ui.add_enabled(false, btn);
+        response.on_disabled_hover_text("Speed control not yet wired");
     }
 }
 
@@ -303,14 +299,14 @@ pub fn right_panel(
 
             match ui_state.inspector_tab {
                 RightTab::Details => {
-                    // Try robot first
-                    if let Some((_, robot)) = robots.iter().find(|(e, _)| *e == entity) {
+                    // try robot first (O(1) lookup)
+                    if let Ok((_, robot)) = robots.get(entity) {
                         robot_inspector(ui, robot, actions);
                         return;
                     }
 
-                    // Try shelf
-                    if let Some((_, shelf)) = shelves.iter().find(|(e, _)| *e == entity) {
+                    // try shelf (O(1) lookup)
+                    if let Ok((_, shelf)) = shelves.get(entity) {
                         shelf_inspector(
                             ui, entity, shelf, ui_state, shelves, dropoffs, transforms, actions,
                         );

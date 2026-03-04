@@ -1,7 +1,8 @@
 use bevy::prelude::*;
-use crate::resources::{LogBuffer, RobotUpdates, RobotIndex};
+use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap};
 use crate::components::{Robot, Shelf};
-use protocol::config::visual::{colors, ROBOT_SIZE, CARGO_SHELF_DISTANCE_SQ};
+use protocol::config::visual::{colors, ROBOT_SIZE, CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
+use protocol::grid_map::TileType;
 
 /// Applies `RobotUpdate`s to matching robots (by `Robot.id`) in the world.
 /// If a robot ID is not found, spawns a new robot entity.
@@ -17,6 +18,7 @@ pub fn sync_robots(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut log_buffer: ResMut<LogBuffer>,
     mut shelves: Query<(Entity, &mut Shelf, &Transform), Without<Robot>>,
+    warehouse_map: Option<Res<WarehouseMap>>,
 ) {
     // Drain all updates collected this frame
     for update in robot_updates.updates.drain(..) {
@@ -33,21 +35,32 @@ pub fn sync_robots(
                 robot.position = pos;
                 transform.translation = pos;
 
-                // Cargo pickup/drop: update nearest shelf's cargo count
+                // Cargo pickup/drop: update nearest shelf only when on correct tile
+                let grid_col = (pos.x / TILE_SIZE).round() as usize;
+                let grid_row = (pos.z / TILE_SIZE).round() as usize;
+                let tile_type = warehouse_map
+                    .as_ref()
+                    .and_then(|m| m.0.get_tile(grid_col, grid_row))
+                    .map(|t| t.tile_type);
+
                 match (old_carrying, robot.carrying_cargo) {
                     (None, Some(_)) => {
-                        // robot picked up cargo from a shelf
-                        if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
-                            if let Ok((_, mut shelf, _)) = shelves.get_mut(shelf_entity) {
-                                shelf.cargo = shelf.cargo.saturating_sub(1);
+                        // robot picked up cargo - only decrement if at a Shelf tile
+                        if matches!(tile_type, Some(TileType::Shelf(_))) {
+                            if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
+                                if let Ok((_, mut shelf, _)) = shelves.get_mut(shelf_entity) {
+                                    shelf.cargo = shelf.cargo.saturating_sub(1);
+                                }
                             }
                         }
                     }
                     (Some(_), None) => {
-                        // robot dropped cargo at a shelf (dropoff has no Shelf component)
-                        if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
-                            if let Ok((_, mut shelf, _)) = shelves.get_mut(shelf_entity) {
-                                shelf.cargo += 1;
+                        // robot dropped cargo - only increment if at a Shelf tile
+                        if matches!(tile_type, Some(TileType::Shelf(_))) {
+                            if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
+                                if let Ok((_, mut shelf, _)) = shelves.get_mut(shelf_entity) {
+                                    shelf.cargo += 1;
+                                }
                             }
                         }
                     }

@@ -94,9 +94,10 @@ pub struct Neighborhood {
 }
 
 impl Neighborhood {
-    /// Build a neighborhood by sampling the token grid around (row, col).
+    /// Build a neighborhood by sampling a wall grid around (row, col).
+    /// Each cell is `true` if it's a wall, `false` otherwise.
     /// Out-of-bounds cells are treated as non-wall.
-    pub fn from_grid(grid: &[Vec<&str>], row: usize, col: usize) -> Self {
+    pub fn from_wall_grid(grid: &[Vec<bool>], row: usize, col: usize) -> Self {
         let rows = grid.len();
         let cols = if rows > 0 { grid[0].len() } else { 0 };
 
@@ -105,7 +106,7 @@ impl Neighborhood {
                 && c >= 0
                 && (r as usize) < rows
                 && (c as usize) < cols
-                && grid[r as usize][c as usize] == "#"
+                && grid[r as usize][c as usize]
         };
 
         let r = row as isize;
@@ -206,8 +207,8 @@ pub fn classify_wall(nb: &Neighborhood) -> WallKind {
 }
 
 /// Convenience wrapper: build neighborhood then classify.
-pub fn classify_wall_from_grid(grid: &[Vec<&str>], row: usize, col: usize) -> WallKind {
-    let nb = Neighborhood::from_grid(grid, row, col);
+pub fn classify_wall_from_grid(grid: &[Vec<bool>], row: usize, col: usize) -> WallKind {
+    let nb = Neighborhood::from_wall_grid(grid, row, col);
     classify_wall(&nb)
 }
 
@@ -264,11 +265,11 @@ pub fn spawn_wall(
     commands: &mut Commands,
     asset_server: &AssetServer,
     pos: Vec3,
-    grid: &[Vec<&str>],
+    wall_grid: &[Vec<bool>],
     row: usize,
     col: usize,
 ) {
-    let kind = classify_wall_from_grid(grid, row, col);
+    let kind = classify_wall_from_grid(wall_grid, row, col);
 
     let (model_path, rotation) = match kind {
         WallKind::Straight(rot) => (pick_weighted(WALL_VARIANTS), rot),
@@ -403,34 +404,34 @@ mod tests {
         }
     }
 
-    // ── Neighborhood::from_grid ──
+    // ── Neighborhood::from_wall_grid ──
 
     #[test]
     fn neighborhood_top_left_corner() {
         let grid = vec![
-            vec!["#", "#", "."],
-            vec!["#", ".", "."],
-            vec![".", ".", "."],
+            vec![true,  true,  false],
+            vec![true,  false, false],
+            vec![false, false, false],
         ];
-        let n = Neighborhood::from_grid(&grid, 0, 0);
+        let n = Neighborhood::from_wall_grid(&grid, 0, 0);
         assert!(!n.n);
         assert!(!n.nw);
         assert!(!n.w);
         assert!(!n.sw);
-        assert!(n.e);    // (0,1) = #
+        assert!(n.e);    // (0,1) = wall
         assert!(!n.ne);  // out of bounds
-        assert!(n.s);    // (1,0) = #
-        assert!(!n.se);  // (1,1) = .
+        assert!(n.s);    // (1,0) = wall
+        assert!(!n.se);  // (1,1) = false
     }
 
     #[test]
     fn neighborhood_center() {
         let grid = vec![
-            vec!["#", "#", "#"],
-            vec!["#", "#", "."],
-            vec![".", "#", "."],
+            vec![true,  true,  true],
+            vec![true,  true,  false],
+            vec![false, true,  false],
         ];
-        let n = Neighborhood::from_grid(&grid, 1, 1);
+        let n = Neighborhood::from_wall_grid(&grid, 1, 1);
         assert!(n.n);
         assert!(n.nw);
         assert!(n.ne);
@@ -444,11 +445,11 @@ mod tests {
     #[test]
     fn neighborhood_bottom_right() {
         let grid = vec![
-            vec![".", ".", "."],
-            vec![".", "#", "#"],
-            vec![".", "#", "#"],
+            vec![false, false, false],
+            vec![false, true,  true],
+            vec![false, true,  true],
         ];
-        let n = Neighborhood::from_grid(&grid, 2, 2);
+        let n = Neighborhood::from_wall_grid(&grid, 2, 2);
         assert!(!n.e);
         assert!(!n.se);
         assert!(!n.s);
@@ -605,17 +606,16 @@ mod tests {
         }
     }
 
-    // ── Integration: from_grid → classify ──
+    // ── Integration: from_wall_grid → classify ──
 
     #[test]
     fn from_grid_outer_corner_top_left() {
         let grid = vec![
-            vec!["#", "#", "#"],
-            vec!["#", ".",  "."],
-            vec!["#", ".",  "."],
+            vec![true,  true,  true],
+            vec![true,  false, false],
+            vec![true,  false, false],
         ];
-        // (0,0): E+S with SE=. → inner? No: SE=(1,1)=. so inner.
-        // Actually (0,0): E=(0,1)=#, S=(1,0)=#, SE=(1,1)=. → inner
+        // (0,0): E+S with SE=false -> inner
         let kind = classify_wall_from_grid(&grid, 0, 0);
         assert!(matches!(kind, WallKind::CornerInner(_)));
     }
@@ -623,22 +623,19 @@ mod tests {
     #[test]
     fn from_grid_outer_corner_in_filled_block() {
         let grid = vec![
-            vec!["#", "#", "#"],
-            vec!["#", "#", "#"],
-            vec!["#", "#", "."],
+            vec![true,  true,  true],
+            vec![true,  true,  true],
+            vec![true,  true,  false],
         ];
-        // (2,1): N=(1,1)=#, E=(2,2)=., W=(2,0)=#, NW=(1,0)=# → N+W, NW=# → outer
+        // (2,1): N+W adjacent, NW=wall -> outer
         let kind = classify_wall_from_grid(&grid, 2, 1);
-        // only 1 cardinal of 2 adjacent... N and W, NW=#
-        // Actually: N=(1,1)=#, W=(2,0)=# → 2 adjacent cardinals N+W, NW=# → outer
-        // E=(2,2)=. and S is out of bounds
         assert!(matches!(kind, WallKind::CornerOuter(_)));
     }
 
     #[test]
     fn from_grid_straight_run() {
         let grid = vec![
-            vec!["#", "#", "#"],
+            vec![true, true, true],
         ];
         let kind = classify_wall_from_grid(&grid, 0, 1);
         assert!(matches!(kind, WallKind::Straight(_)));
@@ -675,10 +672,15 @@ mod tests {
             .map(|l| l.split_whitespace().collect())
             .collect();
 
+        // build bool wall grid from tokens
+        let wall_grid: Vec<Vec<bool>> = token_grid.iter()
+            .map(|row| row.iter().map(|&t| t == "#").collect())
+            .collect();
+
         println!("\n=== Wall Classification Diagnostic ===");
         println!("Layout: {}", protocol::config::LAYOUT_FILE_PATH);
-        println!("Grid size: {} rows x {} cols\n", token_grid.len(),
-            token_grid.first().map_or(0, |r| r.len()));
+        println!("Grid size: {} rows x {} cols\n", wall_grid.len(),
+            wall_grid.first().map_or(0, |r| r.len()));
 
         // symbol for each wall kind + rotation
         let symbol = |kind: &WallKind| -> &str {
@@ -706,16 +708,15 @@ mod tests {
         };
 
         // print classified map
-        for (row, tokens) in token_grid.iter().enumerate() {
+        for (row, walls) in wall_grid.iter().enumerate() {
             let mut line = String::new();
-            for (col, &token) in tokens.iter().enumerate() {
-                if token == "#" {
-                    let kind = classify_wall_from_grid(&token_grid, row, col);
+            for (col, &is_wall) in walls.iter().enumerate() {
+                if is_wall {
+                    let kind = classify_wall_from_grid(&wall_grid, row, col);
                     line.push_str(symbol(&kind));
-                } else if token == "~" {
-                    line.push(' ');
                 } else {
-                    line.push('.');
+                    let token = &token_grid[row][col];
+                    if *token == "~" { line.push(' '); } else { line.push('.'); }
                 }
                 line.push(' ');
             }
@@ -728,10 +729,10 @@ mod tests {
         let mut inner = [0u32; 4];
         let mut outer = [0u32; 4];
 
-        for (row, tokens) in token_grid.iter().enumerate() {
-            for (col, &token) in tokens.iter().enumerate() {
-                if token != "#" { continue; }
-                let kind = classify_wall_from_grid(&token_grid, row, col);
+        for (row, walls) in wall_grid.iter().enumerate() {
+            for (col, &is_wall) in walls.iter().enumerate() {
+                if !is_wall { continue; }
+                let kind = classify_wall_from_grid(&wall_grid, row, col);
                 match kind {
                     WallKind::Straight(r) => {
                         if (r - STRAIGHT_EW).abs() < 0.01 { straight_ew += 1; }

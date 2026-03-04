@@ -3,8 +3,6 @@
 use bevy::prelude::*;
 use protocol::{QueueState, topics};
 use serde_json::from_slice;
-use std::thread;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use zenoh::Session;
 
@@ -13,15 +11,12 @@ use crate::resources::{QueueStateData, QueueStateReceiver, ZenohSession};
 /// Initialize background Zenoh subscriber for task queue state
 pub fn setup_queue_listener(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<QueueState>(16);
-    let session = session.0.clone();
+    let sess = session.session.clone();
 
-    thread::spawn(move || {
-        let rt = Runtime::new().expect("Failed to create Tokio runtime for queue listener");
-        rt.block_on(async move {
-            if let Err(e) = run_queue_listener(session, tx).await {
-                eprintln!("Queue state listener exited: {}", e);
-            }
-        });
+    session.runtime.spawn(async move {
+        if let Err(e) = run_queue_listener(sess, tx).await {
+            eprintln!("Queue state listener exited: {}", e);
+        }
     });
 
     commands.insert_resource(QueueStateReceiver(rx));

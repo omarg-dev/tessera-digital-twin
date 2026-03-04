@@ -25,8 +25,8 @@ pub fn check_reload_environment(
 }
 
 /// Read from a .txt map file and populate the warehouse layout with .glb models.
-/// Uses protocol::GridMap for tile parsing (consistent with coordinator/scheduler),
-/// plus a raw token grid for wall neighbor analysis.
+/// Uses protocol::GridMap as the sole source of truth for tile parsing.
+/// A bool wall grid is derived from the GridMap for wall neighbor analysis.
 pub fn populate_environment(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -42,13 +42,13 @@ pub fn populate_environment(
         }
     };
 
-    // raw token grid for wall neighbor analysis (classify_wall needs string tokens)
-    let contents = std::fs::read_to_string(LAYOUT_FILE_PATH).unwrap();
-    let token_grid: Vec<Vec<&str>> = contents.lines()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && !l.starts_with('/'))
-        .map(|l| l.split_whitespace().collect())
-        .collect();
+    // build wall grid from GridMap tiles (true = wall)
+    let mut wall_grid = vec![vec![false; map.width]; map.height];
+    for tile in &map.tiles {
+        if tile.tile_type == TileType::Wall {
+            wall_grid[tile.y][tile.x] = true;
+        }
+    }
 
     // spawn environment entities from the parsed GridMap tiles
     for tile in &map.tiles {
@@ -59,7 +59,7 @@ pub fn populate_environment(
                 models::spawn_floor(&mut commands, &asset_server, pos);
             }
             TileType::Wall => {
-                models::spawn_wall(&mut commands, &asset_server, pos, &token_grid, tile.y, tile.x);
+                models::spawn_wall(&mut commands, &asset_server, pos, &wall_grid, tile.y, tile.x);
             }
             TileType::Station => {
                 models::spawn_floor(&mut commands, &asset_server, pos);
@@ -80,6 +80,9 @@ pub fn populate_environment(
     }
 
     info!("Warehouse layout loaded: {}x{} (GridMap)", map.width, map.height);
+
+    // store map as a resource for tile lookups in other systems
+    commands.insert_resource(crate::resources::WarehouseMap(map));
 }
 
 /// Sync visual box entities with shelf cargo count.
