@@ -7,7 +7,8 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::components::*;
-use protocol::config::visual::{TILE_SIZE, colors, SHELF_MAX_CAPACITY, BOX_SCALE, PLACEHOLDER_Y_OFFSET};
+use crate::resources::PlaceholderMeshes;
+use protocol::config::visual::{SHELF_MAX_CAPACITY, BOX_SCALE, PLACEHOLDER_Y_OFFSET};
 
 // ── Asset paths ──
 
@@ -311,49 +312,22 @@ pub fn spawn_shelf(
     });
 }
 
-/// Spawn a station marker (primitive mesh until .glb model is available)
-pub fn spawn_station(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    pos: Vec3,
-) {
+/// Spawn a station marker using shared placeholder mesh handles.
+/// TODO: replace with .glb model when available
+pub fn spawn_station(commands: &mut Commands, handles: &PlaceholderMeshes, pos: Vec3) {
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(colors::STATION.0, colors::STATION.1, colors::STATION.2),
-            ..default()
-        })),
+        Mesh3d(handles.station_mesh.clone()),
+        MeshMaterial3d(handles.station_material.clone()),
         Transform::from_translation(pos + Vec3::Y * PLACEHOLDER_Y_OFFSET),
         Station,
     ));
-    // TODO: replace with .glb model when available
-    // fn spawn_station_model(
-    //     commands: &mut Commands,
-    //     asset_server: &AssetServer,
-    //     pos: Vec3,
-    // ) {
-    //     commands.spawn((
-    //         SceneRoot(load_scene(asset_server, assets::STATION)),
-    //         Transform::from_translation(pos),
-    //         Station,
-    //     ));
-    // }
 }
 
-/// Spawn a dropoff zone marker (primitive mesh)
-pub fn spawn_dropoff(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    pos: Vec3,
-) {
+/// Spawn a dropoff zone marker using shared placeholder mesh handles.
+pub fn spawn_dropoff(commands: &mut Commands, handles: &PlaceholderMeshes, pos: Vec3) {
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(colors::DROPOFF.0, colors::DROPOFF.1, colors::DROPOFF.2),
-            ..default()
-        })),
+        Mesh3d(handles.dropoff_mesh.clone()),
+        MeshMaterial3d(handles.dropoff_material.clone()),
         Transform::from_translation(pos + Vec3::Y * PLACEHOLDER_Y_OFFSET),
         Dropoff,
     ));

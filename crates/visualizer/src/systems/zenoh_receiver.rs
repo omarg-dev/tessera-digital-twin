@@ -4,8 +4,6 @@ use serde_json::from_slice;
 use tokio::sync::mpsc;
 use zenoh::sample::Sample;
 use zenoh::Session;
-use std::time::{Duration, Instant};
-
 use crate::resources::{RobotUpdates, ZenohReceiver, RobotLastPositions, ZenohSession};
 
 /// Initializes Zenoh subscriber and creates a receiver channel
@@ -30,7 +28,7 @@ async fn run_zenoh_listener(session: Session, tx: mpsc::Sender<RobotUpdate>) -> 
         .await
         .map_err(|e| format!("declare subscriber: {}", e))?;
 
-    println!("✓ Zenoh subscriber initialized on {}", topics::ROBOT_UPDATES);
+    // subscriber ready (logged to UI via LogBuffer at startup)
 
     // Pump samples into the channel until the subscriber closes
     while let Ok(sample) = subscriber.recv_async().await {
@@ -72,21 +70,12 @@ pub fn collect_robot_updates(
     mut receiver: ResMut<ZenohReceiver>,
     mut robot_updates: ResMut<RobotUpdates>,
     mut last_positions: ResMut<RobotLastPositions>,
-    mut last_log: Local<Option<Instant>>,
 ) {
-    // Clear previous updates
     robot_updates.updates.clear();
 
-    // Poll all available updates from the channel (non-blocking)
-    let mut received_count = 0;
-    let mut applied_count = 0;
-    
     loop {
         match receiver.0.try_recv() {
             Ok(update) => {
-                received_count += 1;
-                
-                // pass through if position or state changed vs last seen
                 let last_pos = last_positions.by_id.get(&update.id);
                 let last_state = last_positions.state_by_id.get(&update.id);
 
@@ -98,31 +87,15 @@ pub fn collect_robot_updates(
                     Some(prev) => prev != &update.state,
                     None => true,
                 };
-                
+
                 if moved || state_changed {
-                    applied_count += 1;
                     last_positions.by_id.insert(update.id, update.position);
                     last_positions.state_by_id.insert(update.id, update.state.clone());
                     robot_updates.updates.push(update);
                 }
             }
-            Err(mpsc::error::TryRecvError::Empty) => {
-                break;
-            }
-            Err(mpsc::error::TryRecvError::Disconnected) => {
-                eprintln!("Zenoh receiver channel disconnected!");
-                break;
-            }
+            Err(mpsc::error::TryRecvError::Empty) => break,
+            Err(mpsc::error::TryRecvError::Disconnected) => break,
         }
-    }
-    
-    // Periodically log summary (less noisy than per-frame logging)
-    let should_log = last_log
-        .map(|t| t.elapsed() >= Duration::from_secs(3))
-        .unwrap_or(false);
-    
-    if should_log && received_count > 0 {
-        println!("📊 Sync: {}/{} updates applied", applied_count, received_count);
-        *last_log = Some(Instant::now());
     }
 }

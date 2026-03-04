@@ -97,6 +97,7 @@ fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiA
 pub fn left_panel(
     ctx: &egui::Context,
     ui_state: &mut UiState,
+    robot_index: &RobotIndex,
     robots: &Query<(Entity, &Robot)>,
     shelves: &Query<(Entity, &Shelf)>,
     queue_state: &QueueStateData,
@@ -114,7 +115,7 @@ pub fn left_panel(
             ui.separator();
 
             match ui_state.object_tab {
-                LeftTab::Objects => objects_tab(ui, ui_state, robots, shelves),
+                LeftTab::Objects => objects_tab(ui, ui_state, robot_index, robots, shelves),
                 LeftTab::Tasks => tasks_tab(ui, queue_state),
             }
         });
@@ -124,6 +125,7 @@ pub fn left_panel(
 fn objects_tab(
     ui: &mut egui::Ui,
     ui_state: &mut UiState,
+    robot_index: &RobotIndex,
     robots: &Query<(Entity, &Robot)>,
     shelves: &Query<(Entity, &Shelf)>,
 ) {
@@ -144,14 +146,14 @@ fn objects_tab(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             // ── Robots section (collapsible) ──
-            let robot_count = robots.iter().count();
+            let robot_count = robot_index.by_id.len();
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!("Robots ({robot_count})")).strong(),
             )
             .default_open(true)
             .show(ui, |ui| {
                 let mut robot_list: Vec<_> = robots.iter().collect();
-                robot_list.sort_by_key(|(_, r)| r.id);
+                robot_list.sort_unstable_by_key(|(_, r)| r.id);
 
                 for (entity, robot) in &robot_list {
                     let label = format!("#{}", robot.id);
@@ -179,7 +181,7 @@ fn objects_tab(
             .default_open(true)
             .show(ui, |ui| {
                 let mut shelf_list: Vec<_> = shelves.iter().collect();
-                shelf_list.sort_by_key(|(e, _)| e.index());
+                shelf_list.sort_unstable_by_key(|(e, _)| e.index());
 
                 for (entity, shelf) in &shelf_list {
                     let label = format!("Shelf (cargo {})", shelf.cargo);
@@ -520,7 +522,7 @@ fn shelf_inspector(
             })
             .body(|ui| {
                 let mut sorted_shelves: Vec<_> = all_shelves.iter().collect();
-                sorted_shelves.sort_by_key(|(e, _)| e.index());
+                sorted_shelves.sort_unstable_by_key(|(e, _)| e.index());
 
                 for (dest_entity, dest_shelf) in &sorted_shelves {
                     if *dest_entity == shelf_entity {

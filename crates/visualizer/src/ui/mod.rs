@@ -38,7 +38,7 @@ pub fn draw_ui(
     let mut pending_actions = Vec::new();
 
     panels::top_panel(ctx, &mut ui_state, &robot_index, &queue_state, &time, &mut pending_actions);
-    panels::left_panel(ctx, &mut ui_state, &robots, &shelves, &queue_state);
+    panels::left_panel(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state);
     panels::right_panel(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, &mut pending_actions);
     panels::bottom_panel(ctx, &mut ui_state, &mut log_buffer);
 

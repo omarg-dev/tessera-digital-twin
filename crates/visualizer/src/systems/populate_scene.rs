@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use crate::components::*;
+use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
-use protocol::config::{LAYOUT_FILE_PATH, visual::TILE_SIZE, visual::SHELF_MAX_CAPACITY, visual::BOX_SCALE, visual::lighting};
+use protocol::config::{LAYOUT_FILE_PATH, visual::TILE_SIZE, visual::SHELF_MAX_CAPACITY, visual::BOX_SCALE, visual::lighting, visual::colors, visual::ROBOT_SIZE};
 use protocol::grid_map::{GridMap, TileType};
 
 /// Check if environment reload is requested and trigger repopulation
@@ -14,8 +15,6 @@ pub fn check_reload_environment(
     env_entities: Query<Entity, Or<(With<Ground>, With<Wall>, With<Shelf>, With<Station>, With<Dropoff>)>>,
 ) {
     if reload_trigger.is_some() {
-        println!("↻ Reloading warehouse environment");
-        // despawn existing environment before repopulating
         for entity in &env_entities {
             commands.entity(entity).despawn();
         }
@@ -50,6 +49,25 @@ pub fn populate_environment(
         }
     }
 
+    // pre-allocate shared placeholder meshes (station, dropoff, robot)
+    let placeholders = PlaceholderMeshes {
+        station_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
+        station_material: materials.add(StandardMaterial {
+            base_color: Color::srgb(colors::STATION.0, colors::STATION.1, colors::STATION.2),
+            ..default()
+        }),
+        dropoff_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
+        dropoff_material: materials.add(StandardMaterial {
+            base_color: Color::srgb(colors::DROPOFF.0, colors::DROPOFF.1, colors::DROPOFF.2),
+            ..default()
+        }),
+        robot_mesh: meshes.add(Cuboid::new(ROBOT_SIZE, ROBOT_SIZE, ROBOT_SIZE)),
+        robot_material: materials.add(StandardMaterial {
+            base_color: Color::srgb(colors::ROBOT.0, colors::ROBOT.1, colors::ROBOT.2),
+            ..default()
+        }),
+    };
+
     // spawn environment entities from the parsed GridMap tiles
     for tile in &map.tiles {
         let pos = Vec3::new(tile.x as f32 * TILE_SIZE, 0.0, tile.y as f32 * TILE_SIZE);
@@ -63,11 +81,11 @@ pub fn populate_environment(
             }
             TileType::Station => {
                 models::spawn_floor(&mut commands, &asset_server, pos);
-                models::spawn_station(&mut commands, &mut meshes, &mut materials, pos);
+                models::spawn_station(&mut commands, &placeholders, pos);
             }
             TileType::Dropoff => {
                 models::spawn_floor(&mut commands, &asset_server, pos);
-                models::spawn_dropoff(&mut commands, &mut meshes, &mut materials, pos);
+                models::spawn_dropoff(&mut commands, &placeholders, pos);
             }
             TileType::Shelf(capacity) => {
                 models::spawn_floor(&mut commands, &asset_server, pos);
@@ -81,7 +99,8 @@ pub fn populate_environment(
 
     info!("Warehouse layout loaded: {}x{} (GridMap)", map.width, map.height);
 
-    // store map as a resource for tile lookups in other systems
+    // store resources for other systems
+    commands.insert_resource(placeholders);
     commands.insert_resource(crate::resources::WarehouseMap(map));
 }
 

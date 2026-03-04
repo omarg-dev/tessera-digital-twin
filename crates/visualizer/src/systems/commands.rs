@@ -45,7 +45,7 @@ async fn run_system_listener(session: Session, tx: mpsc::Sender<SystemCommand>) 
         .await
         .map_err(|e| format!("declare subscriber: {}", e))?;
 
-    println!("  System command listener initialized");
+    // listener ready (one-time setup, no console print needed)
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {

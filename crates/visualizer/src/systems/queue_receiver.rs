@@ -20,7 +20,6 @@ pub fn setup_queue_listener(mut commands: Commands, session: Res<ZenohSession>) 
     });
 
     commands.insert_resource(QueueStateReceiver(rx));
-    println!("  Queue state listener initialized");
 }
 
 async fn run_queue_listener(

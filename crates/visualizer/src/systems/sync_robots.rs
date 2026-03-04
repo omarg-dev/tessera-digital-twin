@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap};
+use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap, PlaceholderMeshes};
 use crate::components::{Robot, Shelf};
-use protocol::config::visual::{colors, ROBOT_SIZE, CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
+use protocol::config::visual::{CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
 use protocol::grid_map::TileType;
 
 /// Applies `RobotUpdate`s to matching robots (by `Robot.id`) in the world.
@@ -14,11 +14,10 @@ pub fn sync_robots(
     mut robot_updates: ResMut<RobotUpdates>,
     mut index: ResMut<RobotIndex>,
     mut robots: Query<(&mut Transform, &mut Robot), Without<Shelf>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut log_buffer: ResMut<LogBuffer>,
     mut shelves: Query<(Entity, &mut Shelf, &Transform), Without<Robot>>,
     warehouse_map: Option<Res<WarehouseMap>>,
+    placeholder_meshes: Option<Res<PlaceholderMeshes>>,
 ) {
     // Drain all updates collected this frame
     for update in robot_updates.updates.drain(..) {
@@ -67,44 +66,50 @@ pub fn sync_robots(
                     _ => {}
                 }
 
-                // Log state changes to console and UI
                 if old_state != update.state {
-                    let msg = format!("[Robot #{}] {:?} -> {:?}", update.id, old_state, update.state);
-                    println!("{msg}");
-                    log_buffer.push(msg);
+                    log_buffer.push(
+                        format!("[Robot #{}] {:?} -> {:?}", update.id, old_state, update.state),
+                    );
                 }
             }
         } else {
-            // Robot not found - spawn a new entity with primitive mesh
+            // robot not found - spawn a new entity
             let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
 
-            let entity = commands.spawn((
-                Mesh3d(meshes.add(Cuboid::new(ROBOT_SIZE, ROBOT_SIZE, ROBOT_SIZE))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(colors::ROBOT.0, colors::ROBOT.1, colors::ROBOT.2),
-                    ..default()
-                })),
-                Transform::from_translation(pos),
-                Robot {
-                    id: update.id,
-                    state: update.state.clone(),
-                    position: pos,
-                    battery: update.battery,
-                    current_task: None,
-                    carrying_cargo: update.carrying_cargo,
-                },
-            )).id();
-            // TODO: replace primitive mesh with .glb model when available
-            // use crate::systems::models;
-            // let entity = models::spawn_robot(
-            //     &mut commands, &asset_server, pos,
-            //     update.id, update.state.clone(), update.battery,
-            // );
+            // TODO: replace placeholder cuboid with .glb robot model when available
+            let entity = if let Some(ref handles) = placeholder_meshes {
+                commands.spawn((
+                    Mesh3d(handles.robot_mesh.clone()),
+                    MeshMaterial3d(handles.robot_material.clone()),
+                    Transform::from_translation(pos),
+                    Robot {
+                        id: update.id,
+                        state: update.state.clone(),
+                        position: pos,
+                        battery: update.battery,
+                        current_task: None,
+                        carrying_cargo: update.carrying_cargo,
+                    },
+                )).id()
+            } else {
+                // fallback: PlaceholderMeshes not yet inserted (race on first frame)
+                commands.spawn((
+                    Transform::from_translation(pos),
+                    Robot {
+                        id: update.id,
+                        state: update.state.clone(),
+                        position: pos,
+                        battery: update.battery,
+                        current_task: None,
+                        carrying_cargo: update.carrying_cargo,
+                    },
+                )).id()
+            };
 
             index.by_id.insert(update.id, entity);
-            let msg = format!("[Robot #{}] Spawned at [{:.1}, {:.1}, {:.1}]", update.id, pos.x, pos.y, pos.z);
-            println!("{msg}");
-            log_buffer.push(msg);
+            log_buffer.push(
+                format!("[Robot #{}] Spawned at [{:.1}, {:.1}, {:.1}]", update.id, pos.x, pos.y, pos.z),
+            );
         }
     }
 }
