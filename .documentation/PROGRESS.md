@@ -163,6 +163,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Robot state changes and spawns logged to bottom panel in real-time
 - [x] All UI actions logged to bottom panel (`[UI] Kill Robot #2`, `[System] Paused`, etc.)
 - [x] Background Zenoh publisher thread (mpsc channel bridge from Bevy to async)
+- [x] Visualizer crate review: shared Tokio runtime, GridMap wall truth, O(1) lookups, PlaceholderMeshes, LogBuffer-only logging, sort optimizations
 
 **Pending Features:**
 
@@ -255,6 +256,49 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-02-13: Visualizer Crate Review (Phase 5)
+
+Comprehensive review and refactoring of the visualizer crate across three commits:
+
+**Architecture (a878185, 28a95a0):**
+
+- **Shared Tokio runtime**: All background Zenoh subscribers share a single `Arc<Runtime>` via `ZenohSession` resource instead of each spawning its own.
+- **GridMap sole wall truth**: Wall classification uses `GridMap::tile_type_at()` instead of raw string tokens, making GridMap the single source of truth for tile types.
+- **O(1) entity lookup**: `RobotIndex` HashMap for robot lookup by ID. `RobotLastPositions` resource with `state_by_id` HashMap for state dedup.
+- **LogBuffer Vec to VecDeque**: O(1) front removal when capacity exceeded (was O(n) with `Vec::remove(0)`).
+- **CARGO_SHELF_DISTANCE_SQ to config**: Magic number moved from `sync_robots.rs` to `protocol::config::visual`.
+
+**Logic (28a95a0):**
+
+- **State change dedup**: `collect_robot_updates` deduplicates by checking both position AND state changes, preventing duplicate ECS updates.
+- **Tile type guard**: `sync_shelf_boxes` guards against non-shelf entities by checking `TileType` before cargo modification.
+- **Remove apply_with_log**: Visualizer is read-only; replaced `apply_with_log` calls with direct LogBuffer logging.
+- **Disable speed when paused**: Speed buttons grayed out during pause to prevent confusing UI state.
+
+**Hygiene & Optimization (4aca758):**
+
+- **Remove log interval timer**: Removed 3-second throttled console summary from `collect_robot_updates` (pre-LogBuffer leftover).
+- **Remove runtime println!**: All runtime `println!` removed from visualizer. Logging goes through LogBuffer UI console only. Startup banner in `main.rs` kept.
+- **PlaceholderMeshes resource**: Pre-allocated shared `Handle<Mesh>` and `Handle<StandardMaterial>` for stations, dropoffs, and robots. Clone cheap handles instead of creating new GPU assets per entity.
+- **O(1) robot count**: Left panel uses `robot_index.by_id.len()` instead of `robots.iter().count()`.
+- **sort_unstable_by_key**: All UI panel sorts use `sort_unstable_by_key` for faster sorting.
+
+**H4 Analysis (suggestion only, not implemented):**
+
+The `wall_debug.rs` example duplicates rotation constants from `models.rs` and can't validate visual correctness because model default orientation is unknown. Suggested: build runtime gizmo overlay, store `WallKind` on `Wall` component, fix rotation constants using visual feedback.
+
+**Key Files:**
+
+- `crates/visualizer/src/resources.rs` (PlaceholderMeshes, RobotLastPositions, ZenohSession)
+- `crates/visualizer/src/systems/zenoh_receiver.rs` (log interval removed, println! removed)
+- `crates/visualizer/src/systems/sync_robots.rs` (shared mesh handles, println! removed)
+- `crates/visualizer/src/systems/populate_scene.rs` (PlaceholderMeshes creation)
+- `crates/visualizer/src/systems/models.rs` (spawn functions take &PlaceholderMeshes)
+- `crates/visualizer/src/ui/panels.rs` (O(1) robot count, sort_unstable_by_key)
+- `crates/protocol/src/config.rs` (CARGO_SHELF_DISTANCE_SQ)
+
+**Test Results:** 35 visualizer tests passing (no regressions)
 
 ### 2026-02-13: Visualizer GridMap Consistency Refactor (Phase 5)
 
