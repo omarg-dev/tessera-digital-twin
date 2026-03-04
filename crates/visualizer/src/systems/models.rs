@@ -150,17 +150,13 @@ const STRAIGHT_NS: f32 = FRAC_PI_2 + PI;
 /// Corner rotation lookup indexed by L-configuration.
 ///   index 0 = N+E,  index 1 = E+S,  index 2 = S+W,  index 3 = W+N
 ///
-/// Derived from original tile rotations + PI offset (same correction
-/// applied to straight walls). Uniform -PI/2 steps (90 degrees CW from
-/// above) going NE → ES → SW → WN.
-///
+/// Uniform -PI/2 steps (90 degrees CW from above) going NE → ES → SW → WN.
 /// Used for BOTH inner and outer corner models.
-/// If one corner type is consistently off, split into two arrays.
 const CORNER_ROTATIONS: [f32; 4] = [
-    0.0,            // N+E
-    -FRAC_PI_2,     // E+S
-    PI,             // S+W
-    FRAC_PI_2,      // W+N
+    PI,             // N+E
+    FRAC_PI_2,      // E+S
+    0.0,            // S+W
+    -FRAC_PI_2,     // W+N
 ];
 
 /// Classify a wall tile from its 3x3 neighborhood.

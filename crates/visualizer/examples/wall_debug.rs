@@ -63,10 +63,10 @@ const STRAIGHT_EW: f32 = PI;
 const STRAIGHT_NS: f32 = FRAC_PI_2 + PI;
 
 const CORNER_ROTATIONS: [f32; 4] = [
-    0.0,        // N+E  (index 0)
-    -FRAC_PI_2, // E+S  (index 1)
-    PI,         // S+W  (index 2)
-    FRAC_PI_2,  // W+N  (index 3)
+    PI,         // N+E  (index 0)
+    FRAC_PI_2,  // E+S  (index 1)
+    0.0,        // S+W  (index 2)
+    -FRAC_PI_2, // W+N  (index 3)
 ];
 
 // ── Asset paths (must match models.rs) ──
