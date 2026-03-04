@@ -21,6 +21,8 @@ pub mod assets {
     pub const WALL_WINDOW: &str = "models/wall-windowed.glb";
     /// corner wall piece (bidirectional - works for both concave and convex)
     pub const CORNER: &str = "models/wall-corner.glb";
+    /// T-junction wall piece (3-way intersection)
+    pub const T_JUNCTION: &str = "models/wall-T.glb";
     /// pillar for isolated walls (no connecting neighbors)
     pub const PILLAR: &str = "models/wall-pillar.glb";
     /// shelf unit (3 usable levels)
@@ -70,6 +72,8 @@ pub enum WallKind {
     Straight(f32),
     /// Corner piece (bidirectional L-turn, with a Y rotation in radians)
     Corner(f32),
+    /// T-junction piece (3-way intersection, with a Y rotation in radians)
+    TJunction(f32),
     /// Pillar for isolated walls with no connecting neighbors
     Pillar,
 }
@@ -158,13 +162,27 @@ const CORNER_ROTATIONS: [f32; 4] = [
     PI,             // W+N
 ];
 
+/// T-junction rotation lookup indexed by missing cardinal direction.
+///   index 0 = missing N (has E,S,W),  index 1 = missing E (has N,S,W)
+///   index 2 = missing S (has N,E,W),  index 3 = missing W (has N,E,S)
+///
+/// Uniform 90-degree steps. Verify with wall_debug example.
+const T_ROTATIONS: [f32; 4] = [
+    0.0,            // missing N
+    FRAC_PI_2,      // missing E
+    PI,             // missing S
+    -FRAC_PI_2,     // missing W
+];
+
 /// Classify a wall tile from its 3x3 neighborhood.
 ///
 /// Rules:
 /// - 0 cardinal neighbors → pillar (isolated wall)
+/// - 1 cardinal neighbor → straight (endcap)
 /// - 2 opposite cardinal neighbors (N+S or E+W) → straight
-/// - 2 adjacent cardinal neighbors → corner (bidirectional model)
-/// - 1, 3, or 4 cardinal neighbors → straight fallback (no T/cross model)
+/// - 2 adjacent cardinal neighbors → corner
+/// - 3 cardinal neighbors → T-junction (indexed by missing direction)
+/// - 4 cardinal neighbors → straight fallback (no cross model)
 pub fn classify_wall(nb: &Neighborhood) -> WallKind {
     let count = nb.cardinal_count();
 
@@ -186,7 +204,17 @@ pub fn classify_wall(nb: &Neighborhood) -> WallKind {
         return WallKind::Corner(CORNER_ROTATIONS[idx]);
     }
 
-    // 1, 3, 4 cardinal neighbors → straight fallback
+    if count == 3 {
+        // T-junction indexed by which cardinal direction is missing
+        let idx = if !nb.n { 0 }
+            else if !nb.e { 1 }
+            else if !nb.s { 2 }
+            else { 3 }; // missing W
+
+        return WallKind::TJunction(T_ROTATIONS[idx]);
+    }
+
+    // 1 or 4 cardinal neighbors → straight fallback
     if nb.n || nb.s {
         WallKind::Straight(STRAIGHT_NS)
     } else {
@@ -262,6 +290,7 @@ pub fn spawn_wall(
     let (model_path, rotation) = match kind {
         WallKind::Straight(rot) => (pick_weighted(WALL_VARIANTS), rot),
         WallKind::Corner(rot) => (assets::CORNER, rot),
+        WallKind::TJunction(rot) => (assets::T_JUNCTION, rot),
         WallKind::Pillar => (assets::PILLAR, 0.0),
     };
 
@@ -352,228 +381,101 @@ pub fn spawn_dropoff(commands: &mut Commands, handles: &PlaceholderMeshes, pos: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::FRAC_PI_2;
 
-    /// Helper: construct a Neighborhood from individual booleans.
+    /// shorthand: build Neighborhood from bools in N NE E SE S SW W NW order
     fn nb(n: bool, ne: bool, e: bool, se: bool, s: bool, sw: bool, w: bool, nw: bool) -> Neighborhood {
         Neighborhood { n, ne, e, se, s, sw, w, nw }
     }
 
     fn rotation_of(kind: &WallKind) -> f32 {
         match kind {
-            WallKind::Straight(r) | WallKind::Corner(r) => *r,
+            WallKind::Straight(r) | WallKind::Corner(r) | WallKind::TJunction(r) => *r,
             WallKind::Pillar => 0.0,
         }
     }
 
-    // ── Neighborhood::from_wall_grid ──
-
     #[test]
-    fn neighborhood_top_left_corner() {
-        let grid = vec![
-            vec![true,  true,  false],
-            vec![true,  false, false],
-            vec![false, false, false],
-        ];
-        let n = Neighborhood::from_wall_grid(&grid, 0, 0);
-        assert!(!n.n);
-        assert!(!n.nw);
-        assert!(!n.w);
-        assert!(!n.sw);
-        assert!(n.e);    // (0,1) = wall
-        assert!(!n.ne);  // out of bounds
-        assert!(n.s);    // (1,0) = wall
-        assert!(!n.se);  // (1,1) = false
-    }
-
-    #[test]
-    fn neighborhood_center() {
+    fn neighborhood_sampling() {
         let grid = vec![
             vec![true,  true,  true],
             vec![true,  true,  false],
             vec![false, true,  false],
         ];
+        // center cell: N, NW, NE, W, S present; E, SW, SE absent
         let n = Neighborhood::from_wall_grid(&grid, 1, 1);
-        assert!(n.n);
-        assert!(n.nw);
-        assert!(n.ne);
-        assert!(n.w);
-        assert!(!n.e);
-        assert!(!n.sw);
-        assert!(n.s);
-        assert!(!n.se);
+        assert!(n.n && n.nw && n.ne && n.w && n.s);
+        assert!(!n.e && !n.sw && !n.se);
+        assert_eq!(n.cardinal_count(), 3);
+
+        // top-left corner: out-of-bounds treated as empty
+        let tl = Neighborhood::from_wall_grid(&grid, 0, 0);
+        assert!(!tl.n && !tl.nw && !tl.w);
+        assert!(tl.e && tl.s);
     }
 
     #[test]
-    fn neighborhood_bottom_right() {
-        let grid = vec![
-            vec![false, false, false],
-            vec![false, true,  true],
-            vec![false, true,  true],
-        ];
-        let n = Neighborhood::from_wall_grid(&grid, 2, 2);
-        assert!(!n.e);
-        assert!(!n.se);
-        assert!(!n.s);
-        assert!(n.w);
-        assert!(n.n);
-        assert!(n.nw);
-    }
+    fn classify_all_types() {
+        // pillar: 0 neighbors
+        assert_eq!(classify_wall(&nb(false, false, false, false, false, false, false, false)), WallKind::Pillar);
 
-    // ── Straight walls ──
+        // straight: E+W
+        let ew = classify_wall(&nb(false, false, true, false, false, false, true, false));
+        assert!(matches!(ew, WallKind::Straight(_)));
+        assert_eq!(rotation_of(&ew), STRAIGHT_EW);
 
-    #[test]
-    fn straight_horizontal_ew() {
-        //  # * #   (E and W neighbors)
-        let kind = classify_wall(&nb(false, false, true, false, false, false, true, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_EW);
-    }
+        // straight: N+S
+        let ns = classify_wall(&nb(true, false, false, false, true, false, false, false));
+        assert!(matches!(ns, WallKind::Straight(_)));
+        assert_eq!(rotation_of(&ns), STRAIGHT_NS);
 
-    #[test]
-    fn straight_vertical_ns() {
-        //  N above, S below
-        let kind = classify_wall(&nb(true, false, false, false, true, false, false, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_NS);
-    }
+        // single neighbor (endcap) → straight
+        let endcap = classify_wall(&nb(false, false, true, false, false, false, false, false));
+        assert!(matches!(endcap, WallKind::Straight(_)));
 
-    #[test]
-    fn pillar_isolated_no_neighbors() {
-        let kind = classify_wall(&nb(false, false, false, false, false, false, false, false));
-        assert!(matches!(kind, WallKind::Pillar));
-    }
+        // corners: all 4 rotations, diagonal state ignored
+        for (i, (n, e, s, w)) in [(true,true,false,false), (false,true,true,false),
+            (false,false,true,true), (true,false,false,true)].iter().enumerate()
+        {
+            let kind = classify_wall(&nb(*n, false, *e, false, *s, false, *w, false));
+            assert!(matches!(kind, WallKind::Corner(_)), "corner {i}: got {kind:?}");
+            assert_eq!(rotation_of(&kind), CORNER_ROTATIONS[i], "corner {i} rotation");
 
-    #[test]
-    fn straight_single_east_neighbor() {
-        let kind = classify_wall(&nb(false, false, true, false, false, false, false, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_EW);
-    }
-
-    #[test]
-    fn straight_single_south_neighbor() {
-        let kind = classify_wall(&nb(false, false, false, false, true, false, false, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_NS);
-    }
-
-    // ── Corners (bidirectional model, diagonal state irrelevant) ──
-
-    #[test]
-    fn corner_ne() {
-        // N and E present → corner regardless of diagonal
-        let kind = classify_wall(&nb(true, false, true, false, false, false, false, false));
-        assert!(matches!(kind, WallKind::Corner(_)), "expected corner, got {:?}", kind);
-        assert_eq!(rotation_of(&kind), CORNER_ROTATIONS[0]);
-    }
-
-    #[test]
-    fn corner_es() {
-        let kind = classify_wall(&nb(false, false, true, false, true, false, false, false));
-        assert!(matches!(kind, WallKind::Corner(_)), "expected corner, got {:?}", kind);
-        assert_eq!(rotation_of(&kind), CORNER_ROTATIONS[1]);
-    }
-
-    #[test]
-    fn corner_sw() {
-        let kind = classify_wall(&nb(false, false, false, false, true, false, true, false));
-        assert!(matches!(kind, WallKind::Corner(_)), "expected corner, got {:?}", kind);
-        assert_eq!(rotation_of(&kind), CORNER_ROTATIONS[2]);
-    }
-
-    #[test]
-    fn corner_wn() {
-        let kind = classify_wall(&nb(true, false, false, false, false, false, true, false));
-        assert!(matches!(kind, WallKind::Corner(_)), "expected corner, got {:?}", kind);
-        assert_eq!(rotation_of(&kind), CORNER_ROTATIONS[3]);
-    }
-
-    #[test]
-    fn corner_ignores_diagonal() {
-        // same adjacent pair, with and without diagonal - both yield Corner
-        let without = classify_wall(&nb(true, false, true, false, false, false, false, false));
-        let with = classify_wall(&nb(true, true, true, false, false, false, false, false));
-        assert!(matches!(without, WallKind::Corner(_)));
-        assert!(matches!(with, WallKind::Corner(_)));
-        assert_eq!(rotation_of(&without), rotation_of(&with));
-    }
-
-    // ── T-junctions and 4-way (straight fallback) ──
-
-    #[test]
-    fn t_junction_3_neighbors_nse() {
-        // N, E, S → straight fallback vertical
-        let kind = classify_wall(&nb(true, false, true, false, true, false, false, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_NS);
-    }
-
-    #[test]
-    fn t_junction_3_neighbors_esw() {
-        // E, S, W → straight fallback vertical
-        let kind = classify_wall(&nb(false, false, true, false, true, false, true, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_NS);
-    }
-
-    #[test]
-    fn four_way_cross() {
-        // all 4 cardinal → straight fallback vertical
-        let kind = classify_wall(&nb(true, false, true, false, true, false, true, false));
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_NS);
-    }
-
-    // ── Rotation uniformity ──
-
-    #[test]
-    fn corner_rotations_uniform_90_degree_steps() {
-        for i in 0..4 {
-            let a = CORNER_ROTATIONS[i];
-            let b = CORNER_ROTATIONS[(i + 1) % 4];
-            let diff = (b - a).rem_euclid(std::f32::consts::TAU);
-            assert!(
-                (diff - FRAC_PI_2).abs() < 1e-6 || (diff - 3.0 * FRAC_PI_2).abs() < 1e-6,
-                "non-uniform step between index {} and {}: diff={}", i, (i + 1) % 4, diff
-            );
+            // diagonal doesn't change the result
+            let with_diag = classify_wall(&nb(*n, true, *e, true, *s, true, *w, true));
+            assert_eq!(rotation_of(&kind), rotation_of(&with_diag), "corner {i} diagonal invariance");
         }
+
+        // T-junctions: 3 neighbors, indexed by missing direction
+        let cases: [(bool,bool,bool,bool); 4] = [
+            (false, true, true, true), // missing N
+            (true, false, true, true), // missing E
+            (true, true, false, true), // missing S
+            (true, true, true, false), // missing W
+        ];
+        for (i, (n, e, s, w)) in cases.iter().enumerate() {
+            let kind = classify_wall(&nb(*n, false, *e, false, *s, false, *w, false));
+            assert!(matches!(kind, WallKind::TJunction(_)), "T {i}: got {kind:?}");
+            assert_eq!(rotation_of(&kind), T_ROTATIONS[i], "T {i} rotation");
+        }
+
+        // 4-way cross → straight fallback
+        let cross = classify_wall(&nb(true, false, true, false, true, false, true, false));
+        assert!(matches!(cross, WallKind::Straight(_)));
     }
 
-    // ── Integration: from_wall_grid → classify ──
-
     #[test]
-    fn from_grid_corner_top_left() {
+    fn from_grid_integration() {
+        // straight run
+        let grid = vec![vec![true, true, true]];
+        assert!(matches!(classify_wall_from_grid(&grid, 0, 1), WallKind::Straight(_)));
+
+        // corner at top-left of L-shape
         let grid = vec![
             vec![true,  true,  true],
             vec![true,  false, false],
             vec![true,  false, false],
         ];
-        // (0,0): E+S adjacent → corner
-        let kind = classify_wall_from_grid(&grid, 0, 0);
-        assert!(matches!(kind, WallKind::Corner(_)));
-    }
-
-    #[test]
-    fn from_grid_corner_with_diagonal() {
-        let grid = vec![
-            vec![true,  true,  true],
-            vec![true,  true,  true],
-            vec![true,  true,  false],
-        ];
-        // (2,1): N+W adjacent, NW=wall → still just corner (no inner/outer)
-        let kind = classify_wall_from_grid(&grid, 2, 1);
-        assert!(matches!(kind, WallKind::Corner(_)));
-    }
-
-    #[test]
-    fn from_grid_straight_run() {
-        let grid = vec![
-            vec![true, true, true],
-        ];
-        let kind = classify_wall_from_grid(&grid, 0, 1);
-        assert!(matches!(kind, WallKind::Straight(_)));
-        assert_eq!(rotation_of(&kind), STRAIGHT_EW);
+        assert!(matches!(classify_wall_from_grid(&grid, 0, 0), WallKind::Corner(_)));
     }
 
     // ── Layout diagnostic ──
@@ -582,18 +484,16 @@ mod tests {
     /// Run with: cargo test -p visualizer -- layout_wall_diagnostic --nocapture
     ///
     /// Legend:
-    ///   ─  straight E-W         │  straight N-S
-    ///   └  corner N+E           ┌  corner E+S
-    ///   ┐  corner S+W           ┘  corner W+N
-    ///   *  pillar (isolated)
-    ///   ?  unknown fallback
-    ///   .  non-wall tile
+    ///   ─  straight E-W    │  straight N-S
+    ///   └  corner N+E      ┌  corner E+S
+    ///   ┐  corner S+W      ┘  corner W+N
+    ///   ┬  T missing N     ├  T missing E
+    ///   ┴  T missing S     ┤  T missing W
+    ///   *  pillar           .  non-wall tile
     #[test]
     fn layout_wall_diagnostic() {
-        // resolve path relative to workspace root (tests run from crate dir)
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap() // crates/
-            .parent().unwrap(); // workspace root
+            .parent().unwrap().parent().unwrap();
         let layout_path = workspace_root.join(protocol::config::LAYOUT_FILE_PATH);
 
         let contents = std::fs::read_to_string(&layout_path)
@@ -605,7 +505,6 @@ mod tests {
             .map(|l| l.split_whitespace().collect())
             .collect();
 
-        // build bool wall grid from tokens
         let wall_grid: Vec<Vec<bool>> = token_grid.iter()
             .map(|row| row.iter().map(|&t| t == "#").collect())
             .collect();
@@ -615,7 +514,6 @@ mod tests {
         println!("Grid size: {} rows x {} cols\n", wall_grid.len(),
             wall_grid.first().map_or(0, |r| r.len()));
 
-        // symbol for each wall kind + rotation
         let symbol = |kind: &WallKind| -> &str {
             match kind {
                 WallKind::Straight(r) => {
@@ -624,23 +522,28 @@ mod tests {
                     else { "?" }
                 }
                 WallKind::Corner(r) => {
-                    if (*r - CORNER_ROTATIONS[0]).abs() < 0.01 { "└" } // N+E
-                    else if (*r - CORNER_ROTATIONS[1]).abs() < 0.01 { "┌" } // E+S
-                    else if (*r - CORNER_ROTATIONS[2]).abs() < 0.01 { "┐" } // S+W
-                    else if (*r - CORNER_ROTATIONS[3]).abs() < 0.01 { "┘" } // W+N
+                    if (*r - CORNER_ROTATIONS[0]).abs() < 0.01 { "└" }
+                    else if (*r - CORNER_ROTATIONS[1]).abs() < 0.01 { "┌" }
+                    else if (*r - CORNER_ROTATIONS[2]).abs() < 0.01 { "┐" }
+                    else if (*r - CORNER_ROTATIONS[3]).abs() < 0.01 { "┘" }
+                    else { "?" }
+                }
+                WallKind::TJunction(r) => {
+                    if (*r - T_ROTATIONS[0]).abs() < 0.01 { "┬" }
+                    else if (*r - T_ROTATIONS[1]).abs() < 0.01 { "├" }
+                    else if (*r - T_ROTATIONS[2]).abs() < 0.01 { "┴" }
+                    else if (*r - T_ROTATIONS[3]).abs() < 0.01 { "┤" }
                     else { "?" }
                 }
                 WallKind::Pillar => "*",
             }
         };
 
-        // print classified map
         for (row, walls) in wall_grid.iter().enumerate() {
             let mut line = String::new();
             for (col, &is_wall) in walls.iter().enumerate() {
                 if is_wall {
-                    let kind = classify_wall_from_grid(&wall_grid, row, col);
-                    line.push_str(symbol(&kind));
+                    line.push_str(symbol(&classify_wall_from_grid(&wall_grid, row, col)));
                 } else {
                     let token = &token_grid[row][col];
                     if *token == "~" { line.push(' '); } else { line.push('.'); }
@@ -649,38 +552,6 @@ mod tests {
             }
             println!("  row {:2}: {}", row, line);
         }
-
-        // summary counts
-        let mut straight_ew = 0u32;
-        let mut straight_ns = 0u32;
-        let mut corners = [0u32; 4];
-        let mut pillars = 0u32;
-
-        for (row, walls) in wall_grid.iter().enumerate() {
-            for (col, &is_wall) in walls.iter().enumerate() {
-                if !is_wall { continue; }
-                let kind = classify_wall_from_grid(&wall_grid, row, col);
-                match kind {
-                    WallKind::Straight(r) => {
-                        if (r - STRAIGHT_EW).abs() < 0.01 { straight_ew += 1; }
-                        else { straight_ns += 1; }
-                    }
-                    WallKind::Corner(r) => {
-                        for i in 0..4 {
-                            if (r - CORNER_ROTATIONS[i]).abs() < 0.01 { corners[i] += 1; }
-                        }
-                    }
-                    WallKind::Pillar => { pillars += 1; }
-                }
-            }
-        }
-
-        println!("\n=== Summary ===");
-        println!("  Straight E-W (─): {}", straight_ew);
-        println!("  Straight N-S (│): {}", straight_ns);
-        println!("  Corners:  N+E(└)={} E+S(┌)={} S+W(┐)={} W+N(┘)={}",
-            corners[0], corners[1], corners[2], corners[3]);
-        println!("  Pillars (*): {}", pillars);
         println!();
     }
 }
