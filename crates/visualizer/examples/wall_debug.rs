@@ -16,11 +16,27 @@
 //!
 //! Controls: right-click = orbit, scroll = zoom, middle-click = pan
 
+use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass, egui};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 fn main() {
+    // resolve workspace-root assets/ regardless of working directory
+    let assets_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            let mut dir = p.parent()?.to_path_buf();
+            for _ in 0..10 {
+                if dir.join("assets").is_dir() {
+                    return Some(dir.join("assets").to_string_lossy().into_owned());
+                }
+                dir = dir.parent()?.to_path_buf();
+            }
+            None
+        })
+        .unwrap_or_else(|| "assets".to_string());
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -28,6 +44,9 @@ fn main() {
                 resolution: (1400, 900).into(),
                 ..default()
             }),
+            ..default()
+        }).set(AssetPlugin {
+            file_path: assets_dir,
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
