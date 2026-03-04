@@ -257,6 +257,32 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-05: Wall Model System Cleanup (Phase 5)
+
+Simplified wall classification from 3 variants to 5, replacing inner/outer corner distinction with a bidirectional corner model and adding T-junction and pillar support.
+
+**Wall types:**
+
+- **Straight**: 1, 2 opposite, or 4 cardinal neighbors (wall.glb / wall-windowed.glb)
+- **Corner**: 2 adjacent cardinal neighbors, diagonal state ignored (wall-corner.glb)
+- **T-junction**: 3 cardinal neighbors, indexed by missing direction (wall-T.glb)
+- **Pillar**: 0 cardinal neighbors, isolated wall (wall-pillar.glb)
+- **Cross (4-way)**: Falls back to straight (no dedicated model)
+
+**Changes:**
+
+- `WallKind` enum: removed `CornerInner`/`CornerOuter`, added `Corner`, `TJunction`, `Pillar`
+- `classify_wall()`: no longer checks diagonals for corners; routes 3-neighbor cases to T-junction
+- Asset paths updated: `structure-corner-inner.glb` / `structure-corner-outer.glb` replaced by `wall-corner.glb`; added `wall-T.glb`, `wall-pillar.glb`; `wall_window.glb` renamed to `wall-windowed.glb`
+- Tests trimmed from 21 wall tests to 3 consolidated tests (32 total -> 15)
+- Layout diagnostic updated with T-junction symbols
+- `wall_debug.rs` updated: 5 rows (Straight, Corner, T-Junction, Pillar, Raw Sweep)
+
+**Key Files:**
+
+- `crates/visualizer/src/systems/models.rs` (WallKind, classify_wall, assets, tests)
+- `crates/visualizer/examples/wall_debug.rs` (visual test bench)
+
 ### 2026-02-13: Visualizer Crate Review (Phase 5)
 
 Comprehensive review and refactoring of the visualizer crate across three commits:
