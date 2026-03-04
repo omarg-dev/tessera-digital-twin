@@ -63,17 +63,17 @@ const STRAIGHT_EW: f32 = PI;
 const STRAIGHT_NS: f32 = FRAC_PI_2 + PI;
 
 const CORNER_ROTATIONS: [f32; 4] = [
-    PI,         // N+E  (index 0)
-    FRAC_PI_2,  // E+S  (index 1)
-    0.0,        // S+W  (index 2)
-    -FRAC_PI_2, // W+N  (index 3)
+    FRAC_PI_2,  // N+E
+    0.0,        // E+S
+    -FRAC_PI_2, // S+W
+    PI,         // W+N
 ];
 
 // ── Asset paths (must match models.rs) ──
 
 const WALL: &str = "models/wall.glb";
-const CORNER_INNER: &str = "models/structure-corner-inner.glb";
-const CORNER_OUTER: &str = "models/structure-corner-outer.glb";
+const CORNER: &str = "models/wall-corner.glb";
+const PILLAR: &str = "models/wall-pillar.glb";
 const FLOOR: &str = "models/floor.glb";
 
 const SPACING: f32 = 4.0;
@@ -92,10 +92,6 @@ const DIR_N: Vec3  = Vec3::new(0.0, 0.0, -NEIGHBOR_DIST);
 const DIR_S: Vec3  = Vec3::new(0.0, 0.0,  NEIGHBOR_DIST);
 const DIR_E: Vec3  = Vec3::new(NEIGHBOR_DIST, 0.0, 0.0);
 const DIR_W: Vec3  = Vec3::new(-NEIGHBOR_DIST, 0.0, 0.0);
-const DIR_NE: Vec3 = Vec3::new(NEIGHBOR_DIST, 0.0, -NEIGHBOR_DIST);
-const DIR_SE: Vec3 = Vec3::new(NEIGHBOR_DIST, 0.0,  NEIGHBOR_DIST);
-const DIR_SW: Vec3 = Vec3::new(-NEIGHBOR_DIST, 0.0,  NEIGHBOR_DIST);
-const DIR_NW: Vec3 = Vec3::new(-NEIGHBOR_DIST, 0.0, -NEIGHBOR_DIST);
 
 // ── Scene setup ──
 
@@ -161,58 +157,40 @@ fn setup_scene(
                 neighbors: vec![DIR_N, DIR_S],
             },
         ],
-        // row 1: inner corners (concave L, diagonal empty)
+        // row 1: corners (bidirectional model, 4 rotations)
         vec![
             Case {
-                label: "Inner NE\nrot = 0".into(),
-                model: CORNER_INNER,
+                label: "Corner NE\nrot = PI/2".into(),
+                model: CORNER,
                 rotation: CORNER_ROTATIONS[0],
                 neighbors: vec![DIR_N, DIR_E],
             },
             Case {
-                label: "Inner ES\nrot = -PI/2".into(),
-                model: CORNER_INNER,
+                label: "Corner ES\nrot = 0".into(),
+                model: CORNER,
                 rotation: CORNER_ROTATIONS[1],
                 neighbors: vec![DIR_E, DIR_S],
             },
             Case {
-                label: "Inner SW\nrot = PI".into(),
-                model: CORNER_INNER,
+                label: "Corner SW\nrot = -PI/2".into(),
+                model: CORNER,
                 rotation: CORNER_ROTATIONS[2],
                 neighbors: vec![DIR_S, DIR_W],
             },
             Case {
-                label: "Inner WN\nrot = PI/2".into(),
-                model: CORNER_INNER,
+                label: "Corner WN\nrot = PI".into(),
+                model: CORNER,
                 rotation: CORNER_ROTATIONS[3],
                 neighbors: vec![DIR_W, DIR_N],
             },
         ],
-        // row 2: outer corners (convex, diagonal filled)
+        // row 2: pillar (isolated wall, no neighbors)
         vec![
             Case {
-                label: "Outer NE\nrot = 0".into(),
-                model: CORNER_OUTER,
-                rotation: CORNER_ROTATIONS[0],
-                neighbors: vec![DIR_N, DIR_E, DIR_NE],
-            },
-            Case {
-                label: "Outer ES\nrot = -PI/2".into(),
-                model: CORNER_OUTER,
-                rotation: CORNER_ROTATIONS[1],
-                neighbors: vec![DIR_E, DIR_S, DIR_SE],
-            },
-            Case {
-                label: "Outer SW\nrot = PI".into(),
-                model: CORNER_OUTER,
-                rotation: CORNER_ROTATIONS[2],
-                neighbors: vec![DIR_S, DIR_W, DIR_SW],
-            },
-            Case {
-                label: "Outer WN\nrot = PI/2".into(),
-                model: CORNER_OUTER,
-                rotation: CORNER_ROTATIONS[3],
-                neighbors: vec![DIR_W, DIR_N, DIR_NW],
+                label: "Pillar\nrot = 0".into(),
+                model: PILLAR,
+                rotation: 0.0,
+                neighbors: vec![],
             },
         ],
         // row 3: raw rotation sweep (no neighbors, determine model default axis)
@@ -308,8 +286,8 @@ fn draw_labels(
     // row labels (left side)
     for (row_idx, text) in [
         (0, "Straight"),
-        (1, "Inner Corner"),
-        (2, "Outer Corner"),
+        (1, "Corner"),
+        (2, "Pillar"),
         (3, "Raw Sweep"),
     ] {
         let world = Vec3::new(-1.5, 0.5, row_idx as f32 * SPACING);
