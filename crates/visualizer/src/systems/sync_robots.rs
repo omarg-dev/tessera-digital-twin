@@ -54,11 +54,18 @@ pub fn sync_robots(
                         }
                     }
                     (Some(_), None) => {
-                        // robot dropped cargo - only increment if at a Shelf tile
-                        if matches!(tile_type, Some(TileType::Shelf(_))) {
-                            if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
-                                if let Ok((_, mut shelf, _)) = shelves.get_mut(shelf_entity) {
-                                    shelf.cargo += 1;
+                        // robot dropped cargo - use nearest-shelf distance match (avoids imprecise
+                        // grid snapping) and verify the shelf's own tile type
+                        if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
+                            if let Ok((_, mut shelf, shelf_transform)) = shelves.get_mut(shelf_entity) {
+                                let shelf_col = (shelf_transform.translation.x / TILE_SIZE).round() as usize;
+                                let shelf_row = (shelf_transform.translation.z / TILE_SIZE).round() as usize;
+                                let shelf_tile_type = warehouse_map
+                                    .as_ref()
+                                    .and_then(|m| m.0.get_tile(shelf_col, shelf_row))
+                                    .map(|t| t.tile_type);
+                                if matches!(shelf_tile_type, Some(TileType::Shelf(_))) {
+                                    shelf.cargo = (shelf.cargo + 1).min(shelf.max_capacity);
                                 }
                             }
                         }

@@ -7,8 +7,10 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use protocol::config::battery;
-use protocol::config::visual::{self, ui as ui_cfg};
+use protocol::config::visual::{ui as ui_cfg, TILE_SIZE};
+use protocol::grid_map::{GridMap, TileType};
 use protocol::{Priority, TaskRequest, TaskType};
+use std::collections::HashMap;
 
 use crate::components::{Dropoff, Robot, Shelf};
 use crate::resources::{
@@ -165,7 +167,11 @@ fn objects_tab(
                     let text = format!("{state_icon} Robot {label}  {:?}", robot.state);
 
                     let is_selected = ui_state.selected_entity == Some(*entity);
-                    if ui.selectable_label(is_selected, text).clicked() {
+                    let response = ui.selectable_label(is_selected, text);
+                    if response.hovered() {
+                        ui_state.hovered_entity = Some(*entity);
+                    }
+                    if response.clicked() {
                         select_entity(ui_state, *entity);
                     }
                 }
@@ -184,7 +190,7 @@ fn objects_tab(
                 shelf_list.sort_unstable_by_key(|(e, _)| e.index());
 
                 for (entity, shelf) in &shelf_list {
-                    let label = format!("Shelf (cargo {})", shelf.cargo);
+                    let label = format!("Shelf ({}/{})", shelf.cargo, shelf.max_capacity);
                     if !filter.is_empty() && !label.to_lowercase().contains(&filter) {
                         continue;
                     }
@@ -264,6 +270,7 @@ pub fn right_panel(
     shelves: &Query<(Entity, &Shelf)>,
     dropoffs: &Query<(Entity, &Dropoff)>,
     transforms: &Query<&Transform>,
+    warehouse_map: Option<&GridMap>,
     actions: &mut Vec<UiAction>,
 ) {
     egui::SidePanel::right("right_panel")
@@ -310,7 +317,8 @@ pub fn right_panel(
                     // try shelf (O(1) lookup)
                     if let Ok((_, shelf)) = shelves.get(entity) {
                         shelf_inspector(
-                            ui, entity, shelf, ui_state, shelves, dropoffs, transforms, actions,
+                            ui, entity, shelf, ui_state, shelves, dropoffs, transforms,
+                            warehouse_map, actions,
                         );
                         return;
                     }
@@ -418,6 +426,7 @@ fn shelf_inspector(
     all_shelves: &Query<(Entity, &Shelf)>,
     dropoffs: &Query<(Entity, &Dropoff)>,
     transforms: &Query<&Transform>,
+    warehouse_map: Option<&GridMap>,
     actions: &mut Vec<UiAction>,
 ) {
     let shelf_pos = transforms.get(shelf_entity).ok();
@@ -440,11 +449,22 @@ fn shelf_inspector(
             egui::RichText::new(format!(
                 "{} / {}",
                 shelf.cargo,
-                visual::shelf::SHELF_MAX_CAPACITY
+                shelf.max_capacity
             ))
             .strong(),
         );
     });
+
+    // Cargo bar
+    let cargo_frac = if shelf.max_capacity == 0 {
+        0.0
+    } else {
+        shelf.cargo as f32 / shelf.max_capacity as f32
+    };
+    let bar = egui::ProgressBar::new(cargo_frac)
+        .desired_width(ui.available_width())
+        .fill(shelf_fill_color_egui(shelf.cargo, shelf.max_capacity));
+    ui.add(bar);
 
     // Position
     if let Some(t) = shelf_pos {
@@ -462,11 +482,10 @@ fn shelf_inspector(
     ui.label(egui::RichText::new("Actions").strong());
     ui.add_space(4.0);
 
-    // ── Transport Task Dropdown ──
+    // ── Transport Task Picker ──
     if !ui_state.transport_dropdown_open {
         if ui.button("Add Transport Task").clicked() {
             ui_state.transport_dropdown_open = true;
-            ui_state.transport_shelves_expanded = false;
         }
     } else {
         egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -475,10 +494,7 @@ fn shelf_inspector(
 
             // Option 1: Dropoff
             let has_dropoff = !dropoffs.is_empty();
-            if ui
-                .add_enabled(has_dropoff, egui::Button::new("Dropoff"))
-                .clicked()
-            {
+            if ui.add_enabled(has_dropoff, egui::Button::new("\u{1F4E6} Dropoff zone")).clicked() {
                 if let (Some(from_t), Some((_, drop_t))) = (
                     shelf_pos,
                     dropoffs.iter().next().and_then(|(e, _)| {
@@ -501,63 +517,103 @@ fn shelf_inspector(
                         },
                         priority: Priority::Normal,
                     }));
+                    ui_state.transport_dropdown_open = false;
                 }
-                ui_state.transport_dropdown_open = false;
             }
 
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // Option 2: Shelf picker (mini-map + scrollable list)
+            ui.label(egui::RichText::new("Relocate to shelf:").small().strong());
             ui.add_space(2.0);
 
-            // Option 2: Shelves (expandable)
-            let id = ui.make_persistent_id("transport_shelves");
-            let mut shelves_open = ui_state.transport_shelves_expanded;
-            egui::collapsing_header::CollapsingState::load_with_default_open(
-                ui.ctx(),
-                id,
-                shelves_open,
-            )
-            .show_header(ui, |ui| {
-                if ui.selectable_label(shelves_open, "Shelves").clicked() {
-                    shelves_open = !shelves_open;
+            // build entity map: grid pos -> (entity, cargo, max)
+            let mut entity_map: HashMap<(usize, usize), (Entity, u32, u32)> = HashMap::new();
+            for (e, dest_shelf) in all_shelves.iter() {
+                if let Ok(t) = transforms.get(e) {
+                    let gx = (t.translation.x / TILE_SIZE).round() as usize;
+                    let gy = (t.translation.z / TILE_SIZE).round() as usize;
+                    entity_map.insert((gx, gy), (e, dest_shelf.cargo, dest_shelf.max_capacity));
                 }
-            })
-            .body(|ui| {
-                let mut sorted_shelves: Vec<_> = all_shelves.iter().collect();
-                sorted_shelves.sort_unstable_by_key(|(e, _)| e.index());
+            }
 
-                for (dest_entity, dest_shelf) in &sorted_shelves {
-                    if *dest_entity == shelf_entity {
-                        continue; // skip self
-                    }
-                    let dest_t = transforms.get(*dest_entity).ok();
-                    let dest_label = dest_t
-                        .map(|t| {
-                            format!(
-                                "Shelf @ ({:.0}, {:.0})  cargo {}",
-                                t.translation.x, t.translation.z, dest_shelf.cargo
-                            )
-                        })
-                        .unwrap_or_else(|| format!("Shelf (cargo {})", dest_shelf.cargo));
-
-                    if ui.button(&dest_label).clicked() {
-                        if let (Some(from_t), Some(to_t)) = (shelf_pos, dest_t) {
-                            let from = (
-                                from_t.translation.x.round() as usize,
-                                from_t.translation.z.round() as usize,
-                            );
-                            let to = (
-                                to_t.translation.x.round() as usize,
-                                to_t.translation.z.round() as usize,
-                            );
-                            actions.push(UiAction::SubmitTransportTask(TaskRequest {
-                                task_type: TaskType::Relocate { from, to },
-                                priority: Priority::Normal,
-                            }));
-                        }
-                        ui_state.transport_dropdown_open = false;
-                    }
-                }
+            let source_grid = shelf_pos.map(|t| {
+                let gx = (t.translation.x / TILE_SIZE).round() as usize;
+                let gy = (t.translation.z / TILE_SIZE).round() as usize;
+                (gx, gy)
             });
-            ui_state.transport_shelves_expanded = shelves_open;
+
+            // ── Mini-map ──
+            if let Some(grid) = warehouse_map {
+                shelf_minimap_widget(
+                    ui, grid, &entity_map, source_grid, shelf_pos, transforms,
+                    ui_state, actions,
+                );
+                ui.add_space(4.0);
+            }
+
+            // legend
+            ui.horizontal(|ui| {
+                color_swatch(ui, egui::Color32::from_rgb(30, 160, 50));
+                ui.label(egui::RichText::new("empty").small());
+                color_swatch(ui, egui::Color32::from_rgb(200, 160, 30));
+                ui.label(egui::RichText::new("half").small());
+                color_swatch(ui, egui::Color32::from_rgb(210, 50, 30));
+                ui.label(egui::RichText::new("full").small());
+                color_swatch(ui, egui::Color32::from_gray(90));
+                ui.label(egui::RichText::new("src").small());
+            });
+            ui.add_space(4.0);
+
+            // ── Scrollable list ──
+            egui::ScrollArea::vertical()
+                .id_salt("shelf_picker_list")
+                .max_height(80.0)
+                .show(ui, |ui| {
+                    // collect owned tuples so patterns are simple
+                    let mut sorted_shelves: Vec<((usize, usize), (Entity, u32, u32))> =
+                        entity_map.iter().map(|(&k, &v)| (k, v)).collect();
+                    sorted_shelves.sort_by_key(|&((gx, gy), _)| (gy, gx));
+
+                    for ((gx, gy), (dest_entity, cargo, max)) in &sorted_shelves {
+                        let (gx, gy) = (*gx, *gy);
+                        let (dest_entity, cargo, max) = (*dest_entity, *cargo, *max);
+                        if Some((gx, gy)) == source_grid {
+                            continue;
+                        }
+                        let cell_color = shelf_fill_color_egui(cargo, max);
+                        let label = format!("({gx},{gy})  {cargo}/{max}");
+                        let btn = egui::Button::new(
+                            egui::RichText::new(&label).color(egui::Color32::WHITE).small(),
+                        )
+                        .fill(cell_color)
+                        .min_size(egui::Vec2::new(ui.available_width(), 0.0));
+
+                        let resp = ui.add(btn);
+                        if resp.hovered() {
+                            ui_state.hovered_entity = Some(dest_entity);
+                        }
+                        if resp.clicked() {
+                            if let (Some(from_t), Ok(to_t)) = (shelf_pos, transforms.get(dest_entity)) {
+                                let from = (
+                                    from_t.translation.x.round() as usize,
+                                    from_t.translation.z.round() as usize,
+                                );
+                                let to = (
+                                    to_t.translation.x.round() as usize,
+                                    to_t.translation.z.round() as usize,
+                                );
+                                actions.push(UiAction::SubmitTransportTask(TaskRequest {
+                                    task_type: TaskType::Relocate { from, to },
+                                    priority: Priority::Normal,
+                                }));
+                            }
+                            ui_state.transport_dropdown_open = false;
+                        }
+                    }
+                });
 
             ui.add_space(4.0);
             if ui.button("Cancel").clicked() {
@@ -565,6 +621,137 @@ fn shelf_inspector(
             }
         });
     }
+}
+
+/// Render a fill-level color swatch for the legend.
+fn color_swatch(ui: &mut egui::Ui, color: egui::Color32) {
+    let size = egui::Vec2::splat(10.0);
+    let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_filled(r, 2.0, color);
+}
+
+/// Convert cargo fill ratio into a green-to-red egui color.
+fn shelf_fill_color_egui(cargo: u32, max: u32) -> egui::Color32 {
+    if max == 0 {
+        return egui::Color32::from_gray(60);
+    }
+    let ratio = (cargo as f32 / max as f32).clamp(0.0, 1.0);
+    let r = (ratio * 210.0) as u8;
+    let g = ((1.0 - ratio) * 160.0 + 50.0) as u8;
+    egui::Color32::from_rgb(r, g, 30)
+}
+
+/// Render the compact warehouse mini-map for shelf destination picking.
+#[allow(clippy::too_many_arguments)]
+fn shelf_minimap_widget(
+    ui: &mut egui::Ui,
+    grid: &GridMap,
+    entity_map: &HashMap<(usize, usize), (Entity, u32, u32)>,
+    source_grid: Option<(usize, usize)>,
+    shelf_pos: Option<&Transform>,
+    transforms: &Query<&Transform>,
+    ui_state: &mut UiState,
+    actions: &mut Vec<UiAction>,
+) {
+    const CELL: f32 = 8.0;
+    const GAP: f32 = 1.0;
+    let step = CELL + GAP;
+    let grid_w = grid.width;
+    let grid_h = grid.height;
+    let total_size = egui::Vec2::new(grid_w as f32 * step, grid_h as f32 * step);
+
+    // wrap in a scroll area so very large warehouses don't overflow the panel
+    egui::ScrollArea::both()
+        .id_salt("shelf_minimap_scroll")
+        .max_width(ui.available_width())
+        .max_height(160.0)
+        .show(ui, |ui| {
+            let (grid_rect, _) = ui.allocate_exact_size(total_size, egui::Sense::hover());
+            let painter = ui.painter_at(grid_rect);
+
+            // draw all tiles
+            for row in 0..grid_h {
+                for col in 0..grid_w {
+                    let gpos = (col, row);
+                    let cell_rect = egui::Rect::from_min_size(
+                        grid_rect.min + egui::vec2(col as f32 * step, row as f32 * step),
+                        egui::Vec2::splat(CELL),
+                    );
+
+                    let bg = match grid.get_tile(col, row).map(|t| t.tile_type) {
+                        Some(TileType::Wall) => egui::Color32::from_gray(35),
+                        Some(TileType::Ground) => egui::Color32::from_gray(70),
+                        Some(TileType::Station) => egui::Color32::from_rgb(100, 40, 60),
+                        Some(TileType::Dropoff) => egui::Color32::from_rgb(20, 120, 60),
+                        Some(TileType::Shelf(_)) => {
+                            if Some(gpos) == source_grid {
+                                egui::Color32::from_gray(90) // source: neutral grey
+                            } else if let Some(&(_, cargo, max)) = entity_map.get(&gpos) {
+                                shelf_fill_color_egui(cargo, max)
+                            } else {
+                                egui::Color32::from_gray(55)
+                            }
+                        }
+                        Some(TileType::Empty) | None => egui::Color32::from_gray(15),
+                    };
+                    painter.rect_filled(cell_rect, 1.5, bg);
+                }
+            }
+
+            // handle interactions on shelf tiles (non-source)
+            for (&(col, row), &(dest_entity, cargo, max)) in entity_map {
+                if Some((col, row)) == source_grid {
+                    // draw an X on source shelf
+                    let cell_rect = egui::Rect::from_min_size(
+                        grid_rect.min + egui::vec2(col as f32 * step, row as f32 * step),
+                        egui::Vec2::splat(CELL),
+                    );
+                    let stroke = egui::Stroke::new(1.5, egui::Color32::from_gray(180));
+                    painter.line_segment([cell_rect.min, cell_rect.max], stroke);
+                    painter.line_segment(
+                        [cell_rect.right_top(), cell_rect.left_bottom()],
+                        stroke,
+                    );
+                    continue;
+                }
+
+                let cell_rect = egui::Rect::from_min_size(
+                    grid_rect.min + egui::vec2(col as f32 * step, row as f32 * step),
+                    egui::Vec2::splat(CELL),
+                );
+                let cell_id = egui::Id::new(("minimap", col, row));
+                let resp = ui.interact(cell_rect, cell_id, egui::Sense::click())
+                    .on_hover_text(format!("({col},{row})  {cargo}/{max}"));
+
+                if resp.hovered() {
+                    painter.rect_stroke(
+                        cell_rect,
+                        1.5,
+                        egui::Stroke::new(1.5, egui::Color32::WHITE),
+                        egui::StrokeKind::Middle,
+                    );
+                    ui_state.hovered_entity = Some(dest_entity);
+                }
+
+                if resp.clicked() {
+                    if let (Some(from_t), Ok(to_t)) = (shelf_pos, transforms.get(dest_entity)) {
+                        let from = (
+                            from_t.translation.x.round() as usize,
+                            from_t.translation.z.round() as usize,
+                        );
+                        let to = (
+                            to_t.translation.x.round() as usize,
+                            to_t.translation.z.round() as usize,
+                        );
+                        actions.push(UiAction::SubmitTransportTask(TaskRequest {
+                            task_type: TaskType::Relocate { from, to },
+                            priority: Priority::Normal,
+                        }));
+                    }
+                    ui_state.transport_dropdown_open = false;
+                }
+            }
+        });
 }
 
 // ── Bottom Panel (Logs / Analytics) ──────────────────────────────

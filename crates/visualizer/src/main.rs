@@ -40,7 +40,7 @@ use systems::{
     sync_robots::sync_robots,
     commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
     queue_receiver::{setup_queue_listener, collect_queue_state},
-    outline::{on_pointer_over, on_pointer_out, on_pointer_click},
+    outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
 };
 
 fn main() {
@@ -108,7 +108,7 @@ fn main() {
         ))
         // UI runs inside the egui context pass (after Update, before rendering)
         .add_systems(EguiPrimaryContextPass, ui::draw_ui)
-        // Run environment reload and box sync in PostUpdate
-        .add_systems(PostUpdate, (check_reload_environment, sync_shelf_boxes))
+        // PostUpdate: runs after EguiPrimaryContextPass so outline sync sees hovered_entity from draw_ui
+        .add_systems(PostUpdate, (check_reload_environment, sync_shelf_boxes, sync_programmatic_outlines))
         .run();
 }

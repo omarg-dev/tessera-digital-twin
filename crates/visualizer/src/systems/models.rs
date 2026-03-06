@@ -9,7 +9,8 @@ use rand::Rng;
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use protocol::config::visual::{PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
-use protocol::config::visual::shelf::{SHELF_MAX_CAPACITY, SHELF_LEVEL_HEIGHTS,
+use protocol::config::warehouse::SHELF_MAX_CAPACITY;
+use protocol::config::visual::shelf::{SHELF_LEVEL_HEIGHTS,
     BOX_X_OFFSETS, BOX_Z_OFFSETS,BOX_SCALE};
 
 // ── Asset paths ──
@@ -321,6 +322,7 @@ pub fn spawn_shelf(
     asset_server: &AssetServer,
     pos: Vec3,
     cargo: u32,
+    max_capacity: u32,
 ) {
     let offsets = box_offsets();
     let box_count = (cargo as usize).min(offsets.len());
@@ -328,7 +330,7 @@ pub fn spawn_shelf(
     commands.spawn((
         SceneRoot(load_scene(asset_server, assets::SHELF)),
         Transform::from_translation(pos),
-        Shelf { cargo },
+        Shelf { cargo, max_capacity },
     )).with_children(|parent| {
         for offset in offsets.iter().take(box_count) {
             parent.spawn((

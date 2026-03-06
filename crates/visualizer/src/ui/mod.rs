@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use crate::components::{Dropoff, Robot, Shelf};
-use crate::resources::{LogBuffer, QueueStateData, RobotIndex, UiAction, UiState};
+use crate::resources::{LogBuffer, QueueStateData, RobotIndex, UiAction, UiState, WarehouseMap};
 
 /// System that renders all four UI panels each frame.
 ///
@@ -32,15 +32,35 @@ pub fn draw_ui(
     dropoffs: Query<(Entity, &Dropoff)>,
     transforms: Query<&Transform>,
     time: Res<Time>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    warehouse_map: Option<Res<WarehouseMap>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+
+    // reset hovered_entity so panels set it fresh each frame
+    ui_state.hovered_entity = None;
 
     let mut pending_actions = Vec::new();
 
     panels::top_panel(ctx, &mut ui_state, &robot_index, &queue_state, &time, &mut pending_actions);
     panels::left_panel(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state);
-    panels::right_panel(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, &mut pending_actions);
+    panels::right_panel(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, warehouse_map.as_deref().map(|wm| &wm.0), &mut pending_actions);
     panels::bottom_panel(ctx, &mut ui_state, &mut log_buffer);
+
+    // background-click deselect: checked AFTER panels are drawn so
+    // ctx.is_pointer_over_area() reflects all panel regions registered this frame
+    let left_click = mouse_input.just_pressed(MouseButton::Left);
+    if left_click
+        && !ui_state.entity_picked_this_frame
+        && !ctx.is_pointer_over_area()
+        && ui_state.selected_entity.is_some()
+    {
+        ui_state.selected_entity = None;
+        ui_state.camera_following = false;
+        ui_state.transport_dropdown_open = false;
+    }
+    // consume the flag after reading it
+    ui_state.entity_picked_this_frame = false;
 
     for action in pending_actions {
         actions.write(action);

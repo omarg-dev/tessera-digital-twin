@@ -27,6 +27,8 @@ pub struct Wall;
 pub struct Shelf {
     /// Number of cargo items currently on this shelf
     pub cargo: u32,
+    /// Maximum cargo items this shelf can hold (from layout xN token)
+    pub max_capacity: u32,
 }
 
 /// Charging station marker
@@ -45,3 +47,8 @@ pub struct BoxCargo;
 /// Added on click, removed on deselect. Drives the outline SELECT_COLOR.
 #[derive(Component)]
 pub struct Selected;
+
+/// Marker placed on Mesh3d children of a sidebar-hovered entity.
+/// Prevents on_pointer_out from removing the outline while the sidebar hover is active.
+#[derive(Component)]
+pub struct SidebarHovered;

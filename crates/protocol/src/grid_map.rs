@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use crate::config::warehouse::SHELF_MAX_CAPACITY;
 
 /// Tile types in the warehouse grid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -11,7 +12,7 @@ pub enum TileType {
     Empty,      // ~ in layout
     Ground,     // .
     Wall,       // #
-    Shelf(u8),  // xN (N = capacity)
+    Shelf(u8),  // xN (N = initial stock; max capacity is warehouse::SHELF_MAX_CAPACITY)
     Station,    // _ (charging station)
     Dropoff,    // v
 }
@@ -170,12 +171,15 @@ pub struct ShelfInventory {
 }
 
 impl ShelfInventory {
-    /// Initialize from a GridMap. All shelves start at full capacity.
+    /// Initialize from a GridMap. Each shelf starts with the stock defined by
+    /// its layout token (xN = N items). Max capacity is warehouse::SHELF_MAX_CAPACITY.
     pub fn from_map(map: &GridMap) -> Self {
         let mut shelves = HashMap::new();
         for tile in &map.tiles {
-            if let TileType::Shelf(cap) = tile.tile_type {
-                shelves.insert((tile.x, tile.y), (cap, cap));
+            if let TileType::Shelf(initial_stock) = tile.tile_type {
+                let max = SHELF_MAX_CAPACITY as u8;
+                let stock = initial_stock.min(max);
+                shelves.insert((tile.x, tile.y), (stock, max));
             }
         }
         ShelfInventory { shelves }

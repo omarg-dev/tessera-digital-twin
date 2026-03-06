@@ -184,6 +184,14 @@ pub mod scheduler {
     pub const DROPOFF_MARKER_BASE: usize = 20000;
 }
 
+/// Warehouse simulation constants (shared by scheduler, coordinator, and visualizer)
+pub mod warehouse {
+    /// Maximum number of cargo items any shelf can hold.
+    /// 4 levels x 4 boxes per level = 16. Shelf tokens in the layout file (xN)
+    /// define the *initial stock*, not the maximum capacity.
+    pub const SHELF_MAX_CAPACITY: u32 = 16;
+}
+
 /// Orchestrator settings (process management)
 pub mod orchestrator {
     /// Delay after starting coordinator before starting firmware (ms)
@@ -222,9 +230,6 @@ pub mod visual {
     pub mod shelf {
         /// Shelf mesh dimensions (width, height, depth)
         pub const SHELF_SIZE: (f32, f32, f32) = (0.8, 0.6, 0.8);
-
-        /// Maximum cargo capacity for all shelves (4 levels x 4 boxes = 16)
-        pub const SHELF_MAX_CAPACITY: u32 = 16;
 
         /// Y-heights of the 4 shelf levels (relative to shelf origin)
         pub const SHELF_LEVEL_HEIGHTS: [f32; 4] = [0.35, 0.7, 1.05, 1.4];

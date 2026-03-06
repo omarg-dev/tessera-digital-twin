@@ -141,6 +141,11 @@ pub struct UiState {
     pub transport_dropdown_open: bool,
     /// Shelves sub-menu is expanded in transport dropdown
     pub transport_shelves_expanded: bool,
+    /// Entity being hovered over in the sidebar object list (drives 3D hover outline)
+    pub hovered_entity: Option<Entity>,
+    /// Set to true by on_pointer_click when a 3D interactive entity absorbs a click.
+    /// Used in draw_ui to prevent background-click deselect from firing.
+    pub entity_picked_this_frame: bool,
 }
 
 impl Default for UiState {
@@ -161,6 +166,8 @@ impl Default for UiState {
             camera_following: false,
             transport_dropdown_open: false,
             transport_shelves_expanded: false,
+            hovered_entity: None,
+            entity_picked_this_frame: false,
         }
     }
 }

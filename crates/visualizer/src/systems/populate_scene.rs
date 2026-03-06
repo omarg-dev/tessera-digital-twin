@@ -3,7 +3,8 @@ use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
 use protocol::config::{LAYOUT_FILE_PATH,
-    visual::{TILE_SIZE, shelf, lighting, colors, ROBOT_SIZE}};
+    visual::{TILE_SIZE, shelf, lighting, colors, ROBOT_SIZE},
+    warehouse};
 use protocol::grid_map::{GridMap, TileType};
 
 /// Check if environment reload is requested and trigger repopulation
@@ -88,9 +89,11 @@ pub fn populate_environment(
                 models::spawn_floor(&mut commands, &asset_server, pos);
                 models::spawn_dropoff(&mut commands, &placeholders, pos);
             }
-            TileType::Shelf(capacity) => {
+            TileType::Shelf(initial_stock) => {
                 models::spawn_floor(&mut commands, &asset_server, pos);
-                models::spawn_shelf(&mut commands, &asset_server, pos, capacity as u32);
+                // initial_stock from layout token (xN); max from global warehouse config
+                models::spawn_shelf(&mut commands, &asset_server, pos,
+                    initial_stock as u32, warehouse::SHELF_MAX_CAPACITY);
             }
             TileType::Empty => {
                 // N/A tile (~), skip
@@ -127,7 +130,7 @@ pub fn sync_shelf_boxes(
             })
             .unwrap_or_default();
 
-        let target = shelf.cargo.min(shelf::SHELF_MAX_CAPACITY) as usize;
+        let target = shelf.cargo.min(shelf.max_capacity) as usize;
         let current = current_boxes.len();
 
         if current > target {

@@ -9,10 +9,11 @@
 //! - **Pointer<Click>**: toggle selection with blue HDR outline, updates `UiState`
 
 use bevy::prelude::*;
+use bevy::picking::pointer::PointerButton;
 use bevy_mod_outline::{OutlineVolume, OutlineStencil};
 use protocol::config::visual::outline as cfg;
 
-use crate::components::{Robot, Shelf, Station, Dropoff, Selected};
+use crate::components::{Robot, Shelf, Station, Dropoff, Selected, SidebarHovered};
 use crate::resources::UiState;
 
 /// walk up the entity hierarchy to find the nearest interactive ancestor.
@@ -89,12 +90,13 @@ pub fn on_pointer_over(
     ));
 }
 
-/// observer: pointer leaves entity - remove hover outline (unless selected)
+/// observer: pointer leaves entity - remove hover outline (unless selected or sidebar-hovered)
 pub fn on_pointer_out(
     mut event: On<Pointer<Out>>,
     mut commands: Commands,
     meshes: Query<(), With<Mesh3d>>,
     selected: Query<(), With<Selected>>,
+    sidebar_hovered: Query<(), With<SidebarHovered>>,
     parents: Query<&ChildOf>,
     interactives: Query<(), Or<(With<Robot>, With<Shelf>, With<Station>, With<Dropoff>)>>,
 ) {
@@ -114,6 +116,11 @@ pub fn on_pointer_out(
         return;
     }
 
+    // keep sidebar hover outline when mouse leaves
+    if sidebar_hovered.get(target).is_ok() {
+        return;
+    }
+
     if let Ok(mut ec) = commands.get_entity(target) {
         ec.remove::<(OutlineVolume, OutlineStencil)>();
     }
@@ -129,6 +136,11 @@ pub fn on_pointer_click(
     parents: Query<&ChildOf>,
     interactives: Query<(), Or<(With<Robot>, With<Shelf>, With<Station>, With<Dropoff>)>>,
 ) {
+    // only respond to primary (left) button clicks
+    if event.button != PointerButton::Primary {
+        return;
+    }
+
     let target = event.entity;
 
     if meshes.get(target).is_err() {
@@ -166,4 +178,120 @@ pub fn on_pointer_click(
     ));
     ui_state.selected_entity = Some(logical);
     ui_state.camera_following = true;
+    ui_state.entity_picked_this_frame = true;
+}
+
+// ── Programmatic outline sync (sidebar selection and hover) ──────
+
+/// Keeps track of which mesh entities currently carry programmatic outlines.
+#[derive(Default)]
+pub struct ProgrammaticOutlineState {
+    selected_entity: Option<Entity>,
+    hovered_entity: Option<Entity>,
+    /// mesh-level children that currently carry Selected + OutlineVolume from this system
+    selected_meshes: Vec<Entity>,
+    /// mesh-level children that currently carry SidebarHovered + OutlineVolume from this system
+    hovered_meshes: Vec<Entity>,
+}
+
+/// Walk the entity hierarchy and collect all Mesh3d descendants.
+fn collect_mesh_descendants(
+    root: Entity,
+    children_q: &Query<&Children>,
+    meshes_q: &Query<(), With<Mesh3d>>,
+) -> Vec<Entity> {
+    let mut result = Vec::new();
+    let mut stack = vec![root];
+    while let Some(e) = stack.pop() {
+        if meshes_q.get(e).is_ok() {
+            result.push(e);
+        }
+        if let Ok(children) = children_q.get(e) {
+            for child in children.iter() {
+                stack.push(child);
+            }
+        }
+    }
+    result
+}
+
+/// System: syncs 3D outlines for sidebar selection and sidebar hover.
+///
+/// Runs every Update frame. When `ui_state.selected_entity` or
+/// `ui_state.hovered_entity` change, removes stale outlines and applies
+/// new ones to all Mesh3d descendants. This ensures sidebar-driven
+/// selection shows the same outline as 3D-click selection.
+pub fn sync_programmatic_outlines(
+    mut commands: Commands,
+    ui_state: Res<UiState>,
+    mut state: Local<ProgrammaticOutlineState>,
+    children_q: Query<&Children>,
+    meshes_q: Query<(), With<Mesh3d>>,
+) {
+    let sel_changed = ui_state.selected_entity != state.selected_entity;
+    let hov_changed = ui_state.hovered_entity != state.hovered_entity;
+
+    if !sel_changed && !hov_changed {
+        return;
+    }
+
+    // ── handle selected entity change ──
+    if sel_changed {
+        // remove outlines from previously selected meshes
+        for &mesh_e in &state.selected_meshes {
+            if let Ok(mut ec) = commands.get_entity(mesh_e) {
+                ec.remove::<(Selected, OutlineVolume, OutlineStencil)>();
+            }
+        }
+        state.selected_meshes.clear();
+
+        if let Some(logical) = ui_state.selected_entity {
+            let meshes = collect_mesh_descendants(logical, &children_q, &meshes_q);
+            for &mesh_e in &meshes {
+                commands.entity(mesh_e).insert((
+                    Selected,
+                    OutlineVolume {
+                        visible: true,
+                        width: cfg::WIDTH,
+                        colour: select_color(),
+                    },
+                    OutlineStencil::default(),
+                ));
+            }
+            state.selected_meshes = meshes;
+        }
+        state.selected_entity = ui_state.selected_entity;
+    }
+
+    // ── handle hovered entity change ──
+    if hov_changed {
+        // remove outlines from previously hovered meshes
+        for &mesh_e in &state.hovered_meshes {
+            if let Ok(mut ec) = commands.get_entity(mesh_e) {
+                ec.remove::<(SidebarHovered, OutlineVolume, OutlineStencil)>();
+            }
+        }
+        state.hovered_meshes.clear();
+
+        if let Some(logical) = ui_state.hovered_entity {
+            // don't add hover outline if this entity is already selected
+            let is_selected = ui_state.selected_entity == Some(logical);
+            if !is_selected {
+                let meshes = collect_mesh_descendants(logical, &children_q, &meshes_q);
+                for &mesh_e in &meshes {
+                    commands.entity(mesh_e).insert((
+                        SidebarHovered,
+                        OutlineVolume {
+                            visible: true,
+                            width: cfg::WIDTH,
+                            colour: hover_color(),
+                        },
+                        OutlineStencil::default(),
+                    ));
+                }
+                state.hovered_meshes = meshes;
+            }
+        }
+        state.hovered_entity = ui_state.hovered_entity;
+    }
 }

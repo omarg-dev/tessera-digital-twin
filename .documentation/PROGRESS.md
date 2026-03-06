@@ -259,6 +259,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-07: UI and Input Bug Fixes — Selection, Hover, Camera, Right-Click (Phase 5)
+
+Fixed five interaction bugs uncovered during testing of the Session 1 outline/selection system.
+
+**Bug fixes:**
+
+- **Right-click no longer triggers selection.** `on_pointer_click` now returns early if `event.button != PointerButton::Primary`, preventing camera-orbit right-clicks from toggling selection state.
+- **Transport button no longer deselects the entity.** The background-click deselect check (and `entity_picked_this_frame` reset) was moved to run *after* all panel draws in `draw_ui`, so `ctx.is_pointer_over_area()` correctly covers all registered panel regions before the check fires.
+- **Sidebar shelf hover now reliably highlights the 3D entity.** `sync_programmatic_outlines` was moved from `Update` to `PostUpdate`, which runs after `EguiPrimaryContextPass` (where `draw_ui` sets `hovered_entity`). Previously it ran a full frame behind, causing every-other-frame flicker.
+- **Camera zoom is no longer capped when following a selected entity.** The radius `lerp` toward `FOLLOW_ZOOM_RADIUS` was removed from `camera_follow_selected`; only the focus-point lerp is retained, so users can freely zoom in/out while the camera tracks the entity.
+- **Shelf stock semantics clarified.** `TileType::Shelf(u8)` encodes *initial stock*; `warehouse::SHELF_MAX_CAPACITY = 16` is the global maximum for all shelves. `SHELF_MAX_CAPACITY` was moved from `config::visual::shelf` to the new `config::warehouse` module. `INITIAL_STOCK_FRACTION` was removed entirely; `ShelfInventory::from_map()` and `populate_scene` now use the layout token value directly as initial stock.
+
+**Files changed:** `outline.rs`, `ui/mod.rs`, `main.rs`, `systems/camera.rs`, `config.rs`, `grid_map.rs`, `populate_scene.rs`, `models.rs`.
+
 ### 2026-03-06: Glowing Outline System — Hover & Selection Highlight (Phase 5)
 
 Implemented a reusable entity-highlight system using `bevy_mod_outline 0.11` and Bevy 0.17's native `MeshPickingPlugin`. Entities (robots, shelves, stations, dropoffs) now glow white on hover and cyan-blue on selection with HDR bloom post-processing.
@@ -372,6 +386,67 @@ Settings take effect on the next `run`/`up` for that crate (cannot change a wind
 - `crates/orchestrator/src/processes.rs` (show_output field, spawn_binary windowed param)
 - `crates/orchestrator/src/cli.rs` (ShowOutput variant, parse patterns, help section, status signature)
 - `crates/orchestrator/src/main.rs` (ShowOutput handler, status call updated)
+
+### 2026-03-06: Cargo Capacity Bugs, Shelf Picker Mini-Map, Selection Improvements (Phase 5)
+
+**Bug: Shelves start full — Relocate tasks permanently Pending**
+
+- `ShelfInventory::from_map()` was initializing every shelf to full capacity `(cap, cap)`.
+  `can_dropoff()` returns `false` when `stock == cap`, so every Relocate task whose destination shelf was at capacity was silently skipped by the scheduler's `allocate_tasks` loop and stayed Pending forever.
+- Fix: Added `visual::shelf::INITIAL_STOCK_FRACTION = 0.5` constant to `protocol::config`. Shelves now start at 50% stock, ensuring both pickup and dropoff tasks can be allocated immediately at simulation start.
+- Visual initial cargo updated to match via `initial_stock` in `populate_scene.rs`.
+
+**Bug: `Shelf` component lacked `max_capacity`; inspector showed wrong "X / 16"**
+
+- `Shelf` only stored `cargo: u32`. The inspector and `sync_shelf_boxes` both fell back to the global `SHELF_MAX_CAPACITY = 16` constant, which was wrong for shelves parsed with `xN` capacities other than 16.
+- Fix: Added `max_capacity: u32` field to `Shelf`. Propagated through `spawn_shelf()` and `populate_scene.rs`. Inspector and `sync_shelf_boxes` now use per-shelf capacity. Sidebar label updated to `"Shelf (cargo/max)"`.
+
+**Bug: Visualizer cargo not updating correctly on drop**
+
+- `sync_robots.rs` drop arm checked `tile_type` from the robot's snapped grid position, which could miss the shelf tile if the position was slightly off.
+- Fix: The drop arm now uses `find_nearest_shelf()` (distance-based) to locate the shelf, then validates the tile type at the shelf's own grid position (reliable since shelves are always spawned on exact shelf tiles). Caps increment to `shelf.max_capacity`.
+
+**Bug: Sidebar selection did not highlight 3D objects**
+
+- `on_pointer_click` placed `Selected + OutlineVolume` on the child mesh entity (`target`), but `ui_state.selected_entity` stored the logical parent. `select_entity()` from the sidebar set `selected_entity` without inserting any `Selected` component on mesh children.
+- Fix: Added `SidebarHovered` component marker. Added `sync_programmatic_outlines` Update system that watches `selected_entity` and `hovered_entity` changes and applies/removes `Selected + OutlineVolume` on all `Mesh3d` descendants of the logical entity.
+- Added `hovered_entity: Option<Entity>` and `entity_picked_this_frame: bool` to `UiState`.
+- Sidebar buttons (robots and shelves) now set `hovered_entity` on hover.
+- Updated `on_pointer_out` to also skip outline removal when `SidebarHovered` is present, preventing pointer-out from clearing sidebar hover outlines.
+
+**Bug: No way to deselect by clicking empty space**
+
+- `draw_ui` now checks: left click + egui not consuming pointer + `entity_picked_this_frame == false` → sets `selected_entity = None`. The `entity_picked_this_frame` flag is set by `on_pointer_click` when a 3D entity absorbs the click. Resets each frame in `draw_ui`.
+
+**Feature: Shelf destination picker replaced with mini-map + scrollable list**
+
+- Replaced the non-scrollable `CollapsingState` shelf list with a two-section picker in the inspector's "Add Transport Task" panel:
+  1. Mini-map: compact `8px` cells per warehouse tile, rendered via egui `allocate_exact_size` + `painter_at`. Shelf cells are color-coded green (empty) to red (full); the source shelf shows a grey X. Individual shelf cells are interactive via `ui.interact()` — hovering highlights the 3D shelf, clicking submits the Relocate task.
+  2. Scrollable list (`max_height: 80px`): rows sorted by `(row, col)`, each a full-width color-coded button. Hover also highlights the 3D shelf.
+  3. Legend: color swatches for empty/half/full/source.
+  4. Scroll area wraps the mini-map to handle large warehouses.
+- Threaded `Option<&GridMap>` from `draw_ui` → `right_panel` → `shelf_inspector` → `shelf_minimap_widget`.
+- Added `shelf_fill_color_egui(cargo, max) -> Color32` and `color_swatch()` helpers.
+
+**Documented known bugs (deferred):**
+
+- Multiple dropoff zones: "Dropoff" button always uses `iter().next()` — no user choice among multiple dropoff tiles.
+- Shelf sidebar label has no position info (grid coords not yet stored in component).
+- Double-assignment race in scheduler allocator — `reachable_robots` may not exclude robots with in-flight `assigned_task`.
+
+**Key files:**
+
+- `crates/protocol/src/config.rs` (INITIAL_STOCK_FRACTION)
+- `crates/protocol/src/grid_map.rs` (ShelfInventory::from_map — half-capacity init)
+- `crates/visualizer/src/components.rs` (Shelf.max_capacity, SidebarHovered)
+- `crates/visualizer/src/resources.rs` (UiState: hovered_entity, entity_picked_this_frame)
+- `crates/visualizer/src/systems/models.rs` (spawn_shelf max_capacity param)
+- `crates/visualizer/src/systems/populate_scene.rs` (initial_stock, sync_shelf_boxes cap)
+- `crates/visualizer/src/systems/sync_robots.rs` (drop arm nearest-shelf + max_capacity cap)
+- `crates/visualizer/src/systems/outline.rs` (on_pointer_out SidebarHovered guard, entity_picked_this_frame, ProgrammaticOutlineState, sync_programmatic_outlines)
+- `crates/visualizer/src/ui/mod.rs` (draw_ui: background-click deselect, hovered_entity reset, WarehouseMap param)
+- `crates/visualizer/src/ui/panels.rs` (shelf picker mini-map + scrollable list, sidebar hover tracking)
+- `crates/visualizer/src/main.rs` (register sync_programmatic_outlines)
 
 ### 2026-03-06: Wall Endcap, Seam Fix, Log Panic Fix, Orchestrator Shutdown (Phase 5)
 
