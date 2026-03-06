@@ -234,6 +234,7 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - [ ] Graceful fallback to mock_firmware when ROS2 unavailable
 - [ ] Benchamark with Gazebo or Isaac Sim for performance validation
 - [ ] Benchmark with Aziz supercomputer for large-scale simulation
+- [ ] CLI tab completion for orchestrator commands (`rustyline` — completes command names and crate names on Tab)
 
 **Architecture Impact:**
 
@@ -256,6 +257,26 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-06: Build-Complete Sound Notifier (Phase 5)
+
+Added `crates/notifier` — a tiny dev-tool binary that plays a 4-note ascending arpeggio (C5→E5→G5→C6) when compilation finishes, so you don't have to watch the terminal.
+
+**Usage:**
+
+```bash
+cargo build -p visualizer && cargo notify
+# or any crate:
+cargo build --workspace && cargo notify
+```
+
+**Implementation:**
+
+- `crates/notifier/src/main.rs` — synthesizes 4 `SineWave` notes via `rodio 0.19` using `Sink::append` + `sleep_until_end`. No external audio file. Silently no-ops if no audio device is present.
+- Note constants: `C5=523.25`, `E5=659.25`, `G5=783.99`, `C6=1046.50` Hz; `NOTE_MS=110`, `FINAL_MS=280`, `AMPLITUDE=0.22`.
+- `.cargo/config.toml` — alias `notify = "run -q -p notifier"` to suppress the "Running" line (only the sound plays).
+- `crates/notifier/Cargo.toml` — `rodio 0.19` with `symphonia-all` for full codec support.
+- Added to workspace `members` in root `Cargo.toml`.
 
 ### 2026-03-06: Orchestrator Output Visibility Control (Phase 5)
 

@@ -1,0 +1,11 @@
+[package]
+name = "notifier"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "notifier"
+path = "src/main.rs"
+
+[dependencies]
+rodio = { version = "0.19", default-features = false, features = ["symphonia-all"] }

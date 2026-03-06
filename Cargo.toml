@@ -6,6 +6,7 @@ members = [
     "crates/coordinator",
     "crates/mock_firmware",
     "crates/scheduler",
+    "crates/notifier",
 ]
 resolver = "2"
 
