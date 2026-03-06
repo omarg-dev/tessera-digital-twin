@@ -122,20 +122,24 @@ pub fn camera_controls(
 }
 
 /// System that moves the camera to follow the selected entity each frame.
-/// On first selection, snaps radius to FOLLOW_ZOOM_RADIUS if the camera is
-/// farther away. After that, radius is left fully free for the user to zoom.
+/// On first selection, smoothly lerps radius down to FOLLOW_ZOOM_RADIUS if the
+/// camera is farther away. The lerp stops once close enough or the user scrolls
+/// in manually — radius is never pushed back out.
 pub fn camera_follow_selected(
     ui_state: Res<UiState>,
     target_transforms: Query<&Transform, Without<Camera>>,
     mut camera_query: Query<(&mut CameraController, &mut Transform), With<Camera>>,
     mut last_followed: Local<Option<Entity>>,
+    mut zooming_in: Local<bool>,
 ) {
     if !ui_state.camera_following {
         *last_followed = None;
+        *zooming_in = false;
         return;
     }
     let Some(entity) = ui_state.selected_entity else {
         *last_followed = None;
+        *zooming_in = false;
         return;
     };
     let Ok(target_transform) = target_transforms.get(entity) else {
@@ -145,11 +149,21 @@ pub fn camera_follow_selected(
         return;
     };
 
-    // one-shot: zoom in when a new entity is selected
+    // new entity selected: trigger zoom-in if too far away
     if *last_followed != Some(entity) {
         *last_followed = Some(entity);
         if controller.radius > camera::FOLLOW_ZOOM_RADIUS + 1.0 {
+            *zooming_in = true;
+        }
+    }
+
+    // lerp radius toward target — stops once close enough (user can then zoom freely)
+    if *zooming_in {
+        if controller.radius > camera::FOLLOW_ZOOM_RADIUS + 0.1 {
+            controller.radius = controller.radius.lerp(camera::FOLLOW_ZOOM_RADIUS, camera::FOLLOW_ZOOM_LERP);
+        } else {
             controller.radius = camera::FOLLOW_ZOOM_RADIUS;
+            *zooming_in = false;
         }
     }
 

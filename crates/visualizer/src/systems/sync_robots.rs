@@ -34,20 +34,20 @@ pub fn sync_robots(
                 robot.position = pos;
                 transform.translation = pos;
 
-                // Cargo pickup/drop: update nearest shelf only when on correct tile
-                let grid_col = (pos.x / TILE_SIZE).round() as usize;
-                let grid_row = (pos.z / TILE_SIZE).round() as usize;
-                let tile_type = warehouse_map
-                    .as_ref()
-                    .and_then(|m| m.0.get_tile(grid_col, grid_row))
-                    .map(|t| t.tile_type);
-
                 match (old_carrying, robot.carrying_cargo) {
                     (None, Some(_)) => {
-                        // robot picked up cargo - only decrement if at a Shelf tile
-                        if matches!(tile_type, Some(TileType::Shelf(_))) {
-                            if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
-                                if let Ok((_, mut shelf, _)) = shelves.get_mut(shelf_entity) {
+                        // robot picked up cargo — mirror the drop logic: find nearest shelf and
+                        // verify its own tile type (don't check the robot's tile, which may be
+                        // slightly off when the state transition arrives)
+                        if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
+                            if let Ok((_, mut shelf, shelf_transform)) = shelves.get_mut(shelf_entity) {
+                                let shelf_col = (shelf_transform.translation.x / TILE_SIZE).round() as usize;
+                                let shelf_row = (shelf_transform.translation.z / TILE_SIZE).round() as usize;
+                                let shelf_tile = warehouse_map
+                                    .as_ref()
+                                    .and_then(|m| m.0.get_tile(shelf_col, shelf_row))
+                                    .map(|t| t.tile_type);
+                                if matches!(shelf_tile, Some(TileType::Shelf(_))) {
                                     shelf.cargo = shelf.cargo.saturating_sub(1);
                                 }
                             }

@@ -259,6 +259,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-06: Camera zoom lerp and shelf cargo decrease fix (Phase 5)
+
+**Camera zoom-in now lerps smoothly.** `camera_follow_selected` adds a `Local<bool> zooming_in` flag alongside the existing `Local<Option<Entity>>` entity tracker. When a new entity is selected and the camera is farther than `FOLLOW_ZOOM_RADIUS + 1.0`, the flag is set and the system lerps radius toward `FOLLOW_ZOOM_RADIUS` each frame (using `FOLLOW_ZOOM_LERP`). Once within `0.1` units the flag clears and radius is fully free — the user can zoom out without the system fighting them.
+
+**Visual cargo count now decreases correctly.** The pickup branch in `sync_robots` was guarding on the robot's own tile type (`TileType::Shelf`) before decrementing `shelf.cargo`. The robot's grid position at the moment the firmware state transition arrives can be slightly off from the shelf tile, causing the guard to silently skip the decrement. Fixed by mirroring the drop logic: find nearest shelf via distance, then check the shelf's own tile. The now-dead `grid_col/grid_row/tile_type` locals were removed.
+
+**Files changed:** `systems/camera.rs`, `systems/sync_robots.rs`.
+
 ### 2026-03-06: Interaction and Log Quality Fixes (Phase 5)
 
 Fixed four issues discovered during testing.
