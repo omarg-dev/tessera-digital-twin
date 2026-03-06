@@ -440,7 +440,7 @@ fn shelf_inspector(
             egui::RichText::new(format!(
                 "{} / {}",
                 shelf.cargo,
-                visual::SHELF_MAX_CAPACITY
+                visual::shelf::SHELF_MAX_CAPACITY
             ))
             .strong(),
         );

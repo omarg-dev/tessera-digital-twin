@@ -212,20 +212,32 @@ pub mod visual {
     /// Robot mesh size
     pub const ROBOT_SIZE: f32 = 0.5;
 
-    /// Shelf mesh dimensions (width, height, depth)
-    pub const SHELF_SIZE: (f32, f32, f32) = (0.8, 0.6, 0.8);
-
-    /// Maximum cargo capacity for all shelves (4 levels x 4 boxes = 16)
-    pub const SHELF_MAX_CAPACITY: u32 = 16;
-
-    /// Scale factor for cargo boxes on shelves (1.0 = full model size)
-    pub const BOX_SCALE: f32 = 0.6;
-
+    /// Maximum squared distance to match a robot pickup/drop to a shelf (1.5 units)
+    pub const CARGO_SHELF_DISTANCE_SQ: f32 = 2.25;
+    
     /// Y offset for placeholder planes (station/dropoff) to sit above the floor
     pub const PLACEHOLDER_Y_OFFSET: f32 = 0.001;
 
-    /// Maximum squared distance to match a robot pickup/drop to a shelf (1.5 units)
-    pub const CARGO_SHELF_DISTANCE_SQ: f32 = 2.25;
+    /// Box placement
+    pub mod shelf {
+        /// Shelf mesh dimensions (width, height, depth)
+        pub const SHELF_SIZE: (f32, f32, f32) = (0.8, 0.6, 0.8);
+
+        /// Maximum cargo capacity for all shelves (4 levels x 4 boxes = 16)
+        pub const SHELF_MAX_CAPACITY: u32 = 16;
+
+        /// Y-heights of the 4 shelf levels (relative to shelf origin)
+        pub const SHELF_LEVEL_HEIGHTS: [f32; 4] = [0.35, 0.7, 1.05, 1.4];
+
+        /// X offsets for the 2-column box grid per shelf level
+        pub const BOX_X_OFFSETS: [f32; 2] = [-0.2, 0.2];
+
+        /// Z offsets for the 2-row box grid per shelf level
+        pub const BOX_Z_OFFSETS: [f32; 2] = [-0.2, 0.2];
+
+        /// Scale factor for cargo boxes on shelves (1.0 = full model size)
+        pub const BOX_SCALE: f32 = 0.5;
+    }
 
     /// Colors (RGB 0.0-1.0)
     pub mod colors {

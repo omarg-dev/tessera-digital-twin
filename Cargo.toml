@@ -23,6 +23,10 @@ rand = "0.8"
 
 [profile.dev]
 opt-level = 1
+# unpacked splits debug info into per-object .pdb shards — faster incremental linking on Windows
+split-debuginfo = "unpacked"
+# cranelift skips LLVM entirely for dev builds: no optimisation passes, much faster codegen
+codegen-backend = "cranelift"
 
 [profile.release]
 opt-level = 3

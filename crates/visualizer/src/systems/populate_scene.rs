@@ -2,7 +2,8 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
-use protocol::config::{LAYOUT_FILE_PATH, visual::TILE_SIZE, visual::SHELF_MAX_CAPACITY, visual::BOX_SCALE, visual::lighting, visual::colors, visual::ROBOT_SIZE};
+use protocol::config::{LAYOUT_FILE_PATH,
+    visual::{TILE_SIZE, shelf, lighting, colors, ROBOT_SIZE}};
 use protocol::grid_map::{GridMap, TileType};
 
 /// Check if environment reload is requested and trigger repopulation
@@ -126,7 +127,7 @@ pub fn sync_shelf_boxes(
             })
             .unwrap_or_default();
 
-        let target = shelf.cargo.min(SHELF_MAX_CAPACITY) as usize;
+        let target = shelf.cargo.min(shelf::SHELF_MAX_CAPACITY) as usize;
         let current = current_boxes.len();
 
         if current > target {
@@ -144,7 +145,7 @@ pub fn sync_shelf_boxes(
                             format!("{}#Scene0", models::assets::BOX_SMALL)
                         )),
                         Transform::from_translation(offset)
-                            .with_scale(Vec3::splat(BOX_SCALE)),
+                            .with_scale(Vec3::splat(shelf::BOX_SCALE)),
                         BoxCargo,
                     )).id();
                     commands.entity(shelf_entity).add_child(child);

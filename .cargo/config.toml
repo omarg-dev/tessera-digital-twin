@@ -11,6 +11,15 @@ index = "https://rsproxy.cn/crates.io-index"
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
 
+# share identical generic instantiations across crates instead of recompiling them
+# dramatically reduces redundant codegen for Bevy-heavy crates
+[build]
+rustflags = ["-Zshare-generics=y"]
+
+# enable unstable Cargo profile keys (codegen-backend)
+[unstable]
+codegen-backend = true
+
 # dev aliases
 # usage: cargo build -p <crate> && cargo notify
 [alias]

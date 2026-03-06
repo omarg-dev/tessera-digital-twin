@@ -291,6 +291,23 @@ Implemented a reusable entity-highlight system using `bevy_mod_outline 0.11` and
 - `crates/protocol/src/config.rs` (`visual::outline` sub-module)
 - `crates/visualizer/Cargo.toml` (`bevy_mod_outline = "0.11"`)
 
+### 2026-03-06: Build Optimization Stack (Phase 5)
+
+Configured a full nightly optimization stack to reduce incremental build times, targeting three independent bottlenecks:
+
+| Optimization | Config location | What it fixes |
+|---|---|---|
+| **Cranelift backend** | `[profile.dev] codegen-backend` | Replaces LLVM for dev builds — no optimization passes, much faster codegen |
+| **`-Zshare-generics`** | `[build] rustflags` | Shares Bevy's monomorphized generics across crates instead of recompiling each |
+| **`split-debuginfo = "unpacked"`** | `[profile.dev]` | Splits PDB into per-object shards — faster incremental linking on Windows |
+| **`bevy/dynamic_linking`** | `visualizer [features] dev` | Links Bevy as .dll — avoids re-linking the full Bevy binary on every change |
+
+Usage for visualizer dev runs: `cargo run -p visualizer --features dev`. The VS Code tasks `build visualizer` and `run wall_debug` already pass `--features dev`.
+
+`rust-toolchain.toml` pins the workspace to nightly with `rustc-codegen-cranelift-preview` as a required component, so `rustup` auto-installs the correct toolchain on any machine.
+
+Release profile (`[profile.release]`) is unchanged — still uses LLVM with full LTO.
+
 ### 2026-03-06: Log Session Bug Fix + VS Code Notify Tasks (Phase 5)
 
 **Bug fix — logs never advancing past 2026-02-12:**
