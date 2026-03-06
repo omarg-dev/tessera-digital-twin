@@ -243,6 +243,18 @@ pub mod visual {
         pub const ROBOT: (f32, f32, f32) = (0.2, 0.7, 0.9);
     }
 
+    /// Outline highlighting settings (hover and selection glow)
+    pub mod outline {
+        /// HDR hover outline color (bright white, values > 1.0 for bloom glow)
+        pub const HOVER_COLOR: (f32, f32, f32) = (5.0, 5.0, 5.0);
+        /// HDR select outline color (cyan/blue glow)
+        pub const SELECT_COLOR: (f32, f32, f32) = (0.0, 2.5, 5.0);
+        /// outline width in logical pixels
+        pub const WIDTH: f32 = 3.0;
+        /// bloom post-processing intensity (low to avoid blinding)
+        pub const BLOOM_INTENSITY: f32 = 0.15;
+    }
+
     /// Lighting settings
     pub mod lighting {
         pub const DIRECTIONAL_ILLUMINANCE: f32 = 15_000.0;

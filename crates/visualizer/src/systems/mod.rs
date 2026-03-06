@@ -8,3 +8,4 @@ pub mod sync_robots;
 pub mod zenoh_receiver;
 pub mod commands;
 pub mod queue_receiver;
+pub mod outline;

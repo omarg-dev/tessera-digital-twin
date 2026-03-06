@@ -32,6 +32,7 @@ mod tests;
 use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
 use systems::{
     camera::{spawn_camera, camera_controls, camera_follow_selected},
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes},
@@ -39,6 +40,7 @@ use systems::{
     sync_robots::sync_robots,
     commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
     queue_receiver::{setup_queue_listener, collect_queue_state},
+    outline::{on_pointer_over, on_pointer_out, on_pointer_click},
 };
 
 fn main() {
@@ -69,6 +71,12 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
+        .add_plugins(MeshPickingPlugin)
+        .add_plugins((OutlinePlugin, AutoGenerateOutlineNormalsPlugin::default()))
+        // Outline interaction observers (hover, out, click)
+        .add_observer(on_pointer_over)
+        .add_observer(on_pointer_out)
+        .add_observer(on_pointer_click)
         // Resources
         .insert_resource(session)
         .init_resource::<resources::RobotIndex>()

@@ -164,6 +164,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] All UI actions logged to bottom panel (`[UI] Kill Robot #2`, `[System] Paused`, etc.)
 - [x] Background Zenoh publisher thread (mpsc channel bridge from Bevy to async)
 - [x] Visualizer crate review: shared Tokio runtime, GridMap wall truth, O(1) lookups, PlaceholderMeshes, LogBuffer-only logging, sort optimizations
+- [x] **Glowing Outline System** (`bevy_mod_outline 0.11` + native `MeshPickingPlugin`): hover (white HDR) and select (cyan HDR) outlines with bloom post-processing
 
 **Pending Features:**
 
@@ -257,6 +258,38 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-06: Glowing Outline System — Hover & Selection Highlight (Phase 5)
+
+Implemented a reusable entity-highlight system using `bevy_mod_outline 0.11` and Bevy 0.17's native `MeshPickingPlugin`. Entities (robots, shelves, stations, dropoffs) now glow white on hover and cyan-blue on selection with HDR bloom post-processing.
+
+**Design:**
+
+- Three global `Observer` systems registered on the `App`: `on_pointer_over`, `on_pointer_out`, `on_pointer_click`.
+- All observers forward events only for entities that carry `Mesh3d` and whose hierarchy contains a logical interactive ancestor (`Robot`, `Shelf`, `Station`, `Dropoff`). This handles `.glb` scene children which receive the hit but aren't the logical entity.
+- `find_interactive_ancestor()` walks `ChildOf` links (max 10 levels) to resolve a picked mesh leaf to its logical parent.
+- Hover (white): inserts `OutlineVolume` + `OutlineStencil` unless the entity already has `Selected`.
+- Out (remove): removes outline components unless the entity has `Selected`.
+- Click (toggle): deselects any previous `Selected` entity, inserts cyan `OutlineVolume` + `Selected` marker on the new entity, updates `UiState.selected_entity` and enables camera follow. Clicking the same entity again deselects it.
+
+**HDR Glow (Bloom):**
+
+- Camera now spawns with `Hdr` marker and `Bloom { intensity: 0.15 }` so outline colours above `1.0` emit visible bloom without blinding the scene.
+- Hover color: `linear_rgb(5.0, 5.0, 5.0)` (bright white glow).
+- Select color: `linear_rgb(0.0, 2.5, 5.0)` (cool cyan-blue glow).
+
+**Constants:**
+
+- All values in `protocol::config::visual::outline`: `HOVER_COLOR`, `SELECT_COLOR`, `WIDTH` (3.0 px), `BLOOM_INTENSITY` (0.15).
+
+**Key files:**
+
+- `crates/visualizer/src/systems/outline.rs` (new — all observer logic)
+- `crates/visualizer/src/components.rs` (`Selected` marker component)
+- `crates/visualizer/src/systems/camera.rs` (`Hdr` + `Bloom` added to `spawn_camera`)
+- `crates/visualizer/src/main.rs` (`MeshPickingPlugin`, `OutlinePlugin`, `AutoGenerateOutlineNormalsPlugin`, observers registered)
+- `crates/protocol/src/config.rs` (`visual::outline` sub-module)
+- `crates/visualizer/Cargo.toml` (`bevy_mod_outline = "0.11"`)
 
 ### 2026-03-06: Log Session Bug Fix + VS Code Notify Tasks (Phase 5)
 

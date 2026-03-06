@@ -40,3 +40,8 @@ pub struct Dropoff;
 /// Cargo box on a shelf (child of a Shelf entity)
 #[derive(Component)]
 pub struct BoxCargo;
+
+/// Marker for entities currently selected via 3D picking.
+/// Added on click, removed on deselect. Drives the outline SELECT_COLOR.
+#[derive(Component)]
+pub struct Selected;

@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
+use bevy::post_process::bloom::Bloom;
+use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
 use protocol::config::visual::camera;
+use protocol::config::visual::outline as outline_cfg;
 
 use crate::resources::UiState;
 
@@ -30,7 +33,7 @@ impl Default for CameraController {
 }
 
 
-/// Spawns the warehouse camera with orbit controls
+/// Spawns the warehouse camera with orbit controls, HDR, and bloom
 pub fn spawn_camera(mut commands: Commands) {
     let controller = CameraController::default();
     let transform = calculate_camera_transform(&controller);
@@ -38,6 +41,11 @@ pub fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         transform,
+        Hdr,
+        Bloom {
+            intensity: outline_cfg::BLOOM_INTENSITY,
+            ..default()
+        },
         Camera,
         controller,
     ));
