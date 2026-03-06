@@ -303,6 +303,23 @@ pub mod visual {
     }
 }
 
+/// Notification sound settings
+pub mod notify {
+    /// Default arpeggio note sequence: (frequency_hz, duration_ms).
+    /// Played by `notifier::play_default()` after a successful build.
+    /// Edit to change the melody — any frequency/duration pairs are valid.
+    pub const DEFAULT_SEQUENCE: &[(f32, u64)] = &[
+        (523.25, 110), // C5
+        (659.25, 110), // E5
+        (783.99, 110), // G5
+        (1046.50, 280), // C6
+    ];
+
+    /// Volume for synthesized notes (0.0 – 1.0).
+    /// Pure sine waves are perceptually loud; keep this low.
+    pub const AMPLITUDE: f32 = 0.05;
+}
+
 /// Chaos testing settings - inject faults to test system resilience
 /// 
 /// Set ENABLED = true to activate chaos engineering.

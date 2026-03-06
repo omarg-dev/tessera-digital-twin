@@ -4175,6 +4175,7 @@ dependencies = [
 name = "notifier"
 version = "0.1.0"
 dependencies = [
+ "protocol",
  "rodio 0.19.0",
 ]
 
@@ -4684,6 +4685,7 @@ dependencies = [
 name = "orchestrator"
 version = "0.1.0"
 dependencies = [
+ "notifier",
  "protocol",
  "serde",
  "serde_json",

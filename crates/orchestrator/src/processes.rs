@@ -112,6 +112,8 @@ impl Processes {
         }
 
         println!("✓ Build complete");
+        // play in background — don't stall the startup sequence
+        thread::spawn(|| notifier::play_default());
         println!("🚀 Starting all crates in order...");
 
         // 1. Coordinator - must start first, broadcasts map hash
