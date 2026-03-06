@@ -15,11 +15,6 @@ tokio.workspace = true
 zenoh.workspace = true
 protocol = { path = "../protocol" }
 
-# cargo run --features dev -p visualizer
-# links Bevy as a .dll — avoids full re-link on every code change
-[features]
-dev = ["bevy/dynamic_linking"]
-
 [[bin]]
 name = "visualizer"
 path = "src/main.rs"

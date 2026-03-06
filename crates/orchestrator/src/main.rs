@@ -98,11 +98,8 @@ async fn main() {
                 }
             }
             Command::Status => {
-                cli::print_status(processes.running(), processes.output_set(), processes.dev_mode());
+                cli::print_status(processes.running(), processes.output_set());
             }
-
-            // Dev mode
-            Command::DevMode(on) => processes.set_dev_mode(on),
 
             // output visibility
             Command::ShowOutput(name, true) => processes.show_output(&name),

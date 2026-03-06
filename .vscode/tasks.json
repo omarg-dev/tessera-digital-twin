@@ -18,7 +18,7 @@
         {
             "label": "build visualizer",
             "type": "shell",
-            "command": "cargo build -p visualizer --features dev && cargo run -q -p notifier",
+            "command": "cargo build -p visualizer && cargo run -q -p notifier",
             "group": "build",
             "presentation": {
                 "reveal": "always",
@@ -51,7 +51,7 @@
         {
             "label": "run wall_debug",
             "type": "shell",
-            "command": "cargo run -p visualizer --example wall_debug --features dev && cargo run -q -p notifier",
+            "command": "cargo run -p visualizer --example wall_debug && cargo run -q -p notifier",
             "group": "build",
             "presentation": {
                 "reveal": "always",

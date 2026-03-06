@@ -17,8 +17,6 @@ pub struct Processes {
     running: Vec<String>,
     /// Crates whose output should be shown in a window (others run silently)
     show_output: HashSet<String>,
-    /// Whether to build the visualizer with --features dev (Bevy dynamic linking)
-    dev_mode: bool,
 }
 
 impl Processes {
@@ -26,23 +24,7 @@ impl Processes {
         Self {
             running: Vec::new(),
             show_output: HashSet::new(), // all crates silent by default
-            dev_mode: false,
         }
-    }
-
-    /// Toggle visualizer dev mode (Bevy dynamic linking). Takes effect on next build.
-    pub fn set_dev_mode(&mut self, on: bool) {
-        self.dev_mode = on;
-        if on {
-            println!("✓ Dev mode ON — visualizer will build with --features dev (Bevy dynamic linking)");
-            println!("  (takes effect on next run/restart)");
-        } else {
-            println!("✓ Dev mode OFF — visualizer will build normally");
-        }
-    }
-
-    pub fn dev_mode(&self) -> bool {
-        self.dev_mode
     }
 
     /// Enable windowed output for a crate (takes effect on next spawn)
@@ -89,16 +71,10 @@ impl Processes {
             return Ok(());
         }
 
-        // build first — visualizer gets --features dev when dev_mode is on
-        let is_visualizer = name == "visualizer";
-        println!("🔨 Building {}{}...", name,
-            if is_visualizer && self.dev_mode { " (dev mode)" } else { "" });
-        let mut args = vec!["build", "-p", name];
-        if is_visualizer && self.dev_mode {
-            args.extend(["--features", "dev"]);
-        }
+        // build first
+        println!("🔨 Building {}...", name);
         let build_status = Command::new("cargo")
-            .args(&args)
+            .args(["build", "-p", name])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
@@ -123,7 +99,7 @@ impl Processes {
             self.kill_all();
         }
 
-        println!("🔨 Building all crates{}...", if self.dev_mode { " (dev mode)" } else { "" });
+        println!("🔨 Building all crates...");
 
         // build coordinator, firmware, scheduler together
         let base_status = Command::new("cargo")
@@ -137,13 +113,9 @@ impl Processes {
             return Err("Build failed".to_string());
         }
 
-        // build visualizer separately so we can conditionally pass --features dev
-        let mut viz_args = vec!["build", "-p", "visualizer"];
-        if self.dev_mode {
-            viz_args.extend(["--features", "dev"]);
-        }
+        // build visualizer separately (isolated so future feature flags only apply here)
         let viz_status = Command::new("cargo")
-            .args(&viz_args)
+            .args(["build", "-p", "visualizer"])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
