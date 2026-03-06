@@ -329,7 +329,7 @@ pub async fn progress_tasks(
     handle_task_timeouts(robots, status_publisher, pathfinder).await;
 
     // Fault cleanup: restart faulted robots after delay
-    handle_fault_cleanup(robots, robot_control_publisher, verbose).await;
+    handle_fault_cleanup(robots, robot_control_publisher, pathfinder, verbose).await;
 
     // Blocked handling: immediate replan or fault escalation
     handle_blocked_robots(robots, map, pathfinder, cmd_publisher, status_publisher, next_cmd_id, verbose).await;
@@ -605,11 +605,14 @@ async fn handle_blocked_robots(
 async fn handle_fault_cleanup(
     robots: &mut HashMap<u32, TrackedRobot>,
     robot_control_publisher: &zenoh::pubsub::Publisher<'_>,
+    pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
     for (robot_id, robot) in robots.iter_mut() {
         let Some(since) = robot.faulted_since else { continue; };
         if since.elapsed().as_secs() >= collision_config::FAULT_CLEANUP_DELAY_SECS {
+            // clear stale WHCA* reservations before sending restart
+            pathfinder.clear_robot_reservations(*robot_id);
             let cmd = RobotControl::Restart(*robot_id);
             if let Ok(payload) = to_vec(&cmd) {
                 robot_control_publisher.put(payload).await.ok();

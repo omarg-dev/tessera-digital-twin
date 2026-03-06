@@ -122,16 +122,20 @@ pub fn camera_controls(
 }
 
 /// System that moves the camera to follow the selected entity each frame.
-/// Smoothly tracks the focus point; zoom (radius) is left fully free for the user.
+/// On first selection, snaps radius to FOLLOW_ZOOM_RADIUS if the camera is
+/// farther away. After that, radius is left fully free for the user to zoom.
 pub fn camera_follow_selected(
     ui_state: Res<UiState>,
     target_transforms: Query<&Transform, Without<Camera>>,
     mut camera_query: Query<(&mut CameraController, &mut Transform), With<Camera>>,
+    mut last_followed: Local<Option<Entity>>,
 ) {
     if !ui_state.camera_following {
+        *last_followed = None;
         return;
     }
     let Some(entity) = ui_state.selected_entity else {
+        *last_followed = None;
         return;
     };
     let Ok(target_transform) = target_transforms.get(entity) else {
@@ -141,10 +145,17 @@ pub fn camera_follow_selected(
         return;
     };
 
+    // one-shot: zoom in when a new entity is selected
+    if *last_followed != Some(entity) {
+        *last_followed = Some(entity);
+        if controller.radius > camera::FOLLOW_ZOOM_RADIUS + 1.0 {
+            controller.radius = camera::FOLLOW_ZOOM_RADIUS;
+        }
+    }
+
     let target_pos = target_transform.translation;
 
-    // Move focus to entity position (smooth lerp) — radius is NOT touched,
-    // so the user can freely zoom in or out while following.
+    // Smoothly move focus to entity position; radius stays wherever the user left it.
     controller.focus = controller.focus.lerp(target_pos, camera::FOLLOW_FOCUS_LERP);
 
     *transform = calculate_camera_transform(&controller);

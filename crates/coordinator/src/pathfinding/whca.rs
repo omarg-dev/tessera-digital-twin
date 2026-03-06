@@ -167,8 +167,7 @@ impl WHCAPathfinder {
             let time = now_ms + offset_ms;
             self.reserve_cell_with_buffer(pos, time, robot_id);
         }
-        println!("[WHCA*] Reserved stationary position ({},{}) for robot {} ({}ms window)", 
-            pos.0, pos.1, robot_id, duration_ms);
+        // suppress per-tick stationary log (verbose builds may re-enable)
     }
 
     /// Reserve a short history of stationary positions (for large robots)

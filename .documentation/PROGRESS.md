@@ -259,6 +259,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-06: Interaction and Log Quality Fixes (Phase 5)
+
+Fixed four issues discovered during testing.
+
+**Camera zoom on selection:** `camera_follow_selected` now uses `Local<Option<Entity>>` to detect when the followed entity changes. On first selection it snaps radius to `FOLLOW_ZOOM_RADIUS` if the camera is farther away, then leaves radius completely free — no continuous cap.
+
+**Shelf sidebar hover highlight:** The shelf list in `left_panel` was missing the `.hovered()` handler (robots had it, shelves did not). Added the same `response.hovered() → hovered_entity = Some(*entity)` pattern used for robots.
+
+**Robot restart cleanup:** Two-part fix. (1) `handle_robot_update` in `server.rs` now detects `Faulted/Blocked → Idle` state transitions that indicate a firmware-initiated restart. It clears WHCA* reservations, resets all task/path/fault state on the `TrackedRobot`, and sets `skip_next_validation` so the teleport-back-to-station position jump is not flagged as a fault again. (2) `handle_fault_cleanup` now receives `&mut PathfinderInstance` and calls `clear_robot_reservations` before sending the restart command, so coordinator-initiated restarts are also clean.
+
+**Suppress WHCA* stationary log spam:** Removed `println!` from `reserve_stationary`. It fired for every stationary robot on every planning tick (every ~100 ms with multiple idle robots), flooding the console. Path reservation logs for moving robots are retained.
+
+**Files changed:** `systems/camera.rs`, `ui/panels.rs`, `coordinator/server.rs`, `coordinator/task_manager.rs`, `pathfinding/whca.rs`.
+
 ### 2026-03-07: UI and Input Bug Fixes — Selection, Hover, Camera, Right-Click (Phase 5)
 
 Fixed five interaction bugs uncovered during testing of the Session 1 outline/selection system.

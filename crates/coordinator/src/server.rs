@@ -503,6 +503,29 @@ async fn handle_robot_update(
     });
 
     let prev_update = robot.last_update.clone();
+
+    // Detect firmware restart: Faulted/Blocked → Idle means the firmware
+    // teleported the robot back to its station. Clean up stale coordinator
+    // state so other robots are not permanently blocked by ghost reservations.
+    let was_faulted = matches!(prev_update.state, RobotState::Faulted | RobotState::Blocked);
+    let now_idle = matches!(update.state, RobotState::Idle);
+    if was_faulted && now_idle {
+        pathfinder.clear_robot_reservations(update.id);
+        robot.current_task = None;
+        robot.task_stage = TaskStage::Idle;
+        robot.current_path = Vec::new();
+        robot.path_index = 0;
+        robot.blocked_since = None;
+        robot.faulted_since = None;
+        robot.replan_attempts = 0;
+        robot.waiting_since = None;
+        robot.waiting_for = None;
+        // skip position validation: teleport after restart is expected
+        robot.skip_next_validation = true;
+        println!("[Coordinator] Robot {} recovered ({:?} → Idle) — reservations cleared", update.id, prev_update.state);
+        logs::save_log("Coordinator", &format!("Robot {} recovered from {:?}, reservations cleared", update.id, prev_update.state));
+    }
+
     let validation = if robot.skip_next_validation {
         robot.skip_next_validation = false;
         Ok(())

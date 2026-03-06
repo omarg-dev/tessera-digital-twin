@@ -196,7 +196,11 @@ fn objects_tab(
                     }
 
                     let is_selected = ui_state.selected_entity == Some(*entity);
-                    if ui.selectable_label(is_selected, &label).clicked() {
+                    let response = ui.selectable_label(is_selected, &label);
+                    if response.hovered() {
+                        ui_state.hovered_entity = Some(*entity);
+                    }
+                    if response.clicked() {
                         select_entity(ui_state, *entity);
                     }
                 }
