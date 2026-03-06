@@ -291,6 +291,30 @@ Implemented a reusable entity-highlight system using `bevy_mod_outline 0.11` and
 - `crates/protocol/src/config.rs` (`visual::outline` sub-module)
 - `crates/visualizer/Cargo.toml` (`bevy_mod_outline = "0.11"`)
 
+### 2026-03-06: Orchestrator Dev Mode Command (Phase 5)
+
+Added `dev on` / `dev off` commands to the orchestrator so Bevy dynamic linking can be toggled directly from the normal workflow without touching `tasks.json`.
+
+**Usage:**
+
+```text
+> dev on        # build visualizer with --features dev on next run/restart
+> dev off       # build visualizer normally
+> run           # starts all crates; visualizer uses --features dev if dev mode is on
+> status        # shows dev mode: ON/OFF in the status table
+```
+
+`dev` (no argument) also enables dev mode. `nodev` disables it.
+
+**Implementation:**
+
+- `Processes.dev_mode: bool` field (default `false`).
+- `start_all()` now builds coordinator/firmware/scheduler in one invocation, then builds visualizer separately, appending `--features dev` when `dev_mode` is true. This avoids passing a feature flag to crates that don't define it.
+- `start()` (single-crate) similarly passes `--features dev` when building `visualizer` in dev mode.
+- `Command::DevMode(bool)` variant; parse arms: `dev on`, `dev`, `dev off`, `nodev`.
+- `print_status()` gained a footer row: `dev mode: ON  (--features dev)` / `dev mode: OFF`.
+- Help updated with a `DEV MODE` section.
+
 ### 2026-03-06: Build Optimization Stack (Phase 5)
 
 Configured a full nightly optimization stack to reduce incremental build times, targeting three independent bottlenecks:

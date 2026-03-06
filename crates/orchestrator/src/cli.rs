@@ -16,6 +16,9 @@ pub enum Command {
     // Output visibility (takes effect on next spawn)
     ShowOutput(String, bool),
 
+    // Dev mode: build visualizer with --features dev (Bevy dynamic linking)
+    DevMode(bool),
+
     // Runtime commands (broadcast via Zenoh)
     Pause,
     Resume,
@@ -52,6 +55,10 @@ impl Command {
             
             ["restart"] | ["reset"] => Command::Restart,
             ["status"] | ["ps"] => Command::Status,
+
+            // dev mode
+            ["dev", "on"] | ["dev"] => Command::DevMode(true),
+            ["dev", "off"] | ["nodev"] => Command::DevMode(false),
 
             // output visibility (takes effect on next spawn)
             ["show", "all"] => Command::ShowOutput("all".to_string(), true),
@@ -100,6 +107,11 @@ pub fn print_help() {
     println!("│  restart        - Kill + run all                │");
     println!("│  status, ps     - Show process status           │");
     println!("├─────────────────────────────────────────────────┤");
+    println!("│  DEV MODE (Bevy dynamic linking, faster builds)  │");
+    println!("├─────────────────────────────────────────────────┤");
+    println!("│  dev on         - Build visualizer --features   │");
+    println!("│  dev off        - Build visualizer normally     │");
+    println!("├─────────────────────────────────────────────────┤");
     println!("│  OUTPUT VISIBILITY (takes effect on next spawn) │");
     println!("├─────────────────────────────────────────────────┤");
     println!("│  show <crate>   - Open crate in a window        │");
@@ -128,7 +140,7 @@ pub fn print_help() {
 }
 
 /// Print process status table
-pub fn print_status(running: &[String], show_output: &std::collections::HashSet<String>) {
+pub fn print_status(running: &[String], show_output: &std::collections::HashSet<String>, dev_mode: bool) {
     use crate::processes::is_process_running;
 
     println!("╭───────────────────────────────────────────────────────╮");
@@ -146,6 +158,9 @@ pub fn print_status(running: &[String], show_output: &std::collections::HashSet<
         let output = if show_output.contains(*name) { "[window]" } else { "[silent]" };
         println!("│  {:17} {:18}  {:8}  │", format!("{}:", name), status, output);
     }
+    println!("├───────────────────────────────────────────────────────┤");
+    let dev_str = if dev_mode { "ON  (--features dev)" } else { "OFF" };
+    println!("│  dev mode: {:<43}│", dev_str);
     println!("╰───────────────────────────────────────────────────────╯");
 }
 
