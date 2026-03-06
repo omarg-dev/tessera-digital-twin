@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use rand::Rng;
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
-use protocol::config::visual::{SHELF_MAX_CAPACITY, BOX_SCALE, PLACEHOLDER_Y_OFFSET};
+use protocol::config::visual::{SHELF_MAX_CAPACITY, BOX_SCALE, PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
 
 // ── Asset paths ──
 
@@ -23,6 +23,8 @@ pub mod assets {
     pub const CORNER: &str = "models/wall-corner.glb";
     /// T-junction wall piece (3-way intersection)
     pub const T_JUNCTION: &str = "models/wall-T.glb";
+    /// endcap for walls with exactly one connecting neighbor
+    pub const CAP: &str = "models/wall-cap.glb";
     /// pillar for isolated walls (no connecting neighbors)
     pub const PILLAR: &str = "models/wall-pillar.glb";
     /// shelf unit (3 usable levels)
@@ -74,6 +76,8 @@ pub enum WallKind {
     Corner(f32),
     /// T-junction piece (3-way intersection, with a Y rotation in radians)
     TJunction(f32),
+    /// Endcap for a wall with exactly one connecting neighbor (with a Y rotation in radians)
+    Cap(f32),
     /// Pillar for isolated walls with no connecting neighbors
     Pillar,
 }
@@ -169,25 +173,44 @@ const CORNER_ROTATIONS: [f32; 4] = [
 /// Uniform 90-degree steps. Verify with wall_debug example.
 const T_ROTATIONS: [f32; 4] = [
     0.0,            // missing N
-    FRAC_PI_2,      // missing E
-    PI,             // missing S
     -FRAC_PI_2,     // missing W
+    PI,             // missing S
+    FRAC_PI_2,      // missing E
+];
+
+/// Endcap rotation lookup indexed by cardinal direction of the single neighbor.
+///   index 0 = only N,  index 1 = only E,  index 2 = only S,  index 3 = only W
+///
+/// Uniform 90-degree steps. Calibrate with wall_debug example.
+const CAP_ROTATIONS: [f32; 4] = [
+    0.0,            // only N
+    FRAC_PI_2,      // only E
+    PI,             // only S
+    -FRAC_PI_2,     // only W
 ];
 
 /// Classify a wall tile from its 3x3 neighborhood.
 ///
 /// Rules:
 /// - 0 cardinal neighbors → pillar (isolated wall)
-/// - 1 cardinal neighbor → straight (endcap)
+/// - 1 cardinal neighbor → endcap (open end faces the single neighbor)
 /// - 2 opposite cardinal neighbors (N+S or E+W) → straight
 /// - 2 adjacent cardinal neighbors → corner
 /// - 3 cardinal neighbors → T-junction (indexed by missing direction)
 /// - 4 cardinal neighbors → straight fallback (no cross model)
+///
+/// Only cardinal (N/E/S/W) neighbors are considered. Diagonals are ignored.
 pub fn classify_wall(nb: &Neighborhood) -> WallKind {
     let count = nb.cardinal_count();
 
     if count == 0 {
         return WallKind::Pillar;
+    }
+
+    if count == 1 {
+        // endcap: open end faces the single neighbor
+        let idx = if nb.n { 0 } else if nb.e { 1 } else if nb.s { 2 } else { 3 };
+        return WallKind::Cap(CAP_ROTATIONS[idx]);
     }
 
     if count == 2 {
@@ -214,7 +237,7 @@ pub fn classify_wall(nb: &Neighborhood) -> WallKind {
         return WallKind::TJunction(T_ROTATIONS[idx]);
     }
 
-    // 1 or 4 cardinal neighbors → straight fallback
+    // 4 cardinal neighbors → straight fallback (no cross model)
     if nb.n || nb.s {
         WallKind::Straight(STRAIGHT_NS)
     } else {
@@ -289,15 +312,17 @@ pub fn spawn_wall(
 
     let (model_path, rotation) = match kind {
         WallKind::Straight(rot) => (pick_weighted(WALL_VARIANTS), rot),
-        WallKind::Corner(rot) => (assets::CORNER, rot),
+        WallKind::Corner(rot)   => (assets::CORNER, rot),
         WallKind::TJunction(rot) => (assets::T_JUNCTION, rot),
-        WallKind::Pillar => (assets::PILLAR, 0.0),
+        WallKind::Cap(rot)      => (assets::CAP, rot),
+        WallKind::Pillar        => (assets::PILLAR, 0.0),
     };
 
     commands.spawn((
         SceneRoot(load_scene(asset_server, model_path)),
         Transform::from_translation(pos)
-            .with_rotation(Quat::from_rotation_y(rotation)),
+            .with_rotation(Quat::from_rotation_y(rotation))
+            .with_scale(Vec3::new(WALL_SEAM_SCALE, 1.0, WALL_SEAM_SCALE)),
         Wall,
     ));
 }
@@ -349,33 +374,6 @@ pub fn spawn_dropoff(commands: &mut Commands, handles: &PlaceholderMeshes, pos: 
     ));
 }
 
-// ── Robot (prepared, commented out until model is available) ──
-
-// /// Spawn a robot entity with .glb model.
-// /// Replace the primitive mesh spawn in sync_robots.rs with this
-// /// once the robot .glb model is added to assets/.
-// pub fn spawn_robot(
-//     commands: &mut Commands,
-//     asset_server: &AssetServer,
-//     pos: Vec3,
-//     id: u32,
-//     state: protocol::RobotState,
-//     battery: f32,
-// ) -> Entity {
-//     commands.spawn((
-//         SceneRoot(load_scene(asset_server, assets::ROBOT)),
-//         Transform::from_translation(pos),
-//         crate::components::Robot {
-//             id,
-//             state,
-//             position: pos,
-//             battery,
-//             current_task: None,
-//             carrying_cargo: None,
-//         },
-//     )).id()
-// }
-
 // ── Unit tests ──
 
 #[cfg(test)]
@@ -389,7 +387,7 @@ mod tests {
 
     fn rotation_of(kind: &WallKind) -> f32 {
         match kind {
-            WallKind::Straight(r) | WallKind::Corner(r) | WallKind::TJunction(r) => *r,
+            WallKind::Straight(r) | WallKind::Corner(r) | WallKind::TJunction(r) | WallKind::Cap(r) => *r,
             WallKind::Pillar => 0.0,
         }
     }
@@ -428,9 +426,23 @@ mod tests {
         assert!(matches!(ns, WallKind::Straight(_)));
         assert_eq!(rotation_of(&ns), STRAIGHT_NS);
 
-        // single neighbor (endcap) → straight
-        let endcap = classify_wall(&nb(false, false, true, false, false, false, false, false));
-        assert!(matches!(endcap, WallKind::Straight(_)));
+        // single neighbor (endcap) → Cap, indexed by direction
+        let only_e = classify_wall(&nb(false, false, true, false, false, false, false, false));
+        assert!(matches!(only_e, WallKind::Cap(_)));
+        assert_eq!(rotation_of(&only_e), CAP_ROTATIONS[1], "cap only-E rotation");
+
+        let only_n = classify_wall(&nb(true, false, false, false, false, false, false, false));
+        assert_eq!(rotation_of(&only_n), CAP_ROTATIONS[0], "cap only-N rotation");
+
+        let only_s = classify_wall(&nb(false, false, false, false, true, false, false, false));
+        assert_eq!(rotation_of(&only_s), CAP_ROTATIONS[2], "cap only-S rotation");
+
+        let only_w = classify_wall(&nb(false, false, false, false, false, false, true, false));
+        assert_eq!(rotation_of(&only_w), CAP_ROTATIONS[3], "cap only-W rotation");
+
+        // diagonals alone do not affect cap classification
+        let only_e_with_diags = classify_wall(&nb(false, true, true, true, false, true, false, true));
+        assert_eq!(rotation_of(&only_e), rotation_of(&only_e_with_diags), "cap diagonal invariance");
 
         // corners: all 4 rotations, diagonal state ignored
         for (i, (n, e, s, w)) in [(true,true,false,false), (false,true,true,false),
@@ -533,6 +545,13 @@ mod tests {
                     else if (*r - T_ROTATIONS[1]).abs() < 0.01 { "├" }
                     else if (*r - T_ROTATIONS[2]).abs() < 0.01 { "┴" }
                     else if (*r - T_ROTATIONS[3]).abs() < 0.01 { "┤" }
+                    else { "?" }
+                }
+                WallKind::Cap(r) => {
+                    if (*r - CAP_ROTATIONS[0]).abs() < 0.01 { "╵" }
+                    else if (*r - CAP_ROTATIONS[1]).abs() < 0.01 { "╶" }
+                    else if (*r - CAP_ROTATIONS[2]).abs() < 0.01 { "╷" }
+                    else if (*r - CAP_ROTATIONS[3]).abs() < 0.01 { "╴" }
                     else { "?" }
                 }
                 WallKind::Pillar => "*",

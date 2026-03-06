@@ -71,9 +71,16 @@ const CORNER_ROTATIONS: [f32; 4] = [
 
 const T_ROTATIONS: [f32; 4] = [
     0.0,        // missing N
-    FRAC_PI_2,  // missing E
-    PI,         // missing S
     -FRAC_PI_2, // missing W
+    PI,         // missing S
+    FRAC_PI_2,  // missing E
+];
+
+const CAP_ROTATIONS: [f32; 4] = [
+    0.0,        // only N
+    FRAC_PI_2,  // only E
+    PI,         // only S
+    -FRAC_PI_2, // only W
 ];
 
 // ── Asset paths (must match models.rs) ──
@@ -81,6 +88,7 @@ const T_ROTATIONS: [f32; 4] = [
 const WALL: &str = "models/wall.glb";
 const CORNER: &str = "models/wall-corner.glb";
 const T_JUNCTION: &str = "models/wall-T.glb";
+const CAP: &str = "models/wall-cap.glb";
 const PILLAR: &str = "models/wall-pillar.glb";
 const FLOOR: &str = "models/floor.glb";
 
@@ -228,7 +236,34 @@ fn setup_scene(
                 neighbors: vec![],
             },
         ],
-        // row 4: raw rotation sweep (no neighbors, determine model default axis)
+        // row 4: endcaps (exactly one neighbor, indexed by direction)
+        vec![
+            Case {
+                label: "Cap only N\nrot = 0".into(),
+                model: CAP,
+                rotation: CAP_ROTATIONS[0],
+                neighbors: vec![DIR_N],
+            },
+            Case {
+                label: "Cap only E\nrot = PI/2".into(),
+                model: CAP,
+                rotation: CAP_ROTATIONS[1],
+                neighbors: vec![DIR_E],
+            },
+            Case {
+                label: "Cap only S\nrot = PI".into(),
+                model: CAP,
+                rotation: CAP_ROTATIONS[2],
+                neighbors: vec![DIR_S],
+            },
+            Case {
+                label: "Cap only W\nrot = -PI/2".into(),
+                model: CAP,
+                rotation: CAP_ROTATIONS[3],
+                neighbors: vec![DIR_W],
+            },
+        ],
+        // row 5: raw rotation sweep (no neighbors, determine model default axis)
         vec![
             Case { label: "Raw 0 deg".into(), model: WALL, rotation: 0.0, neighbors: vec![] },
             Case { label: "Raw 90 deg".into(), model: WALL, rotation: FRAC_PI_2, neighbors: vec![] },
@@ -324,7 +359,8 @@ fn draw_labels(
         (1, "Corner"),
         (2, "T-Junction"),
         (3, "Pillar"),
-        (4, "Raw Sweep"),
+        (4, "Cap"),
+        (5, "Raw Sweep"),
     ] {
         let world = Vec3::new(-1.5, 0.5, row_idx as f32 * SPACING);
         if let Ok(sp) = camera.world_to_viewport(camera_gt, world) {

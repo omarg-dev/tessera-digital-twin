@@ -186,11 +186,18 @@ pub fn merge_logs() {
                             let reader = BufReader::new(file);
                             for line in reader.lines() {
                                 if let Ok(line) = line {
-                                    // Extract timestamp from format: [HH:MM:SS.mmm] message
-                                    if let Some(bracket_end) = line.find(']') {
+                                    // Expected format: [HH:MM:SS.mmm] message
+                                    // Guard: line must start with '[' and contain a closing ']'
+                                    // to avoid panicking on embedded ']' in message content or
+                                    // continuation lines from multi-line log entries.
+                                    if !line.starts_with('[') {
+                                        continue;
+                                    }
+                                    if let Some(bracket_end) = line[1..].find(']').map(|i| i + 1) {
                                         let timestamp = line[1..bracket_end].to_string();
-                                        // Reformat with crate name: [HH:MM:SS.mmm] Crate message
-                                        let message = line[bracket_end + 2..].to_string(); // Skip "] "
+                                        // skip "] " (2 chars) to get the message body
+                                        let msg_start = (bracket_end + 2).min(line.len());
+                                        let message = line[msg_start..].to_string();
                                         let formatted_line = format!("[{}] {} {}", timestamp, crate_name, message);
                                         entries.push((timestamp, formatted_line, crate_name.clone()));
                                     }

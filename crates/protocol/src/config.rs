@@ -204,6 +204,11 @@ pub mod visual {
     /// Tile size in world units
     pub const TILE_SIZE: f32 = 1.0;
 
+    /// XZ scale applied to all wall models to close seams between adjacent tiles.
+    /// 1.0 = exact model size. Increase (e.g. 1.02) if gaps are visible at junctions.
+    /// Y is not scaled so wall height is unaffected. Fix models in Blender for a permanent solution.
+    pub const WALL_SEAM_SCALE: f32 = 1.00;
+
     /// Robot mesh size
     pub const ROBOT_SIZE: f32 = 0.5;
 

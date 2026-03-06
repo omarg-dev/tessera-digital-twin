@@ -169,7 +169,9 @@ impl Default for Processes {
 
 impl Drop for Processes {
     fn drop(&mut self) {
-        self.kill_all();
+        if !self.running.is_empty() {
+            self.kill_all();
+        }
     }
 }
 

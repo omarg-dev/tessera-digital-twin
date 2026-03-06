@@ -257,6 +257,44 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-06: Wall Endcap, Seam Fix, Log Panic Fix, Orchestrator Shutdown (Phase 5)
+
+**Wall endcap variant:**
+
+- Added `WallKind::Cap(f32)` for walls with exactly one cardinal neighbor (the missing piece for isolated wall ends like `F F F / F T T / F F F`).
+- Asset: `models/wall-cap.glb`; constant `CAP_ROTATIONS[4]` indexed by the direction of the single neighbor.
+- `classify_wall()` now routes `count == 1` to `Cap` instead of falling through to `Straight`.
+- `wall_debug.rs` updated: new row 4 "Cap" with 4 cases (N/E/S/W), raw sweep moved to row 5.
+- Only cardinal neighbors are considered throughout — diagonals are completely ignored.
+
+**Wall seam scale:**
+
+- Added `visual::WALL_SEAM_SCALE = 1.02` to `protocol::config`. Applied as XZ-only scale in `spawn_wall()` so geometry slightly overlaps adjacent tiles, closing visible cracks. Y is unscaled so wall height is unaffected.
+
+**Log merge panic fix:**
+
+- `merge_logs()` in `logs.rs` panicked with `begin <= end` when a log line started with `]` (continuation line from a multi-line message). Fixed by: (1) skipping any line that doesn't start with `[`, (2) searching for `]` only within `line[1..]` so embedded brackets in message content can't be mistaken for the timestamp closer, (3) clamping `msg_start` with `.min(line.len())`.
+
+**Orchestrator shutdown fixes:**
+
+- Added 500 ms `tokio::time::sleep` between `kill_all()` and `merge_logs()` in `Quit`, `KillAll`, and `Restart` handlers, giving Windows time to release file locks from dying processes.
+- `Quit` handler now explicitly drops publishers and calls `session.close().await` before returning, preventing Zenoh async teardown from erroring during tokio runtime shutdown.
+- `Drop` impl for `Processes` now skips `kill_all()` when `running` is already empty, eliminating the spurious "No managed processes to kill." message.
+
+**sccache removed:**
+
+- Removed `rustc-wrapper = "sccache"` from `.cargo/config.toml`. The sccache server was crashing consistently (Windows OS error 10054), blocking every compile. LLD linker is retained.
+
+**Key files:**
+
+- `crates/visualizer/src/systems/models.rs` (WallKind::Cap, assets::CAP, CAP_ROTATIONS, classify_wall, spawn_wall, tests + diagnostic)
+- `crates/visualizer/examples/wall_debug.rs` (CAP const, CAP_ROTATIONS, row 4 Cap, row 5 Raw Sweep, row labels)
+- `crates/protocol/src/config.rs` (WALL_SEAM_SCALE)
+- `crates/protocol/src/logs.rs` (merge_logs panic fix)
+- `crates/orchestrator/src/main.rs` (shutdown delay, Zenoh close on quit)
+- `crates/orchestrator/src/processes.rs` (Drop guard)
+- `.cargo/config.toml` (sccache removed)
+
 ### 2026-03-05: Wall Model System Cleanup (Phase 5)
 
 Simplified wall classification from 3 variants to 5, replacing inner/outer corner distinction with a bidirectional corner model and adding T-junction and pillar support.

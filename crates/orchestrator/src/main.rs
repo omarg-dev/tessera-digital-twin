@@ -19,6 +19,7 @@ mod processes;
 use cli::Command;
 use processes::Processes;
 use protocol::{topics, SystemCommand, RobotControl, logs};
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
@@ -78,6 +79,7 @@ async fn main() {
             }
             Command::KillAll => {
                 processes.kill_all();
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 println!("Merging logs...");
                 logs::merge_logs();
             }
@@ -87,6 +89,7 @@ async fn main() {
                 }
             }
             Command::Restart => {
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 println!("Merging logs...");
                 logs::merge_logs();
                 logs::start_run_session();
@@ -138,10 +141,17 @@ async fn main() {
             Command::Help => cli::print_help(),
             Command::Quit => {
                 processes.kill_all();
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 println!("Merging logs...");
                 logs::merge_logs();
+
+                // close Zenoh cleanly before tokio runtime shuts down
+                drop(robot_publisher);
+                drop(publisher);
+                session.close().await.ok();
+
                 println!("Goodbye!");
-                break;
+                return;
             }
             Command::Empty => {}
             Command::Unknown(cmd) => {
