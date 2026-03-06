@@ -281,9 +281,25 @@ pub fn merge_logs() {
 
 /// Start a new orchestrator session (logs/SESSION_START/)
 ///
-/// Call this once when orchestrator starts.
+/// Call this once when orchestrator starts. Always creates a fresh dated directory,
+/// overwriting orchestrator_session.txt so child crates find the new path.
 pub fn start_orchestrator_session() -> PathBuf {
-    get_orchestrator_session_dir()
+    let log_dir = get_log_dir();
+    let _ = create_dir_all(&log_dir);
+
+    let now = Local::now().format("%Y-%m-%d_%H-%M").to_string();
+    let new_dir = log_dir.join(&now);
+    let _ = create_dir_all(&new_dir);
+
+    // overwrite the pointer file so child crates resolve to this session
+    let _ = std::fs::write(log_dir.join(ORCH_SESSION_FILE), format!("{}\n", now));
+
+    // seed the OnceLock so all subsequent calls in this process return the same path;
+    // set() is a no-op if already initialised (shouldn't happen — orchestrator calls
+    // this before any other log operation)
+    let _ = ORCH_SESSION_DIR.set(new_dir.clone());
+
+    new_dir
 }
 
 /// Start a new run session (logs/SESSION_START/RUN_START/)

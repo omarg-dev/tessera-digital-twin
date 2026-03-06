@@ -258,6 +258,26 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-06: Log Session Bug Fix + VS Code Notify Tasks (Phase 5)
+
+**Bug fix — logs never advancing past 2026-02-12:**
+
+`start_orchestrator_session()` was delegating to `get_orchestrator_session_dir()` which reads `orchestrator_session.txt` and reuses the directory if it already exists. Since `logs/2026-02-12_02-50/` was present, every subsequent orchestrator run logged into that same folder indefinitely.
+
+Fix: `start_orchestrator_session()` now always creates a fresh `YYYY-MM-DD_HH-MM` directory, overwrites `orchestrator_session.txt`, and pre-seeds the `OnceLock` — so all calls within the same process stay consistent while each new orchestrator run gets its own session. Stale `orchestrator_session.txt` deleted from repo.
+
+**VS Code build tasks with auto-notification:**
+
+Added `.vscode/tasks.json` with tasks that chain `cargo run -q -p notifier` automatically — no need to type `cargo notify` manually. Ctrl+Shift+B (default build task) runs check + plays the arpeggio on success.
+
+Tasks:
+
+- `check workspace` (default build) — `cargo check --workspace && cargo notify`
+- `build visualizer` — `cargo build -p visualizer && cargo notify`
+- `build workspace` — `cargo build --workspace && cargo notify`
+- `run orchestrator` — plain `cargo run -p orchestrator`
+- `run wall_debug` — `cargo run -p visualizer --example wall_debug && cargo notify`
+
 ### 2026-03-06: Build-Complete Sound Notifier (Phase 5)
 
 Added `crates/notifier` — a tiny dev-tool binary that plays a 4-note ascending arpeggio (C5→E5→G5→C6) when compilation finishes, so you don't have to watch the terminal.
