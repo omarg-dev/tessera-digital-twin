@@ -12,22 +12,25 @@ pub enum Command {
     Kill(String),
     Restart,
     Status,
-    
+
+    // Output visibility (takes effect on next spawn)
+    ShowOutput(String, bool),
+
     // Runtime commands (broadcast via Zenoh)
     Pause,
     Resume,
     Verbose(bool),
     Chaos(bool),
-    
+
     // Robot control (individual robots)
     RobotUp(u32),
     RobotDown(u32),
     RobotRestart(u32),
-    
+
     // Meta
     Help,
     Quit,
-    
+
     // Invalid
     Unknown(String),
     Empty,
@@ -49,6 +52,12 @@ impl Command {
             
             ["restart"] | ["reset"] => Command::Restart,
             ["status"] | ["ps"] => Command::Status,
+
+            // output visibility (takes effect on next spawn)
+            ["show", "all"] => Command::ShowOutput("all".to_string(), true),
+            ["hide", "all"] => Command::ShowOutput("all".to_string(), false),
+            ["show", name] => Command::ShowOutput(name.to_string(), true),
+            ["hide", name] => Command::ShowOutput(name.to_string(), false),
             
             // Runtime commands
             ["pause"] | ["p"] => Command::Pause,
@@ -91,6 +100,13 @@ pub fn print_help() {
     println!("│  restart        - Kill + run all                │");
     println!("│  status, ps     - Show process status           │");
     println!("├─────────────────────────────────────────────────┤");
+    println!("│  OUTPUT VISIBILITY (takes effect on next spawn) │");
+    println!("├─────────────────────────────────────────────────┤");
+    println!("│  show <crate>   - Open crate in a window        │");
+    println!("│  hide <crate>   - Run crate silently            │");
+    println!("│  show all       - Window all crates             │");
+    println!("│  hide all       - Silence all crates (default)  │");
+    println!("├─────────────────────────────────────────────────┤");
     println!("│  RUNTIME COMMANDS (broadcast via Zenoh)         │");
     println!("├─────────────────────────────────────────────────┤");
     println!("│  pause, p       - Pause simulation              │");
@@ -112,12 +128,12 @@ pub fn print_help() {
 }
 
 /// Print process status table
-pub fn print_status(running: &[String]) {
+pub fn print_status(running: &[String], show_output: &std::collections::HashSet<String>) {
     use crate::processes::is_process_running;
-    
-    println!("╭─────────────────────────────────────────╮");
-    println!("│  PROCESS STATUS                         │");
-    println!("├─────────────────────────────────────────┤");
+
+    println!("╭───────────────────────────────────────────────────────╮");
+    println!("│  PROCESS STATUS                                       │");
+    println!("├───────────────────────────────────────────────────────┤");
 
     for name in CRATE_ORDER {
         let status = if is_process_running(name) {
@@ -127,9 +143,10 @@ pub fn print_status(running: &[String]) {
         } else {
             "⚫ not started"
         };
-        println!("│  {:17} {:18}  │", format!("{}:", name), status);
+        let output = if show_output.contains(*name) { "[window]" } else { "[silent]" };
+        println!("│  {:17} {:18}  {:8}  │", format!("{}:", name), status, output);
     }
-    println!("╰─────────────────────────────────────────╯");
+    println!("╰───────────────────────────────────────────────────────╯");
 }
 
 #[cfg(test)]
@@ -178,6 +195,14 @@ mod tests {
         assert_eq!(Command::parse("robot disable 4"), Command::RobotDown(4));
         assert_eq!(Command::parse("restart robot 5"), Command::RobotRestart(5));
         assert_eq!(Command::parse("robot restart 6"), Command::RobotRestart(6));
+    }
+
+    #[test]
+    fn test_parse_show_hide() {
+        assert_eq!(Command::parse("show visualizer"), Command::ShowOutput("visualizer".to_string(), true));
+        assert_eq!(Command::parse("hide coordinator"), Command::ShowOutput("coordinator".to_string(), false));
+        assert_eq!(Command::parse("show all"), Command::ShowOutput("all".to_string(), true));
+        assert_eq!(Command::parse("hide all"), Command::ShowOutput("all".to_string(), false));
     }
 
     #[test]

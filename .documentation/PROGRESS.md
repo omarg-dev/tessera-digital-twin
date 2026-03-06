@@ -257,6 +257,32 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-06: Orchestrator Output Visibility Control (Phase 5)
+
+Added `show`/`hide` commands to toggle per-crate console windows, disabled by default so crates run silently in the background.
+
+**Commands:**
+
+- `show <crate>` — spawn crate in a new console window (see its output)
+- `hide <crate>` — spawn crate silently with no window (default)
+- `show all` / `hide all` — bulk toggle
+
+Settings take effect on the next `run`/`up` for that crate (cannot change a window that is already open).
+
+**Implementation:**
+
+- `Processes.show_output: HashSet<String>` tracks which crates should be windowed (empty by default).
+- `spawn_binary(name, windowed: bool)` — on Windows: `cmd /c start` when windowed, `CREATE_NO_WINDOW` flag + suppressed stdio when silent. On non-Windows: inherits stdio vs nulls it.
+- `show_output()` / `hide_output()` methods on `Processes` handle `"all"` and per-crate toggling with validation.
+- `print_status()` now accepts `show_output` set and displays `[window]` / `[silent]` per crate.
+- `Command::ShowOutput(String, bool)` parse patterns: `show <name>`, `hide <name>`, `show all`, `hide all`.
+
+**Key files:**
+
+- `crates/orchestrator/src/processes.rs` (show_output field, spawn_binary windowed param)
+- `crates/orchestrator/src/cli.rs` (ShowOutput variant, parse patterns, help section, status signature)
+- `crates/orchestrator/src/main.rs` (ShowOutput handler, status call updated)
+
 ### 2026-03-06: Wall Endcap, Seam Fix, Log Panic Fix, Orchestrator Shutdown (Phase 5)
 
 **Wall endcap variant:**

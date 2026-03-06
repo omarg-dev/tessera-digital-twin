@@ -98,8 +98,12 @@ async fn main() {
                 }
             }
             Command::Status => {
-                cli::print_status(processes.running());
+                cli::print_status(processes.running(), processes.output_set());
             }
+
+            // output visibility
+            Command::ShowOutput(name, true) => processes.show_output(&name),
+            Command::ShowOutput(name, false) => processes.hide_output(&name),
 
             // Runtime commands (broadcast via Zenoh)
             Command::Pause => {

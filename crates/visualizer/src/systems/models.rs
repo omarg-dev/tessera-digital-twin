@@ -183,10 +183,10 @@ const T_ROTATIONS: [f32; 4] = [
 ///
 /// Uniform 90-degree steps. Calibrate with wall_debug example.
 const CAP_ROTATIONS: [f32; 4] = [
-    0.0,            // only N
-    FRAC_PI_2,      // only E
-    PI,             // only S
-    -FRAC_PI_2,     // only W
+    FRAC_PI_2,  // only N
+    0.0,        // only E
+    -FRAC_PI_2, // only S
+    PI,         // only W
 ];
 
 /// Classify a wall tile from its 3x3 neighborhood.

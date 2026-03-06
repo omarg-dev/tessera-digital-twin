@@ -77,10 +77,10 @@ const T_ROTATIONS: [f32; 4] = [
 ];
 
 const CAP_ROTATIONS: [f32; 4] = [
-    0.0,        // only N
-    FRAC_PI_2,  // only E
-    PI,         // only S
-    -FRAC_PI_2, // only W
+    FRAC_PI_2,  // only N
+    0.0,        // only E
+    -FRAC_PI_2, // only S
+    PI,         // only W
 ];
 
 // ── Asset paths (must match models.rs) ──

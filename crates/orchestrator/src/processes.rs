@@ -5,6 +5,7 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use std::thread;
+use std::collections::HashSet;
 use protocol::config::orchestrator as orch_config;
 
 /// List of all manageable crates in startup order
@@ -14,11 +15,49 @@ pub const CRATE_ORDER: &[&str] = &["coordinator", "mock_firmware", "scheduler", 
 pub struct Processes {
     /// Track running process names
     running: Vec<String>,
+    /// Crates whose output should be shown in a window (others run silently)
+    show_output: HashSet<String>,
 }
 
 impl Processes {
     pub fn new() -> Self {
-        Self { running: Vec::new() }
+        Self {
+            running: Vec::new(),
+            show_output: HashSet::new(), // all crates silent by default
+        }
+    }
+
+    /// Enable windowed output for a crate (takes effect on next spawn)
+    pub fn show_output(&mut self, name: &str) {
+        if name == "all" {
+            for &crate_name in CRATE_ORDER {
+                self.show_output.insert(crate_name.to_string());
+            }
+            println!("✓ Output window enabled for all crates (takes effect on next spawn)");
+        } else if CRATE_ORDER.contains(&name) {
+            self.show_output.insert(name.to_string());
+            println!("✓ Output window enabled for {} (takes effect on next spawn)", name);
+        } else {
+            println!("⚠ Unknown crate '{}'. Valid: {:?}", name, CRATE_ORDER);
+        }
+    }
+
+    /// Disable windowed output for a crate (takes effect on next spawn)
+    pub fn hide_output(&mut self, name: &str) {
+        if name == "all" {
+            self.show_output.clear();
+            println!("✓ Output window disabled for all crates (takes effect on next spawn)");
+        } else if CRATE_ORDER.contains(&name) {
+            self.show_output.remove(name);
+            println!("✓ Output window disabled for {} (takes effect on next spawn)", name);
+        } else {
+            println!("⚠ Unknown crate '{}'. Valid: {:?}", name, CRATE_ORDER);
+        }
+    }
+
+    /// Returns the current output visibility set (for status display)
+    pub fn output_set(&self) -> &HashSet<String> {
+        &self.show_output
     }
 
     /// Start a specific crate
@@ -45,7 +84,7 @@ impl Processes {
             return Err(format!("Build failed for {}", name));
         }
 
-        spawn_binary(name)?;
+        spawn_binary(name, self.show_output.contains(name))?;
         self.running.push(name.to_string());
         println!("✓ {} started", name);
         protocol::logs::save_log("Orchestrator", &format!("Process started: {}", name));
@@ -77,25 +116,25 @@ impl Processes {
 
         // 1. Coordinator - must start first, broadcasts map hash
         println!("  1/4 Starting coordinator...");
-        spawn_binary("coordinator")?;
+        spawn_binary("coordinator", self.show_output.contains("coordinator"))?;
         self.running.push("coordinator".to_string());
         thread::sleep(Duration::from_millis(orch_config::COORDINATOR_STARTUP_DELAY_MS));
 
         // 2. Firmware (mock_firmware) - validates map hash, starts physics
         println!("  2/4 Starting mock_firmware (firmware)...");
-        spawn_binary("mock_firmware")?;
+        spawn_binary("mock_firmware", self.show_output.contains("mock_firmware"))?;
         self.running.push("mock_firmware".to_string());
         thread::sleep(Duration::from_millis(orch_config::FIRMWARE_STARTUP_DELAY_MS));
 
         // 3. Scheduler - task queue
         println!("  3/4 Starting scheduler...");
-        spawn_binary("scheduler")?;
+        spawn_binary("scheduler", self.show_output.contains("scheduler"))?;
         self.running.push("scheduler".to_string());
         thread::sleep(Duration::from_millis(orch_config::SCHEDULER_STARTUP_DELAY_MS));
 
         // 4. Renderer (visualizer) - Bevy window
         println!("  4/4 Starting visualizer (renderer)...");
-        spawn_binary("visualizer")?;
+        spawn_binary("visualizer", self.show_output.contains("visualizer"))?;
         self.running.push("visualizer".to_string());
 
         println!("✓ All crates started successfully");
@@ -226,8 +265,10 @@ pub fn is_process_running(name: &str) -> bool {
     }
 }
 
-/// Spawn a pre-built binary in its own terminal window
-fn spawn_binary(name: &str) -> Result<(), String> {
+/// Spawn a pre-built binary, optionally in a visible window.
+/// When `windowed` is true, opens in a new console window (user can see output).
+/// When false, runs silently in the background with no window.
+fn spawn_binary(name: &str, windowed: bool) -> Result<(), String> {
     #[cfg(debug_assertions)]
     let profile = "debug";
     #[cfg(not(debug_assertions))]
@@ -236,22 +277,45 @@ fn spawn_binary(name: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         let binary = format!("target\\{}\\{}.exe", profile, name);
-        Command::new("cmd")
-            .args(["/c", "start", name, &binary])
-            .spawn()
-            .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
+        if windowed {
+            // open in a new console window so the user can see output
+            Command::new("cmd")
+                .args(["/c", "start", name, &binary])
+                .spawn()
+                .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
+        } else {
+            // run silently: no window, stdio suppressed
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new(&binary)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
+        }
         Ok(())
     }
 
     #[cfg(not(windows))]
     {
         let binary = format!("target/{}/{}", profile, name);
-        Command::new(&binary)
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
+        if windowed {
+            Command::new(&binary)
+                .stdin(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
+        } else {
+            Command::new(&binary)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
+        }
         Ok(())
     }
 }
