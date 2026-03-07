@@ -14,7 +14,7 @@ use protocol::config::visual::path::{DEST_CIRCLE_RADIUS, GLOBAL_PATH_GLOW, LINE_
 /// One-shot startup system that sets gizmo line width from config.
 pub fn configure_gizmos(mut store: ResMut<GizmoConfigStore>) {
     let (config, _) = store.config_mut::<DefaultGizmoConfigGroup>();
-    config.line_width = LINE_WIDTH;
+    config.line.width = LINE_WIDTH;
 }
 
 

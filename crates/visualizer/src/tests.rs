@@ -47,8 +47,9 @@ mod component_tests {
 
     #[test]
     fn test_shelf_with_capacity() {
-        let shelf = Shelf { cargo: 5 };
+        let shelf = Shelf { cargo: 5, max_capacity: 16 };
         assert_eq!(shelf.cargo, 5);
+        assert_eq!(shelf.max_capacity, 16);
     }
 }
 
