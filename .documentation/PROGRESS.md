@@ -165,10 +165,11 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Background Zenoh publisher thread (mpsc channel bridge from Bevy to async)
 - [x] Visualizer crate review: shared Tokio runtime, GridMap wall truth, O(1) lookups, PlaceholderMeshes, LogBuffer-only logging, sort optimizations
 - [x] **Glowing Outline System** (`bevy_mod_outline 0.11` + native `MeshPickingPlugin`): hover (white HDR) and select (cyan HDR) outlines with bloom post-processing
+- [x] **Path Visualization** (Bevy gizmos): glowing linestrip paths from robot to destination with bloom, global/per-robot toggle
 
 **Pending Features:**
 
-- [ ] 3D gizmos: path trails, traffic heatmap overlay, debug grid
+- [ ] 3D gizmos: traffic heatmap overlay, debug grid
 - [ ] Robot ID labels rendered in 3D viewport
 - [ ] Analytics dashboard (throughput graphs, battery histograms)
 - [ ] Cargo/package entity tracking (visual cargo on robots)
@@ -280,6 +281,20 @@ Fixed four issues discovered during testing.
 **Suppress WHCA* stationary log spam:** Removed `println!` from `reserve_stationary`. It fired for every stationary robot on every planning tick (every ~100 ms with multiple idle robots), flooding the console. Path reservation logs for moving robots are retained.
 
 **Files changed:** `systems/camera.rs`, `ui/panels.rs`, `coordinator/server.rs`, `coordinator/task_manager.rs`, `pathfinding/whca.rs`.
+
+### 2026-03-07: Path Visualization via Gizmos (Phase 5)
+
+Implemented glowing pathfinding visualization using Bevy gizmos. The coordinator now broadcasts `RobotPathTelemetry` (remaining waypoints per robot) on a new `factory/telemetry/paths` Zenoh topic every tick. The visualizer subscribes, maintains an `ActivePaths` resource, and renders HDR cyan linestrips from each robot's live position through its remaining waypoints with a sphere marker at the destination.
+
+**Architecture:**
+- New protocol type: `RobotPathTelemetry { robot_id, waypoints: Vec<[f32;3]> }`
+- New topic: `topics::TELEMETRY_PATHS` (`factory/telemetry/paths`)
+- Coordinator broadcasts remaining `current_path[path_index..]` for all tracked robots at the PATH_SEND_INTERVAL tick rate. Empty waypoint vectors signal path cleared.
+- Visualizer uses the established `tokio::sync::mpsc` channel + startup/collect system pair pattern.
+- `draw_robot_paths` system draws gizmo linestrips (HDR color `srgb(0,3,3)` triggers existing Bloom). Visibility: global toggle (`show_paths` checkbox, already wired in top panel) OR per-robot when entity is selected.
+- Path Y coordinate set to 0.05 to avoid Z-fighting with floor mesh.
+
+**Files changed:** `protocol/robot.rs`, `protocol/topics.rs`, `protocol/lib.rs`, `coordinator/server.rs`, `visualizer/resources.rs`, `visualizer/systems/mod.rs`, `visualizer/systems/path_receiver.rs` (new), `visualizer/systems/draw_paths.rs` (new), `visualizer/main.rs`.
 
 ### 2026-03-07: UI and Input Bug Fixes — Selection, Hover, Camera, Right-Click (Phase 5)
 

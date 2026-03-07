@@ -9,3 +9,5 @@ pub mod zenoh_receiver;
 pub mod commands;
 pub mod queue_receiver;
 pub mod outline;
+pub mod path_receiver;
+pub mod draw_paths;

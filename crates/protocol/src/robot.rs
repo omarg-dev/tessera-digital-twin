@@ -33,3 +33,13 @@ pub struct RobotUpdateBatch {
     pub updates: Vec<RobotUpdate>,
     pub tick: u64,  // Simulation tick for ordering
 }
+
+/// Path telemetry broadcast by coordinator for visualization.
+/// Contains remaining waypoints from the robot's current position to its destination.
+/// An empty `waypoints` vector signals path cleared (task done/failed/charging).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RobotPathTelemetry {
+    pub robot_id: u32,
+    /// Remaining waypoints in world coordinates [x, y, z]
+    pub waypoints: Vec<[f32; 3]>,
+}

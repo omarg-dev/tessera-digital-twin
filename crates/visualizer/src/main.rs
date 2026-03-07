@@ -13,13 +13,15 @@
 //! - [x] Robot control buttons (Kill/Restart/Enable) → Zenoh broadcast
 //! - [x] Live task queue display from scheduler QueueState
 //! - [x] Log console with auto-scroll (state changes, commands, UI actions)
+//! - [x] Robot selection: click robot in 3D viewport to select
 //!
 //! ## TODO: Future Improvements
-//! - [ ] Keyboard shortcuts: P=pause, R=resume, Space=reset, Esc=quit
-//! - [ ] Robot selection: click robot in 3D viewport to select
-//! - [ ] 3D gizmos: path trails, heatmap overlay, debug grid
+//! - [x] 3D gizmos: path trails
+//! - [ ] 3D gizmos: heatmap overlay
+//! - [ ] 3D gizmos: debug grid
 //! - [ ] Analytics dashboard (throughput graph, battery histograms)
 //! - [ ] Timeline scrubber: replay simulation history
+//! - [ ] Keyboard shortcuts: P=pause, R=resume, Space=reset, Esc=quit
 
 mod components;
 mod resources;
@@ -41,6 +43,8 @@ use systems::{
     commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
     queue_receiver::{setup_queue_listener, collect_queue_state},
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
+    path_receiver::{setup_path_listener, collect_path_telemetry},
+    draw_paths::draw_robot_paths,
 };
 
 fn main() {
@@ -84,6 +88,7 @@ fn main() {
         .init_resource::<resources::UiState>()
         .init_resource::<resources::LogBuffer>()
         .init_resource::<resources::QueueStateData>()
+        .init_resource::<resources::ActivePaths>()
         // Events
         .add_message::<resources::UiAction>()
         // Startup: scene, camera, Zenoh subscribers & publishers
@@ -95,16 +100,19 @@ fn main() {
             setup_system_listener,
             setup_publishers,
             setup_queue_listener,
+            setup_path_listener,
         ))
         // Update: poll Zenoh channels, sync state, bridge UI commands
         .add_systems(Update, (
             collect_robot_updates,
             sync_robots,
             collect_queue_state,
+            collect_path_telemetry,
             handle_system_commands,
             bridge_ui_commands,
             camera_follow_selected,
             camera_controls,
+            draw_robot_paths,
         ))
         // UI runs inside the egui context pass (after Update, before rendering)
         .add_systems(EguiPrimaryContextPass, ui::draw_ui)

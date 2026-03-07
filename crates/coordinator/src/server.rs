@@ -56,6 +56,11 @@ pub async fn run(session: Session, map: GridMap) {
         .declare_publisher(topics::ROBOT_CONTROL)
         .await
         .expect("Failed to declare ROBOT_CONTROL publisher");
+
+    let path_telemetry_publisher = session
+        .declare_publisher(topics::TELEMETRY_PATHS)
+        .await
+        .expect("Failed to declare TELEMETRY_PATHS publisher");
     
     // Subscribers
     let robot_subscriber = session
@@ -269,6 +274,9 @@ pub async fn run(session: Session, map: GridMap) {
             if !paused {
                 send_path_commands(&mut robots, &cmd_publisher, &mut next_cmd_id, &mut pathfinder, verbose).await;
             }
+
+            // Broadcast remaining paths for all robots (visualizer path telemetry)
+            broadcast_path_telemetry(&robots, &path_telemetry_publisher).await;
         }
         
         time::sleep(std::time::Duration::from_millis(coord_config::LOOP_INTERVAL_MS)).await;
@@ -421,6 +429,32 @@ async fn send_path_commands(
             };
             *next_cmd_id += 1;
             cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+        }
+    }
+}
+
+// ============================================================================
+// Path Telemetry
+// ============================================================================
+
+/// Broadcast remaining waypoints for all tracked robots.
+/// Runs once per tick so the visualizer always has fresh path data.
+async fn broadcast_path_telemetry(
+    robots: &HashMap<u32, TrackedRobot>,
+    publisher: &zenoh::pubsub::Publisher<'_>,
+) {
+    use protocol::RobotPathTelemetry;
+
+    for (&robot_id, robot) in robots.iter() {
+        let waypoints: Vec<[f32; 3]> = if robot.path_index < robot.current_path.len() {
+            robot.current_path[robot.path_index..].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let telemetry = RobotPathTelemetry { robot_id, waypoints };
+        if let Ok(payload) = to_vec(&telemetry) {
+            publisher.put(payload).await.ok();
         }
     }
 }

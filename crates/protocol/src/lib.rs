@@ -54,6 +54,6 @@ pub mod chaos;
 pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemCommandEffect, CommandResponse, CommandStatus};
 pub use config::LAYOUT_FILE_PATH;
 pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
-pub use robot::{RobotState, RobotUpdate, RobotUpdateBatch};
+pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch};
 pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskId, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
 pub use logs::{timestamp, save_log};

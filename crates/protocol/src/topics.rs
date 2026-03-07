@@ -39,6 +39,11 @@ pub const TASK_STATUS: &str = "factory/tasks/status";
 /// Queue state broadcast for monitoring (scheduler → renderer)
 pub const QUEUE_STATE: &str = "factory/tasks/queue";
 
+// ============ Telemetry Topics ============
+
+/// Path telemetry for visualization (coordinator → renderer)
+pub const TELEMETRY_PATHS: &str = "factory/telemetry/paths";
+
 // ============ Sender Identifiers ============
 // Used in MapValidation.sender to identify the source of broadcasts
 

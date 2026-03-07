@@ -227,6 +227,17 @@ pub struct QueueStateData {
     pub robots_online: usize,
 }
 
+// ── Path Telemetry ───────────────────────────────────────────────
+
+/// Receives RobotPathTelemetry broadcasts from the coordinator via Zenoh
+#[derive(Resource)]
+pub struct PathTelemetryReceiver(pub mpsc::Receiver<protocol::RobotPathTelemetry>);
+
+/// Active robot paths for gizmo rendering.
+/// Keys are robot IDs, values are remaining waypoints in Bevy world space (y = 0.05).
+#[derive(Resource, Default)]
+pub struct ActivePaths(pub HashMap<u32, Vec<bevy::math::Vec3>>);
+
 // ── UI Events ────────────────────────────────────────────────────
 
 /// Actions triggered by UI buttons, consumed by the command bridge system

@@ -244,6 +244,19 @@ pub mod visual {
         pub const BOX_SCALE: f32 = 0.5;
     }
 
+    pub mod path {
+        /// HDR glow color for path lines and destination spheres.
+        /// Values > 1.0 trigger the camera's Bloom post-process.
+        
+        /// Glow color for all robot paths (subtle cyan glow)
+        pub const GLOBAL_PATH_GLOW: (f32, f32, f32) = (0.0, 2.0, 2.0);
+        /// Glow color for the currently selected robot's path (brighter for emphasis)
+        pub const SELECTED_PATH_GLOW: (f32, f32, f32) = (0.0, 3.0, 3.0);
+
+        /// Radius of the destination sphere marker
+        pub const DEST_SPHERE_RADIUS: f32 = 0.15;
+    }
+
     /// Colors (RGB 0.0-1.0)
     pub mod colors {
         /// Ground tile color
