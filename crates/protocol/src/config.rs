@@ -245,16 +245,19 @@ pub mod visual {
     }
 
     pub mod path {
-        /// HDR glow color for path lines and destination spheres.
+        /// HDR glow color for path lines and destination markers.
         /// Values > 1.0 trigger the camera's Bloom post-process.
-        
-        /// Glow color for all robot paths (subtle cyan glow)
-        pub const GLOBAL_PATH_GLOW: (f32, f32, f32) = (0.0, 2.0, 2.0);
-        /// Glow color for the currently selected robot's path (brighter for emphasis)
-        pub const SELECTED_PATH_GLOW: (f32, f32, f32) = (0.0, 3.0, 3.0);
 
-        /// Radius of the destination sphere marker
-        pub const DEST_SPHERE_RADIUS: f32 = 0.15;
+        /// Glow color used when all paths are shown globally (subtle, non-dominant)
+        pub const GLOBAL_PATH_GLOW: (f32, f32, f32) = (0.0, 1.2, 1.2);
+        /// Glow color for the currently selected robot's path (bright, prominent)
+        pub const SELECTED_PATH_GLOW: (f32, f32, f32) = (0.0, 3.5, 3.5);
+
+        /// Radius of the destination circle marker
+        pub const DEST_CIRCLE_RADIUS: f32 = 0.25;
+
+        /// Gizmo line width for path trails (pixels)
+        pub const LINE_WIDTH: f32 = 3.5;
     }
 
     /// Colors (RGB 0.0-1.0)

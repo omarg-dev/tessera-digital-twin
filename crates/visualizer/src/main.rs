@@ -44,7 +44,7 @@ use systems::{
     queue_receiver::{setup_queue_listener, collect_queue_state},
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
     path_receiver::{setup_path_listener, collect_path_telemetry},
-    draw_paths::draw_robot_paths,
+    draw_paths::{configure_gizmos, draw_robot_paths},
 };
 
 fn main() {
@@ -101,6 +101,7 @@ fn main() {
             setup_publishers,
             setup_queue_listener,
             setup_path_listener,
+            configure_gizmos,
         ))
         // Update: poll Zenoh channels, sync state, bridge UI commands
         .add_systems(Update, (

@@ -282,6 +282,16 @@ Fixed four issues discovered during testing.
 
 **Files changed:** `systems/camera.rs`, `ui/panels.rs`, `coordinator/server.rs`, `coordinator/task_manager.rs`, `pathfinding/whca.rs`.
 
+### 2026-03-07: Path Visualization Polish — Line Width, Circle Marker, Dual Colors (Phase 5)
+
+Tuned the gizmo path visualization for readability and visual hierarchy.
+
+- **Wider lines:** Added `configure_gizmos` startup system that sets `GizmoConfigStore` line width to `LINE_WIDTH = 3.5` px via `DefaultGizmoConfigGroup`. Centralized in `config::visual::path`.
+- **Flat circle destination marker:** Replaced wireframe `gizmos.sphere()` with `gizmos.circle()` using `Quat::from_rotation_x(-FRAC_PI_2)` to lie flat on the XZ floor plane. Cleaner and unambiguous target marker (`DEST_CIRCLE_RADIUS = 0.25`).
+- **Per-robot dual-color:** Selected robot: `SELECTED_PATH_GLOW = (0, 3.5, 3.5)` (bright dominant). All others when global show is on: `GLOBAL_PATH_GLOW = (0, 1.2, 1.2)` (subtle, non-competing). Color is now resolved per-robot inside the draw loop based on `selected_entity`, not globally before the loop.
+
+**Files changed:** `protocol/config.rs`, `visualizer/systems/draw_paths.rs`, `visualizer/main.rs`.
+
 ### 2026-03-07: Path Visualization via Gizmos (Phase 5)
 
 Implemented glowing pathfinding visualization using Bevy gizmos. The coordinator now broadcasts `RobotPathTelemetry` (remaining waypoints per robot) on a new `factory/telemetry/paths` Zenoh topic every tick. The visualizer subscribes, maintains an `ActivePaths` resource, and renders HDR cyan linestrips from each robot's live position through its remaining waypoints with a sphere marker at the destination.
