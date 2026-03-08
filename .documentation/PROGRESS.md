@@ -292,6 +292,26 @@ Root cause of the teleporting appearance: the visualizer hard-snapped `transform
 
 **Files changed:** `protocol/src/config.rs`, `visualizer/src/components.rs`, `visualizer/src/systems/sync_robots.rs`, `visualizer/src/systems/interpolate_robots.rs` (new), `visualizer/src/systems/mod.rs`, `visualizer/src/main.rs`.
 
+### 2026-03-08: Fix path_index overrun, spurious replans, and pass-through collisions (Phase 5)
+
+Three bugs discovered after lookahead batching and dead-reckoning were deployed.
+
+**Bug 1 — stray path line (root: stale path_index telemetry).** `broadcast_path_telemetry` slices `current_path[path_index..]` for the visualizer. `path_index` was advanced only inside `send_path_commands` (100 ms tick), so at 20 Hz firmware rate the slice still included already-traversed waypoints — the linestrip started behind the robot. Fixed by moving the `path_index` sync loop from `send_path_commands` into `handle_robot_update` (called at 20 Hz on every firmware update), so telemetry always reflects the robot's actual position.
+
+**Bug 2 — robots teleporting without chaos enabled (root: path_index overrun while stopped).** The sync loop in `send_path_commands` advanced `path_index` unconditionally, even when `path_sent = false` (robot temporarily stopped at a reserved cell). Multiple blocked ticks let `path_index` run 2–3 cells ahead, making `should_replan_for_deviation` fire spuriously (distance to next_waypoint exceeded `MAX_PATH_DEVIATION_TILES = 2.0`). Back-to-back conflicting `FollowPath` commands caused dead-reckoning to diverge past `ROBOT_TELEPORT_THRESHOLD = 2.0`, triggering a visual snap. Fixed by (1) gating the sync loop behind `path_sent` in its new location in `handle_robot_update`; (2) raising `ROBOT_TELEPORT_THRESHOLD` from `2.0` to `4.0` so it sits well above `MAX_PATH_DEVIATION_TILES`.
+
+**Bug 3 — robots passing through each other (root: post-replan blind-spot).** After `attempt_replan` reserved a new path for robot A, other robots already following `FollowPath` commands received roughly 100 ms ago continued moving into the newly reserved cells — the coordinator had no mechanism to react until the next `send_path_commands` tick. Fixed by collecting `(robot_id, new_path)` pairs inside `progress_tasks` for every successful replan, then running a fourth pass after the main iteration loop that sends `PathCommand::Stop` to any robot whose `next_waypoint()` grid cell intersects the newly reserved path. The robot has `path_sent` cleared so it will receive a corrected `FollowPath` on the next watchdog tick.
+
+**Files changed:** `protocol/src/config.rs`, `coordinator/src/server.rs`, `coordinator/src/task_manager.rs`.
+
+### 2026-03-08: Fix stray path line in visualizer (Phase 5)
+
+`draw_robot_paths` used `transform.translation` (the dead-reckoned visual position) as the start of the path linestrip. Since `transform.translation` is now ahead of the coordinator's `path_index` position, `ActivePaths` waypoints could start at a tile the robot had already visually crossed, creating a backwards diagonal line.
+
+Fixed by using `robot.position` (the authoritative network position that `path_index` advancement is keyed to) as the linestrip start. Rename: query binding `_robot` → `robot`, `transform` → `_transform`.
+
+**Files changed:** `visualizer/src/systems/draw_paths.rs`.
+
 ### 2026-03-07: Interaction and Log Quality Fixes (Phase 5)
 
 Fixed four issues discovered during testing.

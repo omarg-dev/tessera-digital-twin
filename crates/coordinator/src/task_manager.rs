@@ -357,6 +357,10 @@ pub async fn progress_tasks(
         }
     }
     
+    // collect (robot_id, new_path) pairs for each successful replan so we can stop
+    // conflicting robots in the fourth pass below
+    let mut replanned_paths: Vec<(u32, Vec<[f32; 3]>)> = Vec::new();
+
     // Third pass: normal task progression
     for (robot_id, robot) in robots.iter_mut() {
         // Deadlock breaker: if waiting too long on a reserved cell, attempt replan
@@ -372,6 +376,7 @@ pub async fn progress_tasks(
                     verbose,
                 ).await;
                 if replanned {
+                    replanned_paths.push((*robot_id, robot.current_path.clone()));
                     robot.clear_wait();
                     continue;
                 }
@@ -390,6 +395,7 @@ pub async fn progress_tasks(
                 verbose,
             ).await;
             if replanned {
+                replanned_paths.push((*robot_id, robot.current_path.clone()));
                 continue;
             }
         }
@@ -434,6 +440,36 @@ pub async fn progress_tasks(
                 ).await;
             }
             _ => {}
+        }
+    }
+
+    // Fourth pass: stop robots whose next waypoint conflicts with a newly replanned path.
+    // this eliminates the ~100 ms blind-spot where a robot would enter a cell just
+    // reserved by another robot's fresh FollowPath command.
+    for (replanned_id, new_path) in &replanned_paths {
+        let new_cells: std::collections::HashSet<(usize, usize)> = new_path
+            .iter()
+            .map(|p| pathfinding::world_to_grid(*p))
+            .collect();
+        for (robot_id, robot) in robots.iter_mut() {
+            if *robot_id == *replanned_id || !robot.path_sent {
+                continue;
+            }
+            if let Some(wp) = robot.next_waypoint() {
+                if new_cells.contains(&pathfinding::world_to_grid(wp)) {
+                    let stop_cmd = PathCmd {
+                        cmd_id: *next_cmd_id,
+                        robot_id: *robot_id,
+                        command: PathCommand::Stop,
+                    };
+                    *next_cmd_id += 1;
+                    cmd_publisher.put(to_vec(&stop_cmd).unwrap()).await.ok();
+                    robot.path_sent = false;
+                    if verbose {
+                        println!("[{}ms] Robot {} stopped: next waypoint conflicts with replanned path of robot {}", timestamp(), robot_id, replanned_id);
+                    }
+                }
+            }
         }
     }
 }

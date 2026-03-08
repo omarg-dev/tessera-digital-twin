@@ -219,7 +219,8 @@ pub mod visual {
 
     /// Distance above which interpolate_robots snaps instead of lerping.
     /// Catches firmware restarts and initial spawns (robots teleport to station).
-    pub const ROBOT_TELEPORT_THRESHOLD: f32 = 2.0;
+    /// Must be larger than MAX_PATH_DEVIATION_TILES to avoid snap-on-deviation.
+    pub const ROBOT_TELEPORT_THRESHOLD: f32 = 4.0;
 
     /// XZ scale applied to all wall models to close seams between adjacent tiles.
     /// 1.0 = exact model size. Increase (e.g. 1.02) if gaps are visible at junctions.

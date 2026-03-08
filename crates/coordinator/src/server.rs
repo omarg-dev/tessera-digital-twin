@@ -346,20 +346,6 @@ async fn send_path_commands(
             continue;
         }
 
-        // advance path_index to keep coordinator in sync with robot's actual position.
-        // this is used for deviation detection (should_replan_for_deviation) and
-        // for the path telemetry overlay in the visualizer.
-        let pos = robot.last_update.position;
-        while let Some(wp) = robot.next_waypoint() {
-            let dist = ((pos[0] - wp[0]).powi(2) + (pos[2] - wp[2]).powi(2)).sqrt();
-            if dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD {
-                robot.advance_path();
-                robot.mark_progress();
-            } else {
-                break;
-            }
-        }
-
         // if path is now fully tracked as complete, stop here (progress_tasks handles arrival)
         if robot.path_complete() {
             continue;
@@ -574,6 +560,22 @@ async fn handle_robot_update(
         let max_len = coord_config::whca::STATIONARY_HISTORY_TILES.max(1);
         while robot.recent_positions.len() > max_len {
             robot.recent_positions.pop_front();
+        }
+    }
+
+    // advance path_index at firmware rate (20 Hz) so broadcast_path_telemetry
+    // and deviation detection stay accurate; gated behind path_sent so a stopped
+    // robot never overruns its index and triggers spurious replans
+    if robot.path_sent && !robot.path_complete() {
+        let pos = robot.last_update.position;
+        while let Some(wp) = robot.next_waypoint() {
+            let dist = ((pos[0] - wp[0]).powi(2) + (pos[2] - wp[2]).powi(2)).sqrt();
+            if dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD {
+                robot.advance_path();
+                robot.mark_progress();
+            } else {
+                break;
+            }
         }
     }
 
