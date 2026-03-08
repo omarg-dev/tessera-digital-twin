@@ -1,10 +1,12 @@
 use bevy::prelude::*;
+use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
 use protocol::config::{LAYOUT_FILE_PATH,
     visual::{TILE_SIZE, shelf, lighting, colors, ROBOT_SIZE},
     warehouse};
+use protocol::config::optimization as opt;
 use protocol::grid_map::{GridMap, TileType};
 
 /// Check if environment reload is requested and trigger repopulation
@@ -158,9 +160,66 @@ pub fn sync_shelf_boxes(
     }
 }
 
+/// After .glb scenes finish loading, propagate shadow and picking optimizations to
+/// the actual `Mesh3d` entities inside tile scene hierarchies.
+///
+/// Each `Ground` or `Wall` root entity's child meshes are tagged with
+/// `NotShadowCaster` (and `NotShadowReceiver` for floors) the first time they
+/// are seen. The `Without` filter makes this a no-op once all tiles are tagged.
+pub fn propagate_tile_optimizations(
+    mut commands: Commands,
+    ground_tiles: Query<Entity, With<Ground>>,
+    wall_tiles: Query<Entity, With<Wall>>,
+    uncast_meshes: Query<Entity, (With<Mesh3d>, Without<NotShadowCaster>)>,
+    unrecv_meshes: Query<Entity, (With<Mesh3d>, Without<NotShadowReceiver>)>,
+    children_q: Query<&Children>,
+) {
+    if !opt::DISABLE_TILE_SHADOW_CAST && !opt::DISABLE_FLOOR_SHADOW_RECEIVE {
+        return;
+    }
+
+    // floors: shadow cast + shadow receive suppression
+    if opt::DISABLE_TILE_SHADOW_CAST || opt::DISABLE_FLOOR_SHADOW_RECEIVE {
+        for root in ground_tiles.iter() {
+            let mut stack = vec![root];
+            while let Some(e) = stack.pop() {
+                if e != root {
+                    if opt::DISABLE_TILE_SHADOW_CAST && uncast_meshes.get(e).is_ok() {
+                        commands.entity(e).insert(NotShadowCaster);
+                    }
+                    if opt::DISABLE_FLOOR_SHADOW_RECEIVE && unrecv_meshes.get(e).is_ok() {
+                        commands.entity(e).insert(NotShadowReceiver);
+                    }
+                }
+                if let Ok(children) = children_q.get(e) {
+                    for &child in children {
+                        stack.push(child);
+                    }
+                }
+            }
+        }
+    }
+
+    // walls: shadow cast suppression only
+    if opt::DISABLE_TILE_SHADOW_CAST {
+        for root in wall_tiles.iter() {
+            let mut stack = vec![root];
+            while let Some(e) = stack.pop() {
+                if e != root && uncast_meshes.get(e).is_ok() {
+                    commands.entity(e).insert(NotShadowCaster);
+                }
+                if let Ok(children) = children_q.get(e) {
+                    for &child in children {
+                        stack.push(child);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Spawns the scene lighting
 pub fn populate_lighting(mut commands: Commands) {
-    use protocol::config::optimization as opt;
     // directional light (sun-like) for even illumination
     commands.spawn((
         DirectionalLight {

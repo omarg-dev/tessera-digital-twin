@@ -37,7 +37,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
 use systems::{
     camera::{spawn_camera, camera_controls, camera_follow_selected},
-    populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes},
+    populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes, propagate_tile_optimizations},
     zenoh_receiver::{setup_zenoh_receiver, collect_robot_updates},
     sync_robots::sync_robots,
     interpolate_robots::interpolate_robots,
@@ -120,6 +120,6 @@ fn main() {
         // UI runs inside the egui context pass (after Update, before rendering)
         .add_systems(EguiPrimaryContextPass, ui::draw_ui)
         // PostUpdate: runs after EguiPrimaryContextPass so outline sync sees hovered_entity from draw_ui
-        .add_systems(PostUpdate, (check_reload_environment, sync_shelf_boxes, sync_programmatic_outlines))
+        .add_systems(PostUpdate, (check_reload_environment, sync_shelf_boxes, sync_programmatic_outlines, propagate_tile_optimizations))
         .run();
 }
