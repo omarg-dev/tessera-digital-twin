@@ -420,3 +420,32 @@ pub mod chaos {
     pub const CRASH_ENABLED: bool = false;
     pub const CRASH_PROBABILITY: f32 = 0.0001;
 }
+
+/// Performance vs visual-quality trade-off toggles.
+///
+/// All flags default to `true` (optimization active). Set to `false` for better
+/// visuals when hardware allows.
+pub mod optimization {
+    /// Disable shadow map generation on the directional light.
+    /// This is the single largest GPU cost in the warehouse scene — the shadow map
+    /// must re-render every tile on every frame. The top-down camera angle makes
+    /// cast shadows barely visible, so this is safe to leave off by default.
+    pub const DISABLE_DIRECTIONAL_SHADOWS: bool = true;
+
+    /// Mark floor and wall SceneRoot entities with `Pickable::IGNORE` so the
+    /// picking backend skips event dispatch over non-interactive tiles.
+    /// Note: eliminating the per-mesh raycast cost also requires a
+    /// SceneInstanceReady propagation system to reach child meshes.
+    /// TODO: wire up child-mesh propagation for full raycast exclusion.
+    pub const DISABLE_TILE_PICKING: bool = true;
+
+    /// Mark floor and wall child meshes as `NotShadowCaster`.
+    /// Requires a SceneInstanceReady propagation system to reach child meshes.
+    /// TODO: implement propagation system; for now use DISABLE_DIRECTIONAL_SHADOWS.
+    pub const DISABLE_TILE_SHADOW_CAST: bool = true;
+
+    /// Mark floor tile child meshes as `NotShadowReceiver`.
+    /// Requires a SceneInstanceReady propagation system to reach child meshes.
+    /// TODO: implement propagation system.
+    pub const DISABLE_FLOOR_SHADOW_RECEIVE: bool = true;
+}

@@ -5,6 +5,7 @@
 //! All visual model logic lives here to keep populate_scene focused on layout parsing.
 
 use bevy::prelude::*;
+use bevy::picking::prelude::Pickable;
 use rand::Rng;
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
@@ -12,6 +13,7 @@ use protocol::config::visual::{PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
 use protocol::config::warehouse::SHELF_MAX_CAPACITY;
 use protocol::config::visual::shelf::{SHELF_LEVEL_HEIGHTS,
     BOX_X_OFFSETS, BOX_Z_OFFSETS,BOX_SCALE};
+use protocol::config::optimization as opt;
 
 // ── Asset paths ──
 
@@ -281,11 +283,14 @@ fn load_scene(asset_server: &AssetServer, path: &str) -> Handle<Scene> {
 
 /// Spawn a floor tile
 pub fn spawn_floor(commands: &mut Commands, asset_server: &AssetServer, pos: Vec3) {
-    commands.spawn((
+    let entity = commands.spawn((
         SceneRoot(load_scene(asset_server, assets::FLOOR)),
         Transform::from_translation(pos),
         Ground,
-    ));
+    )).id();
+    if opt::DISABLE_TILE_PICKING {
+        commands.entity(entity).insert(Pickable::IGNORE);
+    }
 }
 
 /// Spawn a wall piece (straight, corner, or pillar) with correct rotation
@@ -307,13 +312,16 @@ pub fn spawn_wall(
         WallKind::Pillar        => (assets::PILLAR, 0.0),
     };
 
-    commands.spawn((
+    let entity = commands.spawn((
         SceneRoot(load_scene(asset_server, model_path)),
         Transform::from_translation(pos)
             .with_rotation(Quat::from_rotation_y(rotation))
             .with_scale(Vec3::new(WALL_SEAM_SCALE, 1.0, WALL_SEAM_SCALE)),
         Wall,
-    ));
+    )).id();
+    if opt::DISABLE_TILE_PICKING {
+        commands.entity(entity).insert(Pickable::IGNORE);
+    }
 }
 
 /// Spawn a shelf unit with cargo boxes as child entities

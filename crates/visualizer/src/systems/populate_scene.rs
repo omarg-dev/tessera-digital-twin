@@ -160,11 +160,12 @@ pub fn sync_shelf_boxes(
 
 /// Spawns the scene lighting
 pub fn populate_lighting(mut commands: Commands) {
+    use protocol::config::optimization as opt;
     // directional light (sun-like) for even illumination
     commands.spawn((
         DirectionalLight {
             illuminance: lighting::DIRECTIONAL_ILLUMINANCE,
-            shadows_enabled: true,
+            shadows_enabled: !opt::DISABLE_DIRECTIONAL_SHADOWS,
             ..default()
         },
         Transform::from_xyz(10.0, 20.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),

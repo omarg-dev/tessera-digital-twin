@@ -260,6 +260,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-08: Performance optimization toggles (Phase 5)
+
+Added `protocol::config::optimization` module — a set of `const bool` flags that default to `true` (optimization active) and can be set to `false` to restore full visual quality when hardware allows.
+
+**`protocol/src/config.rs`:** New `pub mod optimization` with four toggles: `DISABLE_DIRECTIONAL_SHADOWS` (disables shadow map generation — the single largest GPU cost), `DISABLE_TILE_PICKING` (inserts `Pickable::IGNORE` on floor and wall scene roots to skip event dispatch over non-interactive tiles), `DISABLE_TILE_SHADOW_CAST` and `DISABLE_FLOOR_SHADOW_RECEIVE` (stub toggles pending a `SceneInstanceReady` child-mesh propagation system).
+
+**`populate_scene.rs`:** `populate_lighting` reads `DISABLE_DIRECTIONAL_SHADOWS` to set `shadows_enabled` on the `DirectionalLight`.
+
+**`models.rs`:** `spawn_floor` and `spawn_wall` read `DISABLE_TILE_PICKING`; when active, the spawned `SceneRoot` entity immediately receives `Pickable::IGNORE`.
+
+**Files changed:** `protocol/src/config.rs`, `visualizer/src/systems/populate_scene.rs`, `visualizer/src/systems/models.rs`.
+
 ### 2026-03-08: Lookahead path batching — eliminate per-tile pause (Phase 5)
 
 Root cause of the per-tile stop: the coordinator dispatched one waypoint at a time via a 100 ms poll. Firmware stopped at each tile and waited up to 100 ms for the next command.
