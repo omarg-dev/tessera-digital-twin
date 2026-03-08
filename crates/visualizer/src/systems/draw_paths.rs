@@ -54,12 +54,16 @@ pub fn draw_robot_paths(
         let color = Color::linear_rgb(r, g, b);
 
         // get current robot transform to start the line from the live position
-        let Ok((_e, _robot, transform)) = robot_query.get(entity) else {
+        let Ok((_e, robot, _transform)) = robot_query.get(entity) else {
             continue;
         };
 
-        // build point chain: robot's live position → remaining waypoints
-        let start = Vec3::new(transform.translation.x, 0.05, transform.translation.z);
+        // build point chain: robot's authoritative network position → remaining waypoints.
+        // using robot.position (last reported by firmware) rather than transform.translation
+        // (the dead-reckoned visual position) because ActivePaths waypoints are indexed
+        // against the reported position; using the interpolated position would draw a
+        // backwards stray line to waypoints the robot has already visually passed.
+        let start = Vec3::new(robot.position.x, 0.05, robot.position.z);
         let points: Vec<Vec3> = std::iter::once(start)
             .chain(waypoints.iter().copied())
             .collect();
