@@ -243,7 +243,7 @@ pub async fn run(session: Session, map: GridMap) {
         }
         
         // Detect inter-robot collisions after updates
-        detect_inter_robot_collisions(&mut robots, &status_publisher, &mut pathfinder, verbose).await;
+        detect_inter_robot_collisions(&mut robots, &status_publisher, &cmd_publisher, &mut next_cmd_id, &mut pathfinder, verbose).await;
 
         // Task progression: detect state transitions and send next waypoint
         if !paused {
@@ -351,14 +351,20 @@ async fn send_path_commands(
             continue;
         }
 
-        // check reservation on the next upcoming waypoint
+        // scan the next LOOKAHEAD_BLOCK_SCAN_CELLS waypoints for reservations.
+        // checking only next_waypoint() gave the coordinator one tick to react before
+        // the firmware crossed into a reserved cell; scanning ahead stops the robot
+        // earlier, giving WHCA* time to find an alternate route.
         let next_wp = robot.next_waypoint().expect("path not complete but no waypoint");
         let target_grid = pathfinding::world_to_grid(next_wp);
-        let is_blocked = pathfinder.is_reserved_soon(
-            target_grid,
-            coord_config::whca::MOVE_TIME_MS,
-            Some(*robot_id),
-        ) || pathfinder.is_reserved_now(target_grid, Some(*robot_id));
+        let is_blocked = robot.current_path[robot.path_index..]
+            .iter()
+            .take(coord_config::LOOKAHEAD_BLOCK_SCAN_CELLS)
+            .any(|&wp| {
+                let g = pathfinding::world_to_grid(wp);
+                pathfinder.is_reserved_soon(g, coord_config::whca::MOVE_TIME_MS, Some(*robot_id))
+                    || pathfinder.is_reserved_now(g, Some(*robot_id))
+            });
 
         if is_blocked {
             robot.set_wait(target_grid);
@@ -637,19 +643,34 @@ fn validate_robot_update(
     Ok(())
 }
 
-/// Detect inter-robot collisions (offender only unless head-on)
+/// Detect inter-robot collisions, fault offenders, and immediately stop any other
+/// robot whose remaining path overlaps the collision zone.
+///
+/// Three-pass structure to avoid borrow conflicts:
+/// 1. Collect pairs to fault (read-only pass)
+/// 2. Fault and collect their grid positions
+/// 3. Stop other robots routed through the faulted cells
 async fn detect_inter_robot_collisions(
     robots: &mut HashMap<u32, TrackedRobot>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
+    // pass 1: determine which robots need to be faulted (read-only)
+    let mut to_fault: Vec<(u32, String)> = Vec::new();
     let ids: Vec<u32> = robots.keys().cloned().collect();
     for i in 0..ids.len() {
         for j in (i + 1)..ids.len() {
             let id_a = ids[i];
             let id_b = ids[j];
             let (Some(robot_a), Some(robot_b)) = (robots.get(&id_a), robots.get(&id_b)) else { continue; };
+
+            // skip already-faulted robots to avoid re-faulting in subsequent ticks
+            if robot_a.faulted_since.is_some() || robot_b.faulted_since.is_some() {
+                continue;
+            }
 
             let dx = robot_a.last_update.position[0] - robot_b.last_update.position[0];
             let dz = robot_a.last_update.position[2] - robot_b.last_update.position[2];
@@ -667,73 +688,60 @@ async fn detect_inter_robot_collisions(
                  robot_a.last_update.velocity[2] * robot_b.last_update.velocity[2]) < 0.0;
 
             if head_on {
-                if let Some(robot) = robots.get_mut(&id_a) {
-                    task_manager::mark_robot_faulted(
-                        robot,
-                        id_a,
-                        "Head-on collision".to_string(),
-                        status_publisher,
-                        pathfinder,
-                        verbose,
-                    ).await;
-                }
-                if let Some(robot) = robots.get_mut(&id_b) {
-                    task_manager::mark_robot_faulted(
-                        robot,
-                        id_b,
-                        "Head-on collision".to_string(),
-                        status_publisher,
-                        pathfinder,
-                        verbose,
-                    ).await;
-                }
+                to_fault.push((id_a, "Head-on collision".to_string()));
+                to_fault.push((id_b, "Head-on collision".to_string()));
+            } else if speed_a > speed_b {
+                to_fault.push((id_a, format!("Collision with robot {}", id_b)));
+            } else if speed_b > speed_a {
+                to_fault.push((id_b, format!("Collision with robot {}", id_a)));
             } else {
-                // Offender is the moving robot if the other is stationary
-                if speed_a > speed_b {
-                    if let Some(robot) = robots.get_mut(&id_a) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_a,
-                            format!("Collision with robot {}", id_b),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                } else if speed_b > speed_a {
-                    if let Some(robot) = robots.get_mut(&id_b) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_b,
-                            format!("Collision with robot {}", id_a),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                } else {
-                    // Equal speeds: fault both conservatively
-                    if let Some(robot) = robots.get_mut(&id_a) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_a,
-                            format!("Collision with robot {}", id_b),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                    if let Some(robot) = robots.get_mut(&id_b) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_b,
-                            format!("Collision with robot {}", id_a),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                }
+                to_fault.push((id_a, format!("Collision with robot {}", id_b)));
+                to_fault.push((id_b, format!("Collision with robot {}", id_a)));
+            }
+        }
+    }
+
+    if to_fault.is_empty() {
+        return;
+    }
+
+    // pass 2: fault the identified robots, collect their grid positions so we
+    // can stop other robots routing through the same cells
+    let mut faulted_cells: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let faulted_ids: std::collections::HashSet<u32> = to_fault.iter().map(|(id, _)| *id).collect();
+    for (robot_id, _) in &to_fault {
+        if let Some(robot) = robots.get(robot_id) {
+            faulted_cells.insert(pathfinding::world_to_grid(robot.last_update.position));
+        }
+    }
+    for (robot_id, reason) in to_fault {
+        if let Some(robot) = robots.get_mut(&robot_id) {
+            task_manager::mark_robot_faulted(robot, robot_id, reason, status_publisher, pathfinder, verbose).await;
+        }
+    }
+
+    // pass 3: stop any robot whose remaining path passes through a faulted cell.
+    // when a collision clears reservations, other robots' dispatched FollowPaths
+    // may route through those now-unowned cells toward the restarting robots.
+    // stopping them forces a replan via the send_path_commands watchdog.
+    for (robot_id, robot) in robots.iter_mut() {
+        if faulted_ids.contains(robot_id) || !robot.path_sent {
+            continue;
+        }
+        let path_intersects = robot.current_path[robot.path_index..]
+            .iter()
+            .any(|&wp| faulted_cells.contains(&pathfinding::world_to_grid(wp)));
+        if path_intersects {
+            let stop_cmd = PathCmd {
+                cmd_id: *next_cmd_id,
+                robot_id: *robot_id,
+                command: PathCommand::Stop,
+            };
+            *next_cmd_id += 1;
+            cmd_publisher.put(to_vec(&stop_cmd).unwrap()).await.ok();
+            robot.path_sent = false;
+            if verbose {
+                println!("[{}ms] Robot {} stopped: path routes through collision zone", timestamp(), robot_id);
             }
         }
     }

@@ -62,8 +62,13 @@ pub mod coordinator {
     /// Main loop sleep interval in milliseconds
     pub const LOOP_INTERVAL_MS: u64 = 10;
     
-    /// Path command send interval in milliseconds (10 Hz)
-    pub const PATH_SEND_INTERVAL_MS: u64 = 100;
+    /// Path command send interval in milliseconds (20 Hz, matching firmware physics tick)
+    pub const PATH_SEND_INTERVAL_MS: u64 = 50;
+    
+    /// Number of upcoming waypoints to check for reservations before dispatching FollowPath.
+    /// Scanning ahead prevents the firmware from blindly driving into a cell that becomes
+    /// reserved while the robot is mid-segment; the coordinator has only one tick to react.
+    pub const LOOKAHEAD_BLOCK_SCAN_CELLS: usize = 4;
     
     /// Map hash republish interval in seconds
     pub const MAP_HASH_REPUBLISH_SECS: u64 = 5;

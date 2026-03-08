@@ -260,6 +260,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-09: Fix collision cascade: lookahead scan, fault-zone stop, faster tick (Phase 5)
+
+Three interacting root causes caused every collision to cascade into a wave of secondary collisions across the fleet.
+
+**Fix 1 — halve coordinator tick rate (`config.rs`):** `PATH_SEND_INTERVAL_MS` reduced from `100ms` to `50ms` (20 Hz, matching firmware physics tick). At `ROBOT_SPEED = 2.0` the robot travels 0.1 units per tick vs. 0.2 before, doubling the coordinator's reaction window before a robot crosses a reserved cell. Added `LOOKAHEAD_BLOCK_SCAN_CELLS: usize = 4` constant.
+
+**Fix 2 — N-cell lookahead reservation scan (`server.rs`, `send_path_commands`):** The reservation check previously only tested `next_waypoint()` — one cell ahead. With a full `FollowPath` already dispatched, the firmware could be 3–4 cells mid-segment before the coordinator's next tick saw a blocked cell. Replaced the single-cell check with a scan of the next `LOOKAHEAD_BLOCK_SCAN_CELLS = 4` waypoints. If any cell in the lookahead is reserved, the robot is stopped and the `FollowPath` withheld, giving WHCA* time to find an alternate route before the robot arrives.
+
+**Fix 3 — fault-cascade stop (`server.rs`, `detect_inter_robot_collisions`):** When a collision faulted robots A and B, `mark_robot_faulted` immediately cleared their reservations from WHCA*. Other robots (C, D, E) with already-dispatched `FollowPath` commands were still driving toward those now-unowned cells, colliding with A/B when they restarted. Restructured `detect_inter_robot_collisions` into three passes: (1) read-only pass collecting `(robot_id, reason)` pairs to fault; (2) fault pass that also records the grid positions of faulted robots; (3) cascade-stop pass that sends `PathCommand::Stop` to any robot whose remaining path passes through the faulted cells, clearing `path_sent` so the watchdog re-dispatches from the new position. Function signature gains `cmd_publisher` and `next_cmd_id`. Added skip-if-already-faulted guard to prevent re-faulting on subsequent ticks.
+
+**Files changed:** `protocol/src/config.rs`, `coordinator/src/server.rs`.
+
 ### 2026-03-08: Propagate shadow markers to tile mesh children (Phase 5)
 
 Implemented the child-mesh propagation system that makes `DISABLE_TILE_SHADOW_CAST` and `DISABLE_FLOOR_SHADOW_RECEIVE` actually effective.
@@ -363,6 +375,7 @@ Tuned the gizmo path visualization for readability and visual hierarchy.
 Implemented glowing pathfinding visualization using Bevy gizmos. The coordinator now broadcasts `RobotPathTelemetry` (remaining waypoints per robot) on a new `factory/telemetry/paths` Zenoh topic every tick. The visualizer subscribes, maintains an `ActivePaths` resource, and renders HDR cyan linestrips from each robot's live position through its remaining waypoints with a sphere marker at the destination.
 
 **Architecture:**
+
 - New protocol type: `RobotPathTelemetry { robot_id, waypoints: Vec<[f32;3]> }`
 - New topic: `topics::TELEMETRY_PATHS` (`factory/telemetry/paths`)
 - Coordinator broadcasts remaining `current_path[path_index..]` for all tracked robots at the PATH_SEND_INTERVAL tick rate. Empty waypoint vectors signal path cleared.
@@ -385,7 +398,6 @@ Fixed five interaction bugs uncovered during testing of the Session 1 outline/se
 - **Shelf stock semantics clarified.** `TileType::Shelf(u8)` encodes *initial stock*; `warehouse::SHELF_MAX_CAPACITY = 16` is the global maximum for all shelves. `SHELF_MAX_CAPACITY` was moved from `config::visual::shelf` to the new `config::warehouse` module. `INITIAL_STOCK_FRACTION` was removed entirely; `ShelfInventory::from_map()` and `populate_scene` now use the layout token value directly as initial stock.
 
 **Files changed:** `outline.rs`, `ui/mod.rs`, `main.rs`, `systems/camera.rs`, `config.rs`, `grid_map.rs`, `populate_scene.rs`, `models.rs`.
-
 
 ### 2026-03-06: Camera zoom lerp and shelf cargo decrease fix (Phase 5)
 
