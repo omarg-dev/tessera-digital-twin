@@ -318,21 +318,16 @@ fn handle_command_responses(
 // Path Command Helpers
 // ============================================================================
 
-/// Build a PathCommand based on robot's current task stage
-fn build_path_command(robot: &TrackedRobot, target: [f32; 3]) -> PathCommand {
-    let speed = coord_config::DEFAULT_SPEED;
-    
-    match robot.current_task {
-        Some(_) => match robot.task_stage {
-            TaskStage::MovingToPickup => PathCommand::MoveToPickup { target, speed },
-            TaskStage::MovingToDropoff => PathCommand::MoveToDropoff { target, speed },
-            _ => PathCommand::MoveTo { target, speed },
-        },
-        None => PathCommand::MoveTo { target, speed },
-    }
-}
-
-/// Send path commands for all robots with active paths
+/// Send path commands for all robots with active paths.
+///
+/// With lookahead batching, the coordinator sends a single FollowPath
+/// containing all remaining waypoints. The firmware advances through them
+/// internally without stopping. This function's 100 ms tick now serves as:
+///  - a watchdog (re-sends if path_sent is cleared by replan/set_path)
+///  - a path_index sync (advances coordinator's position tracking for
+///    deviation detection and telemetry)
+///  - a reservation checker (sends Stop if next cell is reserved, then
+///    re-sends FollowPath from the current position once the cell clears)
 async fn send_path_commands(
     robots: &mut HashMap<u32, TrackedRobot>,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
@@ -341,31 +336,50 @@ async fn send_path_commands(
     _verbose: bool,
 ) {
     for (robot_id, robot) in robots.iter_mut() {
-        // Pause waypoint commands while robot is performing a pickup/dropoff action
+        // pause during pickup/dropoff actions
         if matches!(robot.last_update.state, RobotState::Picking) {
             continue;
         }
 
-        let Some(waypoint) = robot.next_waypoint() else {
+        // skip if no path to follow
+        if robot.path_complete() {
             continue;
-        };
-        
-        // If the next cell will be reserved at arrival time, wait in place
-        let target_grid = pathfinding::world_to_grid(waypoint);
-        if pathfinder.is_reserved_soon(
+        }
+
+        // advance path_index to keep coordinator in sync with robot's actual position.
+        // this is used for deviation detection (should_replan_for_deviation) and
+        // for the path telemetry overlay in the visualizer.
+        let pos = robot.last_update.position;
+        while let Some(wp) = robot.next_waypoint() {
+            let dist = ((pos[0] - wp[0]).powi(2) + (pos[2] - wp[2]).powi(2)).sqrt();
+            if dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD {
+                robot.advance_path();
+                robot.mark_progress();
+            } else {
+                break;
+            }
+        }
+
+        // if path is now fully tracked as complete, stop here (progress_tasks handles arrival)
+        if robot.path_complete() {
+            continue;
+        }
+
+        // check reservation on the next upcoming waypoint
+        let next_wp = robot.next_waypoint().expect("path not complete but no waypoint");
+        let target_grid = pathfinding::world_to_grid(next_wp);
+        let is_blocked = pathfinder.is_reserved_soon(
             target_grid,
             coord_config::whca::MOVE_TIME_MS,
             Some(*robot_id),
-        )
-        || pathfinder.is_reserved_now(
-            target_grid,
-            Some(*robot_id),
-        ) {
+        ) || pathfinder.is_reserved_now(target_grid, Some(*robot_id));
+
+        if is_blocked {
             robot.set_wait(target_grid);
 
+            // deadlock breaker: if waiting too long, override and resend FollowPath
             if let Some(wait_secs) = robot.wait_elapsed_secs() {
                 if wait_secs >= collision_config::RESERVATION_WAIT_OVERRIDE_SECS {
-                    // Deadlock breaker: override reservation wait after timeout
                     logs::save_log(
                         "Coordinator",
                         &format!(
@@ -374,61 +388,46 @@ async fn send_path_commands(
                         ),
                     );
                     robot.clear_wait();
-
-                    let cmd = PathCmd {
-                        cmd_id: *next_cmd_id,
-                        robot_id: *robot_id,
-                        command: build_path_command(robot, waypoint),
-                    };
-                    *next_cmd_id += 1;
-                    cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-                    continue;
+                    robot.path_sent = false; // fall through to FollowPath send below
                 }
             }
 
-            // Ensure our current cell stays reserved while waiting
-            let current_grid = pathfinding::world_to_grid(robot.last_update.position);
-            pathfinder.reserve_stationary(*robot_id, current_grid);
-            robot.mark_progress();
-            let wait_cmd = PathCmd {
-                cmd_id: *next_cmd_id,
-                robot_id: *robot_id,
-                command: PathCommand::Stop,
-            };
-            *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&wait_cmd).unwrap()).await.ok();
-            continue;
+            if robot.path_sent {
+                // still blocked and path already sent - stop firmware and wait
+                let current_grid = pathfinding::world_to_grid(robot.last_update.position);
+                pathfinder.reserve_stationary(*robot_id, current_grid);
+                robot.mark_progress();
+                let stop_cmd = PathCmd {
+                    cmd_id: *next_cmd_id,
+                    robot_id: *robot_id,
+                    command: PathCommand::Stop,
+                };
+                *next_cmd_id += 1;
+                cmd_publisher.put(to_vec(&stop_cmd).unwrap()).await.ok();
+                robot.path_sent = false; // will resend FollowPath once unblocked
+                continue;
+            }
+            // path_sent is false (override case): fall through to send FollowPath
+        } else {
+            robot.clear_wait();
         }
 
-        // Check if robot reached current waypoint
-        let pos = robot.last_update.position;
-        let dist = ((pos[0] - waypoint[0]).powi(2) + (pos[2] - waypoint[2]).powi(2)).sqrt();
-        
-        if dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD {
-            // Advance to next waypoint - this is progress!
-            robot.advance_path();
-            robot.mark_progress();
-            robot.clear_wait();
-            
-            if let Some(next) = robot.next_waypoint() {
+        // send FollowPath if not yet dispatched for this path segment
+        if !robot.path_sent {
+            let remaining: Vec<[f32; 3]> = robot.current_path[robot.path_index..].to_vec();
+            if !remaining.is_empty() {
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id: *robot_id,
-                    command: build_path_command(robot, next),
+                    command: PathCommand::FollowPath {
+                        waypoints: remaining,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
                 };
                 *next_cmd_id += 1;
                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                robot.path_sent = true;
             }
-        } else {
-            robot.clear_wait();
-            // Keep sending current waypoint command
-            let cmd = PathCmd {
-                cmd_id: *next_cmd_id,
-                robot_id: *robot_id,
-                command: build_path_command(robot, waypoint),
-            };
-            *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
         }
     }
 }

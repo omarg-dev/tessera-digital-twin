@@ -258,17 +258,23 @@ pub async fn handle_task_assignment(
         status_publisher.put(payload).await.ok();
     }
     
-    // Send first waypoint command immediately
-    if let Some(waypoint) = robot.next_waypoint() {
+    // Send full path to pickup immediately (FollowPath - firmware follows all waypoints
+    // without stopping, eliminating the per-tile pause from coordinator round-trips)
+    let full_path = robot.current_path.clone();
+    if !full_path.is_empty() {
         let cmd = PathCmd {
             cmd_id: *next_cmd_id,
             robot_id,
-            command: PathCommand::MoveToPickup { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+            command: PathCommand::FollowPath {
+                waypoints: full_path,
+                speed: coord_config::DEFAULT_SPEED,
+            },
         };
         *next_cmd_id += 1;
         cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+        robot.path_sent = true;
     }
-    
+
     AssignmentResult::Accepted { waypoints, cost }
 }
 
@@ -683,15 +689,21 @@ async fn attempt_replan(
         println!("[{}ms] 🔁 Robot {} replanned (task {}) - {} waypoints", timestamp(), robot_id, task_id, robot.current_path.len());
     }
 
-    if let Some(waypoint) = robot.next_waypoint() {
-        let command = match robot.task_stage {
-            TaskStage::MovingToPickup => PathCommand::MoveToPickup { target: waypoint, speed: coord_config::DEFAULT_SPEED },
-            TaskStage::MovingToDropoff | TaskStage::Delivering => PathCommand::MoveToDropoff { target: waypoint, speed: coord_config::DEFAULT_SPEED },
-            _ => return false,
+    // Send full replanned path immediately so robot corrects course without waiting
+    // for the next send_path_commands watchdog tick
+    let remaining = robot.current_path[robot.path_index..].to_vec();
+    if !remaining.is_empty() {
+        let cmd = PathCmd {
+            cmd_id: *next_cmd_id,
+            robot_id,
+            command: PathCommand::FollowPath {
+                waypoints: remaining,
+                speed: coord_config::DEFAULT_SPEED,
+            },
         };
-        let cmd = PathCmd { cmd_id: *next_cmd_id, robot_id, command };
         *next_cmd_id += 1;
         cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+        robot.path_sent = true;
     }
 
     true
@@ -772,15 +784,20 @@ async fn handle_idle_low_battery(
             robot.set_path(result.world_path);
             robot.task_stage = TaskStage::ReturningToStation;
             robot.return_reason = Some(ReturnReason::LowBattery);
-            
-            if let Some(waypoint) = robot.next_waypoint() {
+
+            let return_path = robot.current_path.clone();
+            if !return_path.is_empty() {
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id,
-                    command: PathCommand::MoveTo { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+                    command: PathCommand::FollowPath {
+                        waypoints: return_path,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
                 };
                 *next_cmd_id += 1;
                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                robot.path_sent = true;
             }
         }
     }
@@ -880,21 +897,27 @@ async fn handle_picking(
                 pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
 
                 robot.set_path(result.world_path);
-                
+
+                // skip first waypoint if robot is already on top of it
                 if let Some(first_wp) = robot.next_waypoint() {
                     if is_near(robot_pos, first_wp) {
                         robot.advance_path();
                     }
                 }
-                
-                if let Some(waypoint) = robot.next_waypoint() {
+
+                let dropoff_path = robot.current_path[robot.path_index..].to_vec();
+                if !dropoff_path.is_empty() {
                     let cmd = PathCmd {
                         cmd_id: *next_cmd_id,
                         robot_id,
-                        command: PathCommand::MoveToDropoff { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+                        command: PathCommand::FollowPath {
+                            waypoints: dropoff_path,
+                            speed: coord_config::DEFAULT_SPEED,
+                        },
                     };
                     *next_cmd_id += 1;
                     cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                    robot.path_sent = true;
                 }
             }
         }
@@ -1037,14 +1060,19 @@ async fn handle_delivering(
             robot.task_stage = TaskStage::ReturningToStation;
             robot.return_reason = Some(return_reason);
 
-            if let Some(waypoint) = robot.next_waypoint() {
+            let station_path = robot.current_path.clone();
+            if !station_path.is_empty() {
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id,
-                    command: PathCommand::MoveTo { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+                    command: PathCommand::FollowPath {
+                        waypoints: station_path,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
                 };
                 *next_cmd_id += 1;
                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                robot.path_sent = true;
             }
         }
     } else {

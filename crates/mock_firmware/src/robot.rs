@@ -1,5 +1,6 @@
 //! Simulated robot with physics state
 
+use std::collections::VecDeque;
 use protocol::{RobotState, RobotUpdate, PathCommand, CommandStatus, GridMap};
 use protocol::config::{battery, physics};
 use rand::Rng;
@@ -19,11 +20,14 @@ pub struct SimRobot {
     pub battery: f32,
     pub carrying_cargo: Option<u32>,
     pub target: Option<[f32; 3]>,
-    pub target_speed: f32, // Speed to use when moving to target
-    pub station_position: [f32; 3], // Home charging station
-    pub pickup_timer: f32, // Time remaining for pickup operation
-    pub drop_timer: f32, // Time remaining for dropoff operation
-    pub enabled: bool, // Whether robot is active (can be disabled by orchestrator)
+    pub target_speed: f32, // speed to use when moving to target
+    pub station_position: [f32; 3], // home charging station
+    pub pickup_timer: f32, // time remaining for pickup operation
+    pub drop_timer: f32, // time remaining for dropoff operation
+    pub enabled: bool, // whether robot is active (can be disabled by orchestrator)
+    /// waypoints queued by FollowPath - firmware advances through these
+    /// without stopping, eliminating the per-tile pause caused by coordinator round-trips
+    pub waypoint_queue: VecDeque<[f32; 3]>,
 }
 
 impl SimRobot {
@@ -41,6 +45,7 @@ impl SimRobot {
             pickup_timer: 0.0,
             drop_timer: 0.0,
             enabled: true,
+            waypoint_queue: VecDeque::new(),
         }
     }
     
@@ -56,6 +61,7 @@ impl SimRobot {
         self.pickup_timer = 0.0;
         self.drop_timer = 0.0;
         self.enabled = true;
+        self.waypoint_queue.clear();
     }
     
     /// Physics tick: pos += vel * dt
@@ -124,10 +130,23 @@ impl SimRobot {
             let dist = (dx * dx + dz * dz).sqrt();
             
             if dist < physics::ARRIVAL_THRESHOLD {
-                // Arrived at target
-                self.velocity = [0.0, 0.0, 0.0];
-                self.target = None;
-                self.on_arrival();
+                // Arrived at this waypoint - pop the next from the queue
+                if let Some(next) = self.waypoint_queue.pop_front() {
+                    // transition directly to next waypoint without stopping
+                    let ndx = next[0] - self.position[0];
+                    let ndz = next[2] - self.position[2];
+                    let ndist = (ndx * ndx + ndz * ndz).sqrt();
+                    if ndist > 0.001 {
+                        self.velocity[0] = (ndx / ndist) * self.target_speed;
+                        self.velocity[2] = (ndz / ndist) * self.target_speed;
+                    }
+                    self.target = Some(next);
+                } else {
+                    // queue empty - fully arrived at final waypoint
+                    self.velocity = [0.0, 0.0, 0.0];
+                    self.target = None;
+                    self.on_arrival();
+                }
             } else {
                 // Move toward target at commanded speed
                 self.velocity[0] = (dx / dist) * self.target_speed;
@@ -243,9 +262,34 @@ impl SimRobot {
                 self.target_speed = *speed;
                 self.state = RobotState::MovingToDrop;
             }
+            PathCommand::FollowPath { waypoints, speed } => {
+                if waypoints.is_empty() {
+                    return CommandStatus::Accepted;
+                }
+                if waypoints[0][0].is_nan() || waypoints[0][2].is_nan() || *speed <= 0.0 {
+                    return CommandStatus::Rejected {
+                        reason: "Invalid FollowPath".to_string(),
+                    };
+                }
+                self.waypoint_queue.clear();
+                // first waypoint becomes the active target
+                self.target = Some(waypoints[0]);
+                self.target_speed = *speed;
+                // remaining waypoints queue up for continuous traversal
+                for &wp in &waypoints[1..] {
+                    self.waypoint_queue.push_back(wp);
+                }
+                // infer state from cargo (same logic as MoveTo)
+                if self.carrying_cargo.is_some() {
+                    self.state = RobotState::MovingToDrop;
+                } else {
+                    self.state = RobotState::MovingToPickup;
+                }
+            }
             PathCommand::Stop => {
                 self.velocity = [0.0, 0.0, 0.0];
                 self.target = None;
+                self.waypoint_queue.clear();
             }
             PathCommand::Pickup { cargo_id } => {
                 if self.carrying_cargo.is_some() {

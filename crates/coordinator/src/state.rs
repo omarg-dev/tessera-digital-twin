@@ -60,6 +60,10 @@ pub struct TrackedRobot {
     // Reservation wait tracking (deadlock prevention)
     pub waiting_since: Option<Instant>,  // When robot started waiting on reservation
     pub waiting_for: Option<GridPos>,  // Grid cell we are waiting to enter
+
+    /// true after FollowPath has been dispatched for the current path segment;
+    /// cleared by set_path() so any new or replanned path triggers a fresh dispatch.
+    pub path_sent: bool,
 }
 
 impl TrackedRobot {
@@ -85,6 +89,7 @@ impl TrackedRobot {
             replan_attempts: 0,
             waiting_since: None,
             waiting_for: None,
+            path_sent: false,
         }
     }
     
@@ -106,10 +111,11 @@ impl TrackedRobot {
         self.clear_wait();
     }
     
-    /// Assign a new path
+    /// Assign a new path and mark it as unsent so coordinator dispatches FollowPath
     pub fn set_path(&mut self, path: Vec<[f32; 3]>) {
         self.current_path = path;
         self.path_index = 0;
+        self.path_sent = false;
         self.clear_wait();
     }
     

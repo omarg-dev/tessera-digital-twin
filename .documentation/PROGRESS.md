@@ -260,15 +260,23 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
-### 2026-03-06: Camera zoom lerp and shelf cargo decrease fix (Phase 5)
+### 2026-03-08: Lookahead path batching — eliminate per-tile pause (Phase 5)
 
-**Camera zoom-in now lerps smoothly.** `camera_follow_selected` adds a `Local<bool> zooming_in` flag alongside the existing `Local<Option<Entity>>` entity tracker. When a new entity is selected and the camera is farther than `FOLLOW_ZOOM_RADIUS + 1.0`, the flag is set and the system lerps radius toward `FOLLOW_ZOOM_RADIUS` each frame (using `FOLLOW_ZOOM_LERP`). Once within `0.1` units the flag clears and radius is fully free — the user can zoom out without the system fighting them.
+Root cause of the per-tile stop: the coordinator dispatched one waypoint at a time via a 100 ms poll. Firmware stopped at each tile and waited up to 100 ms for the next command.
 
-**Visual cargo count now decreases correctly.** The pickup branch in `sync_robots` was guarding on the robot's own tile type (`TileType::Shelf`) before decrementing `shelf.cargo`. The robot's grid position at the moment the firmware state transition arrives can be slightly off from the shelf tile, causing the guard to silently skip the decrement. Fixed by mirroring the drop logic: find nearest shelf via distance, then check the shelf's own tile. The now-dead `grid_col/grid_row/tile_type` locals were removed.
+**Protocol (`commands.rs`):** Added `PathCommand::FollowPath { waypoints: Vec<[f32; 3]>, speed: f32 }`. Firmware follows all waypoints in sequence without stopping. `PathCommand::Stop` now also clears the queue.
 
-**Files changed:** `systems/camera.rs`, `systems/sync_robots.rs`.
+**Firmware (`robot.rs`):** Added `waypoint_queue: VecDeque<[f32; 3]>` to `SimRobot`. On arrival at any intermediate waypoint, the robot pops the next from the queue and immediately updates its target and velocity — no zero-velocity frame. `on_arrival` is only called when the queue is empty (final waypoint). `restart()` clears the queue.
 
-### 2026-03-06: Interaction and Log Quality Fixes (Phase 5)
+**Coordinator state (`state.rs`):** Added `path_sent: bool` to `TrackedRobot`. `set_path()` resets it to `false`, ensuring any new or replanned path triggers a fresh `FollowPath` dispatch. Path recalculation (replan, collision recovery, timeout) all go through `set_path()` so the flag is always correct.
+
+**Coordinator dispatch (`server.rs`):** Rewrote `send_path_commands`. The 100 ms tick now serves as a watchdog (resends if `!path_sent`), a `path_index` sync (advances coordinator tracking for deviation detection and telemetry), and a reservation checker (sends `Stop` + clears `path_sent` when next cell is reserved, resending `FollowPath` once clear). Removed `build_path_command` helper (no longer needed).
+
+**Task manager (`task_manager.rs`):** All five sites that previously sent a single first-waypoint command (`handle_task_assignment`, `attempt_replan`, `handle_idle_low_battery`, `handle_picking`, `handle_delivering`) now send `FollowPath` with all remaining waypoints and set `path_sent = true`.
+
+**Files changed:** `protocol/src/commands.rs`, `mock_firmware/src/robot.rs`, `coordinator/src/state.rs`, `coordinator/src/server.rs`, `coordinator/src/task_manager.rs`.
+
+### 2026-03-07: Interaction and Log Quality Fixes (Phase 5)
 
 Fixed four issues discovered during testing.
 
@@ -319,6 +327,15 @@ Fixed five interaction bugs uncovered during testing of the Session 1 outline/se
 - **Shelf stock semantics clarified.** `TileType::Shelf(u8)` encodes *initial stock*; `warehouse::SHELF_MAX_CAPACITY = 16` is the global maximum for all shelves. `SHELF_MAX_CAPACITY` was moved from `config::visual::shelf` to the new `config::warehouse` module. `INITIAL_STOCK_FRACTION` was removed entirely; `ShelfInventory::from_map()` and `populate_scene` now use the layout token value directly as initial stock.
 
 **Files changed:** `outline.rs`, `ui/mod.rs`, `main.rs`, `systems/camera.rs`, `config.rs`, `grid_map.rs`, `populate_scene.rs`, `models.rs`.
+
+
+### 2026-03-06: Camera zoom lerp and shelf cargo decrease fix (Phase 5)
+
+**Camera zoom-in now lerps smoothly.** `camera_follow_selected` adds a `Local<bool> zooming_in` flag alongside the existing `Local<Option<Entity>>` entity tracker. When a new entity is selected and the camera is farther than `FOLLOW_ZOOM_RADIUS + 1.0`, the flag is set and the system lerps radius toward `FOLLOW_ZOOM_RADIUS` each frame (using `FOLLOW_ZOOM_LERP`). Once within `0.1` units the flag clears and radius is fully free — the user can zoom out without the system fighting them.
+
+**Visual cargo count now decreases correctly.** The pickup branch in `sync_robots` was guarding on the robot's own tile type (`TileType::Shelf`) before decrementing `shelf.cargo`. The robot's grid position at the moment the firmware state transition arrives can be slightly off from the shelf tile, causing the guard to silently skip the decrement. Fixed by mirroring the drop logic: find nearest shelf via distance, then check the shelf's own tile. The now-dead `grid_col/grid_row/tile_type` locals were removed.
+
+**Files changed:** `systems/camera.rs`, `systems/sync_robots.rs`.
 
 ### 2026-03-06: Glowing Outline System — Hover & Selection Highlight (Phase 5)
 

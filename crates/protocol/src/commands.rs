@@ -18,7 +18,11 @@ pub enum PathCommand {
     MoveToPickup { target: [f32; 3], speed: f32 },
     /// Move specifically to a dropoff location (sets state accordingly)
     MoveToDropoff { target: [f32; 3], speed: f32 },
-    /// Stop immediately
+    /// Follow a sequence of waypoints continuously without stopping between them.
+    /// Firmware advances through waypoints internally; coordinator sends the full
+    /// remaining path in one shot. State is inferred from cargo (same as MoveTo).
+    FollowPath { waypoints: Vec<[f32; 3]>, speed: f32 },
+    /// Stop immediately and clear any queued waypoints
     Stop,
     /// Pick up cargo at current location
     Pickup { cargo_id: u32 },
