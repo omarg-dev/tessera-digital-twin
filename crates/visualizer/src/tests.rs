@@ -21,6 +21,8 @@ mod component_tests {
             battery: 85.0,
             current_task: Some(100),
             carrying_cargo: None,
+            target_position: Vec3::new(5.0, 0.25, 3.0),
+            network_velocity: Vec3::ZERO,
         };
 
         assert_eq!(robot.id, 42);
@@ -39,6 +41,8 @@ mod component_tests {
             battery: 50.0,
             current_task: Some(5),
             carrying_cargo: Some(999),
+            target_position: Vec3::ZERO,
+            network_velocity: Vec3::ZERO,
         };
 
         assert_eq!(robot.carrying_cargo, Some(999));
@@ -151,6 +155,8 @@ mod integration_tests {
                 battery: 50.0,
                 current_task: None,
                 carrying_cargo: None,
+                target_position: Vec3::ZERO,
+                network_velocity: Vec3::ZERO,
             };
             
             assert_eq!(robot.state, state);

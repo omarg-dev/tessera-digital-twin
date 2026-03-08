@@ -40,6 +40,7 @@ use systems::{
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes},
     zenoh_receiver::{setup_zenoh_receiver, collect_robot_updates},
     sync_robots::sync_robots,
+    interpolate_robots::interpolate_robots,
     commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
     queue_receiver::{setup_queue_listener, collect_queue_state},
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
@@ -107,6 +108,7 @@ fn main() {
         .add_systems(Update, (
             collect_robot_updates,
             sync_robots,
+            interpolate_robots.after(sync_robots),
             collect_queue_state,
             collect_path_telemetry,
             handle_system_commands,

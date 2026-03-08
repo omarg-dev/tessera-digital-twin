@@ -6,12 +6,18 @@ use protocol::RobotState;
 pub struct Robot {
     pub id: u32,
     pub state: RobotState,
+    /// authoritative world position from the last network update (used by UI)
     pub position: Vec3,
     pub battery: f32,
     /// TODO: Wire to task assignment display in dashboard
     #[allow(dead_code)]
     pub current_task: Option<u32>,
     pub carrying_cargo: Option<u32>,
+    /// interpolation target: latest authoritative position from firmware.
+    /// the interpolate_robots system lerps transform.translation toward this.
+    pub target_position: Vec3,
+    /// velocity reported by firmware; used for dead-reckoning between updates.
+    pub network_velocity: Vec3,
 }
 
 /// Ground tile marker

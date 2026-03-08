@@ -276,6 +276,22 @@ Root cause of the per-tile stop: the coordinator dispatched one waypoint at a ti
 
 **Files changed:** `protocol/src/commands.rs`, `mock_firmware/src/robot.rs`, `coordinator/src/state.rs`, `coordinator/src/server.rs`, `coordinator/src/task_manager.rs`.
 
+### 2026-03-08: Dead-reckoning interpolation — eliminate visual teleport (Phase 5)
+
+Root cause of the teleporting appearance: the visualizer hard-snapped `transform.translation` to the firmware position on every Zenoh update (20 Hz), causing visible jumps at 60 fps render rate. The `RobotUpdate.velocity` field was transmitted by firmware but never consumed by the visualizer.
+
+**Config (`protocol/src/config.rs`):** Added `ROBOT_LERP: f32 = 0.25` (correction factor per frame at 60 fps) and `ROBOT_TELEPORT_THRESHOLD: f32 = 2.0` (snap distance for restarts) to `config::visual`.
+
+**Components (`components.rs`):** Added `target_position: Vec3` and `network_velocity: Vec3` to the `Robot` component. `target_position` is the latest authoritative position from the network; `network_velocity` drives dead-reckoning.
+
+**`sync_robots`:** No longer writes to `transform.translation`. Instead sets `robot.target_position` and `robot.network_velocity` on each update. Query downgraded from `&mut Transform` to `&Transform` since the system no longer owns the transform. On spawn, `target_position` and `network_velocity` are initialized to `pos` / `Vec3::ZERO` so the new robot appears settled.
+
+**New system `interpolate_robots` (`systems/interpolate_robots.rs`):** Runs every render frame after `sync_robots`. For each robot: (1) advances `transform.translation` by `network_velocity * dt` (dead-reckoning — when velocity is accurate the robot glides with no visible step); (2) applies a frame-rate-independent correction lerp toward `target_position` (`lerp_factor = (ROBOT_LERP * dt * 60.0).min(1.0)`) to drain residual drift; (3) snaps immediately if distance exceeds `ROBOT_TELEPORT_THRESHOLD`.
+
+**`main.rs`:** Imported `interpolate_robots` and registered it in `Update` with `.after(sync_robots)`.
+
+**Files changed:** `protocol/src/config.rs`, `visualizer/src/components.rs`, `visualizer/src/systems/sync_robots.rs`, `visualizer/src/systems/interpolate_robots.rs` (new), `visualizer/src/systems/mod.rs`, `visualizer/src/main.rs`.
+
 ### 2026-03-07: Interaction and Log Quality Fixes (Phase 5)
 
 Fixed four issues discovered during testing.

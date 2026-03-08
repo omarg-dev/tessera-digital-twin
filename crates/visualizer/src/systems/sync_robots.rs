@@ -13,7 +13,7 @@ pub fn sync_robots(
     mut commands: Commands,
     mut robot_updates: ResMut<RobotUpdates>,
     mut index: ResMut<RobotIndex>,
-    mut robots: Query<(&mut Transform, &mut Robot), Without<Shelf>>,
+    mut robots: Query<(&Transform, &mut Robot), Without<Shelf>>,
     mut log_buffer: ResMut<LogBuffer>,
     mut shelves: Query<(Entity, &mut Shelf, &Transform), Without<Robot>>,
     warehouse_map: Option<Res<WarehouseMap>>,
@@ -23,7 +23,7 @@ pub fn sync_robots(
     for update in robot_updates.updates.drain(..) {
         // Lookup entity by id
         if let Some(&entity) = index.by_id.get(&update.id) {
-            if let Ok((mut transform, mut robot)) = robots.get_mut(entity) {
+            if let Ok((_, mut robot)) = robots.get_mut(entity) {
                 let old_state = robot.state.clone();
                 let old_carrying = robot.carrying_cargo;
                 robot.id = update.id;
@@ -31,8 +31,13 @@ pub fn sync_robots(
                 robot.battery = update.battery;
                 robot.carrying_cargo = update.carrying_cargo;
                 let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
+                let vel = Vec3::new(update.velocity[0], update.velocity[1], update.velocity[2]);
                 robot.position = pos;
-                transform.translation = pos;
+                // update interpolation target and velocity — transform.translation is
+                // owned by interpolate_robots (dead-reckons + lerps every render frame)
+                robot.target_position = pos;
+                robot.network_velocity = vel;
+                // do NOT write transform.translation here; interpolate_robots handles it
 
                 match (old_carrying, robot.carrying_cargo) {
                     (None, Some(_)) => {
@@ -96,6 +101,9 @@ pub fn sync_robots(
                         battery: update.battery,
                         current_task: None,
                         carrying_cargo: update.carrying_cargo,
+                        // on spawn, target = current pos so interpolation starts settled
+                        target_position: pos,
+                        network_velocity: Vec3::ZERO,
                     },
                 )).id()
             } else {
@@ -109,6 +117,8 @@ pub fn sync_robots(
                         battery: update.battery,
                         current_task: None,
                         carrying_cargo: update.carrying_cargo,
+                        target_position: pos,
+                        network_velocity: Vec3::ZERO,
                     },
                 )).id()
             };

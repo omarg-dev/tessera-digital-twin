@@ -212,6 +212,15 @@ pub mod visual {
     /// Tile size in world units
     pub const TILE_SIZE: f32 = 1.0;
 
+    /// Lerp correction factor per render frame at 60 fps applied in interpolate_robots.
+    /// Dead-reckoning closes most of the gap; this removes residual drift.
+    /// 0.25 converges to <5% error within 2 frames at 60 fps.
+    pub const ROBOT_LERP: f32 = 0.25;
+
+    /// Distance above which interpolate_robots snaps instead of lerping.
+    /// Catches firmware restarts and initial spawns (robots teleport to station).
+    pub const ROBOT_TELEPORT_THRESHOLD: f32 = 2.0;
+
     /// XZ scale applied to all wall models to close seams between adjacent tiles.
     /// 1.0 = exact model size. Increase (e.g. 1.02) if gaps are visible at junctions.
     /// Y is not scaled so wall height is unaffected. Fix models in Blender for a permanent solution.
