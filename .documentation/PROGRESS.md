@@ -260,6 +260,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-08: Propagate shadow markers to tile mesh children (Phase 5)
+
+Implemented the child-mesh propagation system that makes `DISABLE_TILE_SHADOW_CAST` and `DISABLE_FLOOR_SHADOW_RECEIVE` actually effective.
+
+**`populate_scene.rs`:** New `propagate_tile_optimizations` system. Uses `Without<NotShadowCaster>` / `Without<NotShadowReceiver>` query filters as a one-shot gate: each untagged `Mesh3d` descendant of a `Ground` or `Wall` entity gets `NotShadowCaster` (and `NotShadowReceiver` for floors) inserted the first time the system encounters it. The `Without` filter makes subsequent frames a no-op (empty query). This avoids dependency on the `SceneInstanceReady` event API and naturally handles lazy .glb loading. Top-level `use bevy::pbr::{NotShadowCaster, NotShadowReceiver}` and `use protocol::config::optimization as opt` moved to file scope (shared with `populate_lighting`).
+
+**`main.rs`:** Registered in `PostUpdate` alongside `check_reload_environment` and `sync_shelf_boxes`.
+
+**Files changed:** `visualizer/src/systems/populate_scene.rs`, `visualizer/src/main.rs`.
+
 ### 2026-03-08: Performance optimization toggles (Phase 5)
 
 Added `protocol::config::optimization` module — a set of `const bool` flags that default to `true` (optimization active) and can be set to `false` to restore full visual quality when hardware allows.
