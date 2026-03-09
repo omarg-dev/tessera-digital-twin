@@ -120,7 +120,8 @@ fn main() {
             draw_robot_paths,
         ))
         // UI runs inside the egui context pass (after Update, before rendering)
-        .add_systems(EguiPrimaryContextPass, (ui::draw_ui, draw_robot_labels).chain())
+        // labels use Order::Background so they render behind panels
+        .add_systems(EguiPrimaryContextPass, (draw_robot_labels, ui::draw_ui).chain())
         // PostUpdate: runs after EguiPrimaryContextPass so outline sync sees hovered_entity from draw_ui
         .add_systems(PostUpdate, (
             check_reload_environment.run_if(resource_exists::<systems::commands::ReloadEnvironment>),

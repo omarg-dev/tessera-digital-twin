@@ -370,11 +370,17 @@ pub mod visual {
         /// Seconds since last received update before a robot is shown as offline
         pub const OFFLINE_TIMEOUT_SECS: f32 = 3.0;
 
-        /// egui font size for label text
-        pub const FONT_SIZE: f32 = 11.0;
+        /// egui font size for the small robot ID (`#3`)
+        pub const FONT_SIZE: f32 = 10.0;
 
-        /// Label background opacity (0 = transparent, 255 = opaque)
-        pub const BG_ALPHA: u8 = 165;
+        /// egui font size for the large goal/status icon
+        pub const ICON_SIZE: f32 = 15.0;
+
+        /// Label background color (fully opaque dark)
+        pub const BG_COLOR: (u8, u8, u8, u8) = (18, 18, 18, 245);
+
+        /// Border stroke width (logical pixels) drawn in the state color
+        pub const STROKE_WIDTH: f32 = 1.5;
 
         /// Label frame corner radius
         pub const CORNER_RADIUS: f32 = 4.0;
@@ -383,7 +389,7 @@ pub mod visual {
         pub const PADDING_H: f32 = 5.0;
 
         /// Vertical inner padding (logical pixels)
-        pub const PADDING_V: f32 = 2.0;
+        pub const PADDING_V: f32 = 3.0;
 
         // state colors (R, G, B) in 0-255 range for egui
         /// Faulted / collision
@@ -399,7 +405,7 @@ pub mod visual {
         /// Actively picking cargo
         pub const COLOR_PICKING: (u8, u8, u8) = (255, 210, 60);
         /// Normal operation (moving, idle)
-        pub const COLOR_NORMAL: (u8, u8, u8) = (220, 220, 220);
+        pub const COLOR_NORMAL: (u8, u8, u8) = (200, 200, 200);
     }
 }
 

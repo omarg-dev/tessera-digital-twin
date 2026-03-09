@@ -107,7 +107,6 @@ pub fn sync_robots(
                         target_position: pos,
                         network_velocity: Vec3::ZERO,
                         last_update_secs: time.elapsed_secs(),
-                        label_hidden: false,
                     },
                 )).id()
             } else {
@@ -124,7 +123,6 @@ pub fn sync_robots(
                         target_position: pos,
                         network_velocity: Vec3::ZERO,
                         last_update_secs: time.elapsed_secs(),
-                        label_hidden: false,
                     },
                 )).id()
             };

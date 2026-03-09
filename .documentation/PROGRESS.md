@@ -260,6 +260,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-09: Robot label UX polish — readability, layering, declutter (Phase 5)
+
+Four fixes to the overhead robot labels based on visual review.
+
+**1. Labels over UI panels fixed** — Changed `Order::Tooltip` → `Order::Background` (labels now render below all egui panels), and swapped the `EguiPrimaryContextPass` chain to `draw_robot_labels` → `draw_ui` so panels are always drawn last.
+
+**2. Label hides while selected, restores on deselect** — Removed the persistent `label_hidden: bool` flag from `Robot` and the right-click observer branch in `outline.rs`. The label system now simply skips the entity that matches `ui_state.selected_entity`, which automatically restores when the selection is cleared.
+
+**3. Readability** — Background changed from semi-transparent black to fully opaque dark (`(18, 18, 18, 245)` RGBA). A colored border stroke (`STROKE_WIDTH = 1.5`) matching the state color makes each label pop against any background.
+
+**4. Content decluttered** — Battery percentage removed. Label now shows: small dim `#ID` + large bold state icon + `▣` if carrying cargo. Icon promoted to `ICON_SIZE = 15.0`; ID at `FONT_SIZE = 10.0`. Icon is the primary signal; ID is secondary context.
+
+**Files changed:** `protocol/src/config.rs`, `visualizer/src/components.rs`, `visualizer/src/systems/sync_robots.rs`, `visualizer/src/systems/robot_labels.rs`, `visualizer/src/systems/outline.rs`, `visualizer/src/main.rs`.
+
 ### 2026-03-09: Overhead robot labels (Phase 5)
 
 Implemented floating egui labels rendered over each robot in the 3D viewport.

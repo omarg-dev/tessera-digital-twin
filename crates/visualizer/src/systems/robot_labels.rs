@@ -1,8 +1,12 @@
 //! Overhead robot labels rendered as egui floating areas in the 3D viewport.
 //!
-//! Each label shows: `#ID  <goal-icon>  <battery%> [▣]`.
-//! Color encodes operational state. Globally toggled with `UiState.show_ids`.
-//! Right-click a robot in the viewport to hide/show its individual label.
+//! Each label shows `#ID` (small, muted) + a large goal/status icon + `▣` when carrying.
+//! Color encodes operational state via the icon and a matching border stroke.
+//!
+//! - Globally toggled with `UiState.show_ids` (top-bar "Labels" checkbox).
+//! - Clicking a robot selects it (shows the inspector); its label is suppressed while selected
+//!   and reappears automatically when the robot is deselected.
+//! - Labels use `Order::Background` so egui panels always render on top.
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -13,11 +17,11 @@ use protocol::config::visual::{ROBOT_SIZE, labels as lbl};
 use crate::components::Robot;
 use crate::resources::UiState;
 
-/// Render overhead floating labels for every non-hidden robot.
+/// Render overhead floating labels for every visible robot.
 pub fn draw_robot_labels(
     mut contexts: EguiContexts,
     ui_state: Res<UiState>,
-    robots: Query<(&Robot, &Transform)>,
+    robots: Query<(Entity, &Robot, &Transform)>,
     camera: Query<(&Camera, &GlobalTransform)>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
@@ -37,8 +41,13 @@ pub fn draw_robot_labels(
     let now = time.elapsed_secs();
     let scale = window.scale_factor();
 
-    for (robot, transform) in &robots {
-        if robot.label_hidden {
+    let (bg_r, bg_g, bg_b, bg_a) = lbl::BG_COLOR;
+    let bg = egui::Color32::from_rgba_unmultiplied(bg_r, bg_g, bg_b, bg_a);
+    let id_color = egui::Color32::from_rgba_unmultiplied(160, 160, 160, 200);
+
+    for (entity, robot, transform) in &robots {
+        // hide label while the robot is selected — inspector shows all detail
+        if ui_state.selected_entity == Some(entity) {
             continue;
         }
 
@@ -50,44 +59,43 @@ pub fn draw_robot_labels(
         };
         let sp = egui::pos2(phys_pos.x / scale, phys_pos.y / scale);
 
-        let (color, icon, extra) = label_style(robot, now);
-        let eg_color = egui::Color32::from_rgb(color.0, color.1, color.2);
-        let dim_color = egui::Color32::from_rgba_unmultiplied(180, 180, 180, 200);
+        let (color, icon, has_cargo) = label_content(robot, now);
+        let icon_color = egui::Color32::from_rgb(color.0, color.1, color.2);
+        let stroke = egui::Stroke::new(lbl::STROKE_WIDTH, icon_color);
 
+        // Order::Background keeps labels behind egui panels
         egui::Area::new(egui::Id::new(("rl", robot.id)))
             .fixed_pos(sp)
             .pivot(egui::Align2::CENTER_BOTTOM)
-            .order(egui::Order::Tooltip)
+            .order(egui::Order::Background)
             .interactable(false)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(egui::Color32::from_black_alpha(lbl::BG_ALPHA))
+                    .fill(bg)
+                    .stroke(stroke)
                     .corner_radius(lbl::CORNER_RADIUS as u8)
                     .inner_margin(egui::Margin::symmetric(lbl::PADDING_H as i8, lbl::PADDING_V as i8))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 3.0;
-                            // robot ID (colored by state priority)
+                            // small dimmed robot ID
                             ui.label(
                                 egui::RichText::new(format!("#{}", robot.id))
-                                    .color(eg_color)
-                                    .size(lbl::FONT_SIZE)
-                                    .strong(),
-                            );
-                            // goal / status icon (colored by state)
-                            ui.label(
-                                egui::RichText::new(icon)
-                                    .color(eg_color)
+                                    .color(id_color)
                                     .size(lbl::FONT_SIZE),
                             );
-                            // secondary info: battery %, cargo flag (muted gray)
-                            if !extra.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(extra)
-                                        .color(dim_color)
-                                        .size(lbl::FONT_SIZE - 1.0),
-                                );
-                            }
+                            // large state icon in state color, with cargo flag if carrying
+                            let icon_text = if has_cargo {
+                                format!("{} ▣", icon)
+                            } else {
+                                icon.to_owned()
+                            };
+                            ui.label(
+                                egui::RichText::new(icon_text)
+                                    .color(icon_color)
+                                    .size(lbl::ICON_SIZE)
+                                    .strong(),
+                            );
                         });
                     });
             });
@@ -96,35 +104,27 @@ pub fn draw_robot_labels(
     Ok(())
 }
 
-/// Map robot state + recency to `(rgb_color, goal_icon, extra_text)`.
+/// Returns `(rgb_color, goal_icon, has_cargo)` for a robot.
 ///
-/// Priority: offline > faulted > low_battery > blocked > charging > normal states.
-fn label_style(robot: &Robot, now: f32) -> ((u8, u8, u8), &'static str, String) {
-    let cargo = if robot.carrying_cargo.is_some() { " ▣" } else { "" };
+/// Priority: offline > faulted > low_battery > blocked > charging > picking > normal.
+fn label_content(robot: &Robot, now: f32) -> ((u8, u8, u8), &'static str, bool) {
+    let cargo = robot.carrying_cargo.is_some();
 
-    // offline: no update received within the timeout window
     if now - robot.last_update_secs > lbl::OFFLINE_TIMEOUT_SECS {
-        return (lbl::COLOR_OFFLINE, "✕", format!("offline{}", cargo));
+        return (lbl::COLOR_OFFLINE, "✕", cargo);
     }
 
-    let bat = format!("{:.0}%{}", robot.battery, cargo);
+    let (color, icon) = match robot.state {
+        RobotState::Faulted         => (lbl::COLOR_FAULTED,  "✖"),
+        RobotState::LowBattery      => (lbl::COLOR_LOW_BATT, "⚡!"),
+        RobotState::Blocked         => (lbl::COLOR_BLOCKED,  "↺"),
+        RobotState::Charging        => (lbl::COLOR_CHARGING, "⚡"),
+        RobotState::Picking         => (lbl::COLOR_PICKING,  "↓"),
+        RobotState::MovingToPickup  => (lbl::COLOR_NORMAL,   "→P"),
+        RobotState::MovingToDrop    => (lbl::COLOR_NORMAL,   "→D"),
+        RobotState::MovingToStation => (lbl::COLOR_NORMAL,   "→⚡"),
+        RobotState::Idle            => (lbl::COLOR_NORMAL,   "●"),
+    };
 
-    match robot.state {
-        // critical: hard fault / collision
-        RobotState::Faulted => (lbl::COLOR_FAULTED, "✖", bat),
-        // warning: insufficient charge
-        RobotState::LowBattery => (lbl::COLOR_LOW_BATT, "⚡!", bat),
-        // rerouting: WHCA* recalculating path
-        RobotState::Blocked => (lbl::COLOR_BLOCKED, "↺", bat),
-        // charging at home station
-        RobotState::Charging => (lbl::COLOR_CHARGING, "⚡", bat),
-        // cargo transfer in progress
-        RobotState::Picking => (lbl::COLOR_PICKING, "↓PKG", bat),
-        // transit states: show destination type
-        RobotState::MovingToPickup => (lbl::COLOR_NORMAL, "→PKG", bat),
-        RobotState::MovingToDrop => (lbl::COLOR_NORMAL, "→DST", bat),
-        RobotState::MovingToStation => (lbl::COLOR_NORMAL, "→⚡", bat),
-        // standing by
-        RobotState::Idle => (lbl::COLOR_NORMAL, "●", bat),
-    }
+    (color, icon, cargo)
 }

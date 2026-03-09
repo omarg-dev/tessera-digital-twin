@@ -126,7 +126,7 @@ pub fn on_pointer_out(
     }
 }
 
-/// observer: click to select/deselect entity, or right-click to toggle its label
+/// observer: click to select/deselect entity
 pub fn on_pointer_click(
     mut event: On<Pointer<Click>>,
     mut commands: Commands,
@@ -135,24 +135,8 @@ pub fn on_pointer_click(
     selected_query: Query<Entity, With<Selected>>,
     parents: Query<&ChildOf>,
     interactives: Query<(), Or<(With<Robot>, With<Shelf>, With<Station>, With<Dropoff>)>>,
-    mut robots_q: Query<&mut Robot>,
 ) {
     let target = event.entity;
-
-    // right-click: toggle the overhead label for robots
-    if event.button == PointerButton::Secondary {
-        if meshes.get(target).is_err() {
-            return;
-        }
-        let Some(logical) = find_interactive_ancestor(target, &parents, &interactives) else {
-            return;
-        };
-        event.propagate(false);
-        if let Ok(mut robot) = robots_q.get_mut(logical) {
-            robot.label_hidden = !robot.label_hidden;
-        }
-        return;
-    }
 
     if event.button != PointerButton::Primary {
         return;
