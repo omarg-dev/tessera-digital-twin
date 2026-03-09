@@ -32,6 +32,7 @@ mod ui;
 mod tests;
 
 use bevy::asset::AssetPlugin;
+use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
@@ -120,6 +121,11 @@ fn main() {
         // UI runs inside the egui context pass (after Update, before rendering)
         .add_systems(EguiPrimaryContextPass, ui::draw_ui)
         // PostUpdate: runs after EguiPrimaryContextPass so outline sync sees hovered_entity from draw_ui
-        .add_systems(PostUpdate, (check_reload_environment, sync_shelf_boxes, sync_programmatic_outlines, propagate_tile_optimizations))
+        .add_systems(PostUpdate, (
+            check_reload_environment.run_if(resource_exists::<systems::commands::ReloadEnvironment>),
+            sync_shelf_boxes,
+            sync_programmatic_outlines,
+            propagate_tile_optimizations,
+        ))
         .run();
 }

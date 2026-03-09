@@ -260,6 +260,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-10: Fix NotShadowCaster import and add run_if guard on reload check (Phase 5)
+
+Two fixes to unblock the shadow propagation optimization and reduce per-frame overhead.
+
+**Fix 1 — correct import path (`populate_scene.rs`):** `bevy::pbr::{NotShadowCaster, NotShadowReceiver}` moved to `bevy_light` in Bevy 0.17. Corrected import to `bevy::light::{NotShadowCaster, NotShadowReceiver}`. The `propagate_tile_optimizations` system is now fully operational.
+
+**Fix 2 — `run_if` guard on `check_reload_environment` (`main.rs`):** The system was registered in `PostUpdate` unconditionally, evaluating a broad `Query<Entity, Or<(With<Ground>, With<Wall>, With<Shelf>, With<Station>, With<Dropoff>)>>` every frame even when no reload was pending. Added `.run_if(resource_exists::<ReloadEnvironment>)` so the system and all its queries are skipped when the resource is absent. Import added: `bevy::ecs::schedule::common_conditions::resource_exists`.
+
+**Files changed:** `visualizer/src/systems/populate_scene.rs`, `visualizer/src/main.rs`.
+
 ### 2026-03-09: Fix collision cascade: lookahead scan, fault-zone stop, faster tick (Phase 5)
 
 Three interacting root causes caused every collision to cascade into a wave of secondary collisions across the fleet.

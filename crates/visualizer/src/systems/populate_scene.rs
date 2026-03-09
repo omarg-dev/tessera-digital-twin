@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
