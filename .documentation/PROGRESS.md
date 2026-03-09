@@ -260,6 +260,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-09: Robot label fix — ASCII status words, viewport clipping (Phase 5)
+
+Two follow-up fixes to overhead robot labels after visual review.
+
+**Unicode symbols rendered as boxes** — egui's default Hack font has no glyph coverage for `⚡`, `↺`, `▣`, `✖`, etc., so they all appeared as `□`. Replaced all Unicode glyphs with plain ASCII status words: `FAULT`, `LOW BATT`, `REROUTING`, `CHARGING`, `PICKING`, `-> PICKUP`, `-> DROP`, `-> CHARGER`, `IDLE`, `OFFLINE`. Cargo flag is a `PKG` suffix. All reliable in any font.
+
+**Labels bleeding into side panels** — `Order::Background` alone does not prevent labels from robots physically behind the sidebar from projecting into panel screen-space. Added an explicit viewport clip rect computed from `ctx.content_rect()` minus `SIDE_PANEL_DEFAULT_WIDTH` (left+right), `TOP_PANEL_HEIGHT` (top), and `BOTTOM_PANEL_DEFAULT_HEIGHT` (bottom). Labels whose projected screen position falls outside that rect are skipped.
+
+**Files changed:** `visualizer/src/systems/robot_labels.rs`.
+
+---
+
 ### 2026-03-09: Robot label UX polish — readability, layering, declutter (Phase 5)
 
 Four fixes to the overhead robot labels based on visual review.
