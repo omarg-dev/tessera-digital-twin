@@ -12,3 +12,4 @@ pub mod outline;
 pub mod path_receiver;
 pub mod draw_paths;
 pub mod interpolate_robots;
+pub mod robot_labels;

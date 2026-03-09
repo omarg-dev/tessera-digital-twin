@@ -69,7 +69,7 @@ pub fn top_panel(
 
                 // Push layer toggles to the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.checkbox(&mut ui_state.show_ids, "IDs");
+                    ui.checkbox(&mut ui_state.show_ids, "Labels");
                     ui.checkbox(&mut ui_state.show_heatmap, "Heatmap");
                     ui.checkbox(&mut ui_state.show_paths, "Paths");
                 });

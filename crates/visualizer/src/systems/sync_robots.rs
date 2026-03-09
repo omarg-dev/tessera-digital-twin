@@ -18,6 +18,7 @@ pub fn sync_robots(
     mut shelves: Query<(Entity, &mut Shelf, &Transform), Without<Robot>>,
     warehouse_map: Option<Res<WarehouseMap>>,
     placeholder_meshes: Option<Res<PlaceholderMeshes>>,
+    time: Res<Time>,
 ) {
     // Drain all updates collected this frame
     for update in robot_updates.updates.drain(..) {
@@ -37,6 +38,7 @@ pub fn sync_robots(
                 // owned by interpolate_robots (dead-reckons + lerps every render frame)
                 robot.target_position = pos;
                 robot.network_velocity = vel;
+                robot.last_update_secs = time.elapsed_secs();
                 // do NOT write transform.translation here; interpolate_robots handles it
 
                 match (old_carrying, robot.carrying_cargo) {
@@ -104,6 +106,8 @@ pub fn sync_robots(
                         // on spawn, target = current pos so interpolation starts settled
                         target_position: pos,
                         network_velocity: Vec3::ZERO,
+                        last_update_secs: time.elapsed_secs(),
+                        label_hidden: false,
                     },
                 )).id()
             } else {
@@ -119,6 +123,8 @@ pub fn sync_robots(
                         carrying_cargo: update.carrying_cargo,
                         target_position: pos,
                         network_velocity: Vec3::ZERO,
+                        last_update_secs: time.elapsed_secs(),
+                        label_hidden: false,
                     },
                 )).id()
             };

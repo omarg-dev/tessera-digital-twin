@@ -260,6 +260,40 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-09: Overhead robot labels (Phase 5)
+
+Implemented floating egui labels rendered over each robot in the 3D viewport.
+
+**Label contents**: `#ID  <goal-icon>  <battery%> [▣]`
+- Robot ID (bold, colored by state)
+- Goal icon: `●` idle, `→PKG` moving to pickup, `→DST` moving to drop, `→⚡` moving to station, `↓PKG` picking, `⚡` charging, `⚡!` low-battery, `↺` blocked/rerouting, `✖` faulted, `✕` offline
+- Battery percentage and cargo indicator (`▣` when carrying)
+- Muted gray secondary text; main ID + icon inherit the state color
+
+**State color map** (added to `protocol::config::visual::labels`):
+| State | Color | Notes |
+|---|---|---|
+| Faulted | Red | collision or hard fault |
+| LowBattery | Orange | below 20% threshold |
+| Blocked | Blue | WHCA* rerouting |
+| Charging | Green | at home station |
+| Picking | Yellow | cargo transfer in progress |
+| Normal | Near-white | idle, moving, en-route |
+| Offline | Gray | no update for >3 s |
+
+**Controls**:
+- Top-bar *Labels* checkbox (`UiState.show_ids`) globally shows/hides all labels
+- Right-click a robot in the 3D viewport to hide/show that robot's label individually (`Robot.label_hidden`)
+
+**Architecture**:
+- `protocol::config::visual::labels` — all constants (colors, offsets, font size, timeout)
+- `Robot` component — added `last_update_secs: f32` (set by `sync_robots` each update) and `label_hidden: bool` (toggled by right-click observer)
+- `systems/robot_labels.rs` — `draw_robot_labels` system: projects world pos → egui logical pixels via `Camera::world_to_viewport`, renders one `egui::Area` per robot with `pivot(CENTER_BOTTOM)` for natural floating alignment
+- `systems/outline.rs` `on_pointer_click` — secondary (right) click branch added before existing primary logic; toggles `robot.label_hidden` on the logical Robot entity
+- `main.rs` — `draw_robot_labels` registered in `EguiPrimaryContextPass` chained after `draw_ui` so labels render on top of the viewport but under the egui panels
+
+**Files changed:** `protocol/src/config.rs`, `visualizer/src/components.rs`, `visualizer/src/systems/sync_robots.rs`, `visualizer/src/systems/robot_labels.rs` (new), `visualizer/src/systems/mod.rs`, `visualizer/src/systems/outline.rs`, `visualizer/src/main.rs`, `visualizer/src/ui/panels.rs`.
+
 ### 2026-03-10: Fix NotShadowCaster import and add run_if guard on reload check (Phase 5)
 
 Two fixes to unblock the shadow propagation optimization and reduce per-frame overhead.

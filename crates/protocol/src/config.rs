@@ -361,6 +361,46 @@ pub mod visual {
         /// Log buffer ring capacity
         pub const LOG_BUFFER_CAPACITY: usize = 512;
     }
+
+    /// Overhead robot label settings
+    pub mod labels {
+        /// World-unit Y offset above robot mesh top for the label anchor point
+        pub const Y_OFFSET: f32 = 0.45;
+
+        /// Seconds since last received update before a robot is shown as offline
+        pub const OFFLINE_TIMEOUT_SECS: f32 = 3.0;
+
+        /// egui font size for label text
+        pub const FONT_SIZE: f32 = 11.0;
+
+        /// Label background opacity (0 = transparent, 255 = opaque)
+        pub const BG_ALPHA: u8 = 165;
+
+        /// Label frame corner radius
+        pub const CORNER_RADIUS: f32 = 4.0;
+
+        /// Horizontal inner padding (logical pixels)
+        pub const PADDING_H: f32 = 5.0;
+
+        /// Vertical inner padding (logical pixels)
+        pub const PADDING_V: f32 = 2.0;
+
+        // state colors (R, G, B) in 0-255 range for egui
+        /// Faulted / collision
+        pub const COLOR_FAULTED: (u8, u8, u8) = (220, 60, 60);
+        /// Low battery warning
+        pub const COLOR_LOW_BATT: (u8, u8, u8) = (255, 160, 30);
+        /// Blocked / rerouting
+        pub const COLOR_BLOCKED: (u8, u8, u8) = (80, 130, 255);
+        /// Charging at station
+        pub const COLOR_CHARGING: (u8, u8, u8) = (60, 210, 100);
+        /// No updates received (offline / link dead)
+        pub const COLOR_OFFLINE: (u8, u8, u8) = (130, 130, 130);
+        /// Actively picking cargo
+        pub const COLOR_PICKING: (u8, u8, u8) = (255, 210, 60);
+        /// Normal operation (moving, idle)
+        pub const COLOR_NORMAL: (u8, u8, u8) = (220, 220, 220);
+    }
 }
 
 /// Notification sound settings

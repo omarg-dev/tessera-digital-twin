@@ -47,6 +47,7 @@ use systems::{
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
     path_receiver::{setup_path_listener, collect_path_telemetry},
     draw_paths::{configure_gizmos, draw_robot_paths},
+    robot_labels::draw_robot_labels,
 };
 
 fn main() {
@@ -119,7 +120,7 @@ fn main() {
             draw_robot_paths,
         ))
         // UI runs inside the egui context pass (after Update, before rendering)
-        .add_systems(EguiPrimaryContextPass, ui::draw_ui)
+        .add_systems(EguiPrimaryContextPass, (ui::draw_ui, draw_robot_labels).chain())
         // PostUpdate: runs after EguiPrimaryContextPass so outline sync sees hovered_entity from draw_ui
         .add_systems(PostUpdate, (
             check_reload_environment.run_if(resource_exists::<systems::commands::ReloadEnvironment>),

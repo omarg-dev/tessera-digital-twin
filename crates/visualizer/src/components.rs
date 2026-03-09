@@ -18,6 +18,11 @@ pub struct Robot {
     pub target_position: Vec3,
     /// velocity reported by firmware; used for dead-reckoning between updates.
     pub network_velocity: Vec3,
+    /// elapsed seconds when the last network update was applied.
+    /// used by the label system to detect offline robots (no recent update).
+    pub last_update_secs: f32,
+    /// true when the user has right-clicked to suppress this robot's label.
+    pub label_hidden: bool,
 }
 
 /// Ground tile marker
