@@ -222,7 +222,9 @@ pub async fn run(session: Session, map: GridMap) {
                         &mut robots,
                         update,
                         Some(batch.tick),
+                        &cmd_publisher,
                         &status_publisher,
+                        &mut next_cmd_id,
                         &mut pathfinder,
                         verbose,
                     ).await;
@@ -235,7 +237,9 @@ pub async fn run(session: Session, map: GridMap) {
                     &mut robots,
                     update,
                     None,
+                    &cmd_publisher,
                     &status_publisher,
+                    &mut next_cmd_id,
                     &mut pathfinder,
                     verbose,
                 ).await;
@@ -404,17 +408,27 @@ async fn send_path_commands(
             robot.clear_wait();
         }
 
-        // send FollowPath if not yet dispatched for this path segment
+        // send path command if not yet dispatched for this path segment.
+        // use ReturnToStation when the robot is heading home so firmware sets
+        // MovingToStation (not MovingToPickup which FollowPath infers from no cargo).
         if !robot.path_sent {
             let remaining: Vec<[f32; 3]> = robot.current_path[robot.path_index..].to_vec();
             if !remaining.is_empty() {
+                let command = if robot.task_stage == crate::state::TaskStage::ReturningToStation {
+                    PathCommand::ReturnToStation {
+                        waypoints: remaining,
+                        speed: coord_config::DEFAULT_SPEED,
+                    }
+                } else {
+                    PathCommand::FollowPath {
+                        waypoints: remaining,
+                        speed: coord_config::DEFAULT_SPEED,
+                    }
+                };
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id: *robot_id,
-                    command: PathCommand::FollowPath {
-                        waypoints: remaining,
-                        speed: coord_config::DEFAULT_SPEED,
-                    },
+                    command,
                 };
                 *next_cmd_id += 1;
                 cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
@@ -518,7 +532,9 @@ async fn handle_robot_update(
     robots: &mut HashMap<u32, TrackedRobot>,
     update: RobotUpdate,
     tick: Option<u64>,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
@@ -590,7 +606,9 @@ async fn handle_robot_update(
             robot,
             robot.last_update.id,
             reason,
+            cmd_publisher,
             status_publisher,
+            next_cmd_id,
             pathfinder,
             verbose,
         ).await;
@@ -716,7 +734,7 @@ async fn detect_inter_robot_collisions(
     }
     for (robot_id, reason) in to_fault {
         if let Some(robot) = robots.get_mut(&robot_id) {
-            task_manager::mark_robot_faulted(robot, robot_id, reason, status_publisher, pathfinder, verbose).await;
+            task_manager::mark_robot_faulted(robot, robot_id, reason, cmd_publisher, status_publisher, next_cmd_id, pathfinder, verbose).await;
         }
     }
 

@@ -260,6 +260,22 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-09: Fix robot state pipeline — 4 bugs (Phase 5)
+
+Four bugs causing wrong robot labels were identified by full codebase investigation and fixed.
+
+**Bug 1 — "CHARGING" while still mid-return** (`coordinator/src/task_manager.rs` `handle_returning_to_station`): The battery-ready check `if battery >= MIN_BATTERY_FOR_TASK { task_stage = Idle }` ran unconditionally every tick, outside the arrival guard. A robot returning because there were no pending tasks (`NoPendingTasks` reason) typically had a full battery and would exit `ReturningToStation` on the very first tick before reaching the station. Fix: moved the battery check inside the `path_complete() && is_near()` block so it only fires once the robot has physically arrived.
+
+**Bug 2 — "-> PICKUP" at station and after any stop** (`coordinator/src/server.rs` `send_path_commands` watchdog): The watchdog always emitted `PathCommand::FollowPath` regardless of `task_stage`. Firmware infers state from cargo presence: no cargo → `MovingToPickup`. Any event that cleared `path_sent` (Stop, deadlock override) during a return trip caused the watchdog to resend `FollowPath`, clobbering `MovingToStation` with `MovingToPickup`. Fix: watchdog now checks `robot.task_stage == ReturningToStation` and emits `PathCommand::ReturnToStation` instead.
+
+**Bug 3 — Faulted state never visible in visualizer** (`coordinator/src/task_manager.rs` `mark_robot_faulted`): The function only mutated the coordinator's local `TrackedRobot.last_update.state`. Firmware never received a fault signal and kept broadcasting `Blocked`. Fix: added `PathCommand::Fault` variant to the protocol. Firmware handles it by stopping all movement and setting `RobotState::Faulted`. `mark_robot_faulted` now sends a `PathCmd::Fault` to firmware so future Zenoh broadcasts carry the correct state. Threaded `cmd_publisher` and `next_cmd_id` through all four call sites (`handle_blocked_robots` ×2, `handle_robot_update`, `detect_inter_robot_collisions`).
+
+**Bug 4 — Low-battery guard overwrites `MovingToStation`** (`mock_firmware/src/robot.rs` `update_physics`): The low-battery state override `if battery <= LOW_THRESHOLD` did not exclude `MovingToStation`. A robot already heading home would have its state overwritten to `LowBattery`; on arrival `on_arrival()` wouldn't match and the robot would stay `LowBattery` at the station forever. Fix: added `&& self.state != RobotState::MovingToStation` to the guard.
+
+**Files changed:** `protocol/src/commands.rs`, `mock_firmware/src/robot.rs`, `coordinator/src/task_manager.rs`, `coordinator/src/server.rs`.
+
+---
+
 ### 2026-03-09: Label zoom scaling, right-click hide, fix OFFLINE and -> PICKUP bugs (Phase 5)
 
 **Label zoom scaling** — Labels now scale with camera zoom. At the default orbit radius they are 1x; zooming in makes them slightly larger (up to 1.6x), zooming out shrinks them (down to 0.45x). Formula: `sqrt(DEFAULT_RADIUS / radius).clamp(0.45, 1.6)` — sqrt smooths the curve. Font sizes, stroke width all scale together. Requires `CameraController` query in `draw_robot_labels`.

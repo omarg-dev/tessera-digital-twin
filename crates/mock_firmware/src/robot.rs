@@ -113,10 +113,11 @@ impl SimRobot {
             self.battery -= drain_rate * dt;
             self.battery = self.battery.max(0.0);
             
-            // Check for low battery
+            // Check for low battery (don't override a robot already returning home)
             if self.battery <= battery::LOW_THRESHOLD 
                 && self.state != RobotState::LowBattery 
-                && self.state != RobotState::Charging 
+                && self.state != RobotState::Charging
+                && self.state != RobotState::MovingToStation
             {
                 self.state = RobotState::LowBattery;
                 println!("⚠ Robot {} LOW BATTERY: {:.1}%", self.id, self.battery);
@@ -346,6 +347,14 @@ impl SimRobot {
                 }
                 self.target = None;
                 self.velocity = [0.0, 0.0, 0.0];
+            }
+            PathCommand::Fault => {
+                // Coordinator has determined this robot is unrecoverable for now.
+                // Stop all movement and broadcast Faulted state via Zenoh.
+                self.velocity = [0.0, 0.0, 0.0];
+                self.target = None;
+                self.waypoint_queue.clear();
+                self.state = RobotState::Faulted;
             }
         }
         

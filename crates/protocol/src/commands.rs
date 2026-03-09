@@ -27,6 +27,9 @@ pub enum PathCommand {
     ReturnToStation { waypoints: Vec<[f32; 3]>, speed: f32 },
     /// Stop immediately and clear any queued waypoints
     Stop,
+    /// Mark the robot as faulted: stop all movement and set RobotState::Faulted.
+    /// Sent by the coordinator when a robot exceeds blocked/replan thresholds.
+    Fault,
     /// Pick up cargo at current location
     Pickup { cargo_id: u32 },
     /// Drop cargo at current location

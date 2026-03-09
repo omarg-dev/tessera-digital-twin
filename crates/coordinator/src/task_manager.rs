@@ -534,7 +534,9 @@ pub async fn mark_robot_faulted(
     robot: &mut TrackedRobot,
     robot_id: u32,
     reason: String,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
@@ -569,6 +571,15 @@ pub async fn mark_robot_faulted(
 
     // Update local state to reflect fault
     robot.last_update.state = RobotState::Faulted;
+
+    // Tell firmware to stop and set Faulted state so it broadcasts via Zenoh.
+    let fault_cmd = PathCmd {
+        cmd_id: *next_cmd_id,
+        robot_id,
+        command: PathCommand::Fault,
+    };
+    *next_cmd_id += 1;
+    cmd_publisher.put(to_vec(&fault_cmd).unwrap()).await.ok();
 
     // Clear reservations for this robot
     pathfinder.clear_robot_reservations(robot_id);
@@ -605,7 +616,9 @@ async fn handle_blocked_robots(
                     robot,
                     robot_id,
                     format!("Blocked timeout ({}s)", collision_config::BLOCKED_TIMEOUT_SECS),
+                    cmd_publisher,
                     status_publisher,
+                    next_cmd_id,
                     pathfinder,
                     verbose,
                 ).await;
@@ -634,7 +647,9 @@ async fn handle_blocked_robots(
                     robot,
                     robot_id,
                     format!("Replan failed ({} attempts)", robot.replan_attempts),
+                    cmd_publisher,
                     status_publisher,
+                    next_cmd_id,
                     pathfinder,
                     verbose,
                 ).await;
@@ -773,22 +788,26 @@ async fn handle_returning_to_station(
             
             robot.current_path.clear();
             robot.path_index = 0;
+
+            // Only transition to Idle here — the robot has physically arrived.
+            // Do NOT check battery outside this block; a robot still mid-path
+            // with a full battery (NoPendingTasks reason) must not exit early.
+            let battery = robot.last_update.battery;
+            if battery >= battery_config::MIN_BATTERY_FOR_TASK {
+                if verbose {
+                    println!("[{}ms] ✅ Robot {} charged to {:.1}%, available for tasks",
+                        timestamp(), robot_id, battery);
+                }
+                logs::save_log("Coordinator", &format!(
+                    "Robot {} ready: battery {:.1}%", robot_id, battery
+                ));
+                robot.task_stage = TaskStage::Idle;
+                robot.return_reason = None;
+            }
+            // If battery is still low the robot stays in ReturningToStation;
+            // on the next tick Charging state + battery drain will eventually
+            // bring it above MIN_BATTERY_FOR_TASK and this block fires again.
         }
-    }
-    
-    // Check if robot is done charging
-    let battery = robot.last_update.battery;
-    if battery >= battery_config::MIN_BATTERY_FOR_TASK {
-        if verbose {
-            println!("[{}ms] ✅ Robot {} charged to {:.1}%, available for tasks", 
-                timestamp(), robot_id, battery);
-        }
-        logs::save_log("Coordinator", &format!(
-            "Robot {} ready: battery {:.1}%", robot_id, battery
-        ));
-        
-        robot.task_stage = TaskStage::Idle;
-        robot.return_reason = None;
     }
 }
 
