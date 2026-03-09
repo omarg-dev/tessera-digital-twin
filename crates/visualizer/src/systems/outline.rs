@@ -135,8 +135,22 @@ pub fn on_pointer_click(
     selected_query: Query<Entity, With<Selected>>,
     parents: Query<&ChildOf>,
     interactives: Query<(), Or<(With<Robot>, With<Shelf>, With<Station>, With<Dropoff>)>>,
+    robots: Query<(), With<Robot>>,
 ) {
     let target = event.entity;
+
+    // right-click on a robot: hide its label (reappears when the entity is deselected)
+    if event.button == PointerButton::Secondary {
+        if meshes.get(target).is_ok() {
+            if let Some(logical) = find_interactive_ancestor(target, &parents, &interactives) {
+                if robots.get(logical).is_ok() {
+                    event.propagate(false);
+                    ui_state.hidden_labels.insert(logical);
+                }
+            }
+        }
+        return;
+    }
 
     if event.button != PointerButton::Primary {
         return;
@@ -150,6 +164,12 @@ pub fn on_pointer_click(
     };
 
     event.propagate(false);
+
+    // clear hidden label for whichever entity was previously selected so it
+    // reappears when deselected (whether via toggle-click or selecting a new entity).
+    if let Some(prev_selected) = ui_state.selected_entity {
+        ui_state.hidden_labels.remove(&prev_selected);
+    }
 
     // deselect all currently selected entities (remove outline + marker)
     for prev in selected_query.iter() {

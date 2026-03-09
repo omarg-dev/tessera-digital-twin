@@ -286,6 +286,23 @@ impl SimRobot {
                     self.state = RobotState::MovingToPickup;
                 }
             }
+            PathCommand::ReturnToStation { waypoints, speed } => {
+                if waypoints.is_empty() {
+                    return CommandStatus::Accepted;
+                }
+                if waypoints[0][0].is_nan() || waypoints[0][2].is_nan() || *speed <= 0.0 {
+                    return CommandStatus::Rejected {
+                        reason: "Invalid ReturnToStation".to_string(),
+                    };
+                }
+                self.waypoint_queue.clear();
+                self.target = Some(waypoints[0]);
+                self.target_speed = *speed;
+                for &wp in &waypoints[1..] {
+                    self.waypoint_queue.push_back(wp);
+                }
+                self.state = RobotState::MovingToStation;
+            }
             PathCommand::Stop => {
                 self.velocity = [0.0, 0.0, 0.0];
                 self.target = None;

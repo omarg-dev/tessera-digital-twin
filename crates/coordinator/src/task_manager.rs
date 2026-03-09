@@ -826,7 +826,7 @@ async fn handle_idle_low_battery(
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id,
-                    command: PathCommand::FollowPath {
+                    command: PathCommand::ReturnToStation {
                         waypoints: return_path,
                         speed: coord_config::DEFAULT_SPEED,
                     },
@@ -1101,7 +1101,7 @@ async fn handle_delivering(
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id,
-                    command: PathCommand::FollowPath {
+                    command: PathCommand::ReturnToStation {
                         waypoints: station_path,
                         speed: coord_config::DEFAULT_SPEED,
                     },

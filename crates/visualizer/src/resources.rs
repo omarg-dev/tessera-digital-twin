@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use protocol::config::visual::ui as ui_cfg;
 use protocol::grid_map::GridMap;
 use protocol::{QueueState, RobotControl, RobotUpdate, SystemCommand, TaskRequest};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -146,6 +146,9 @@ pub struct UiState {
     /// Set to true by on_pointer_click when a 3D interactive entity absorbs a click.
     /// Used in draw_ui to prevent background-click deselect from firing.
     pub entity_picked_this_frame: bool,
+    /// Entities whose robot label is explicitly hidden by right-click.
+    /// Cleared automatically when the entity is deselected.
+    pub hidden_labels: HashSet<Entity>,
 }
 
 impl Default for UiState {
@@ -168,6 +171,7 @@ impl Default for UiState {
             transport_shelves_expanded: false,
             hovered_entity: None,
             entity_picked_this_frame: false,
+            hidden_labels: HashSet::new(),
         }
     }
 }

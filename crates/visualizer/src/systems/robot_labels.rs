@@ -14,10 +14,11 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts};
 use protocol::RobotState;
-use protocol::config::visual::{ROBOT_SIZE, labels as lbl, ui as ui_cfg};
+use protocol::config::visual::{ROBOT_SIZE, labels as lbl, ui as ui_cfg, camera as cam_cfg};
 
 use crate::components::Robot;
 use crate::resources::UiState;
+use crate::systems::camera::CameraController;
 
 /// Render overhead floating labels for every visible robot.
 pub fn draw_robot_labels(
@@ -25,6 +26,7 @@ pub fn draw_robot_labels(
     ui_state: Res<UiState>,
     robots: Query<(Entity, &Robot, &Transform)>,
     camera: Query<(&Camera, &GlobalTransform)>,
+    camera_ctrl: Query<&CameraController>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
 ) -> Result {
@@ -43,6 +45,14 @@ pub fn draw_robot_labels(
     let now = time.elapsed_secs();
     let scale = window.scale_factor();
 
+    // scale labels with zoom: at default radius labels are 1×; closer = slightly larger,
+    // farther = smaller. sqrt smooths the curve; clamped so labels stay legible.
+    let zoom_scale = if let Ok(ctrl) = camera_ctrl.single() {
+        (cam_cfg::DEFAULT_RADIUS / ctrl.radius).sqrt().clamp(0.45, 1.6)
+    } else {
+        1.0
+    };
+
     // viewport rect in egui logical pixels — labels are clipped to this area
     // so they never bleed into the side panels, top bar, or bottom panel.
     let screen = ctx.content_rect();
@@ -56,8 +66,8 @@ pub fn draw_robot_labels(
     let id_color = egui::Color32::from_rgba_unmultiplied(160, 160, 160, 200);
 
     for (entity, robot, transform) in &robots {
-        // hide label while the robot is selected — inspector shows all detail
-        if ui_state.selected_entity == Some(entity) {
+        // hide label if explicitly hidden by right-click (cleared on deselect)
+        if ui_state.hidden_labels.contains(&entity) {
             continue;
         }
 
@@ -76,7 +86,7 @@ pub fn draw_robot_labels(
 
         let (color, status, has_cargo) = label_content(robot, now);
         let status_color = egui::Color32::from_rgb(color.0, color.1, color.2);
-        let stroke = egui::Stroke::new(lbl::STROKE_WIDTH, status_color);
+        let stroke = egui::Stroke::new(lbl::STROKE_WIDTH * zoom_scale.max(0.7), status_color);
 
         // Order::Background keeps labels behind egui panels
         egui::Area::new(egui::Id::new(("rl", robot.id)))
@@ -97,7 +107,7 @@ pub fn draw_robot_labels(
                             ui.label(
                                 egui::RichText::new(format!("#{}", robot.id))
                                     .color(id_color)
-                                    .size(lbl::FONT_SIZE),
+                                    .size(lbl::FONT_SIZE * zoom_scale),
                             );
                             // large bold status word in state color
                             let label_text = if has_cargo {
@@ -108,7 +118,7 @@ pub fn draw_robot_labels(
                             ui.label(
                                 egui::RichText::new(label_text)
                                     .color(status_color)
-                                    .size(lbl::ICON_SIZE)
+                                    .size(lbl::ICON_SIZE * zoom_scale)
                                     .strong(),
                             );
                         });

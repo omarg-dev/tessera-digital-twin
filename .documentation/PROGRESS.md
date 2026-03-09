@@ -260,6 +260,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-09: Label zoom scaling, right-click hide, fix OFFLINE and -> PICKUP bugs (Phase 5)
+
+**Label zoom scaling** — Labels now scale with camera zoom. At the default orbit radius they are 1x; zooming in makes them slightly larger (up to 1.6x), zooming out shrinks them (down to 0.45x). Formula: `sqrt(DEFAULT_RADIUS / radius).clamp(0.45, 1.6)` — sqrt smooths the curve. Font sizes, stroke width all scale together. Requires `CameraController` query in `draw_robot_labels`.
+
+**Right-click to hide, auto-restore on deselect** — Right-clicking a robot in the 3D viewport adds it to a `hidden_labels: HashSet<Entity>` in `UiState`. The label is hidden until the robot is deselected, at which point the entry is removed (cleared in `on_pointer_click` before deselect, and in the background-click deselect handler in `draw_ui`). Labels no longer auto-hide when selected — only explicit right-click hides them.
+
+**Bug: OFFLINE shown when robot is IDLE** — Root cause: `collect_robot_updates` in `zenoh_receiver.rs` only forwarded updates to `sync_robots` when position or state changed. A stationary idle robot would pass 0 updates indefinitely, so `last_update_secs` on the `Robot` component was never refreshed and the 3.0 s offline timeout triggered. Fix: removed the dedup guard entirely — all received updates are forwarded. At 20 Hz and few robots this is negligible overhead.
+
+**Bug: `-> PICKUP` shown when returning to station** — Root cause: `PathCommand::FollowPath` infers firmware state from cargo presence: no cargo → `MovingToPickup`. The coordinator was sending `FollowPath` for return-to-station paths, so the firmware always showed `MovingToPickup` during return. Fix: added `PathCommand::ReturnToStation { waypoints, speed }` to the protocol. Firmware handles it identically to `FollowPath` but sets `RobotState::MovingToStation`. The coordinator now dispatches `ReturnToStation` for both low-battery return and post-task return paths.
+
+**Files changed:** `protocol/src/commands.rs`, `mock_firmware/src/robot.rs`, `coordinator/src/task_manager.rs`, `visualizer/src/systems/zenoh_receiver.rs`, `visualizer/src/resources.rs`, `visualizer/src/ui/mod.rs`, `visualizer/src/systems/outline.rs`, `visualizer/src/systems/robot_labels.rs`.
+
+---
+
 ### 2026-03-09: Robot label fix — ASCII status words, viewport clipping (Phase 5)
 
 Two follow-up fixes to overhead robot labels after visual review.

@@ -76,23 +76,12 @@ pub fn collect_robot_updates(
     loop {
         match receiver.0.try_recv() {
             Ok(update) => {
-                let last_pos = last_positions.by_id.get(&update.id);
-                let last_state = last_positions.state_by_id.get(&update.id);
-
-                let moved = match last_pos {
-                    Some(prev) => prev != &update.position,
-                    None => true,
-                };
-                let state_changed = match last_state {
-                    Some(prev) => prev != &update.state,
-                    None => true,
-                };
-
-                if moved || state_changed {
-                    last_positions.by_id.insert(update.id, update.position);
-                    last_positions.state_by_id.insert(update.id, update.state.clone());
-                    robot_updates.updates.push(update);
-                }
+                // always update last positions and push the update so that
+                // sync_robots can refresh last_update_secs even for idle
+                // robots that haven't moved or changed state.
+                last_positions.by_id.insert(update.id, update.position);
+                last_positions.state_by_id.insert(update.id, update.state.clone());
+                robot_updates.updates.push(update);
             }
             Err(mpsc::error::TryRecvError::Empty) => break,
             Err(mpsc::error::TryRecvError::Disconnected) => break,

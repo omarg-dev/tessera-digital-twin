@@ -22,6 +22,9 @@ pub enum PathCommand {
     /// Firmware advances through waypoints internally; coordinator sends the full
     /// remaining path in one shot. State is inferred from cargo (same as MoveTo).
     FollowPath { waypoints: Vec<[f32; 3]>, speed: f32 },
+    /// Follow a sequence of waypoints back to the home charging station.
+    /// Sets RobotState::MovingToStation so the visualizer can show the correct label.
+    ReturnToStation { waypoints: Vec<[f32; 3]>, speed: f32 },
     /// Stop immediately and clear any queued waypoints
     Stop,
     /// Pick up cargo at current location
