@@ -11,7 +11,7 @@ use rand::thread_rng;
 use protocol::config::scheduler as sched_config;
 use protocol::{
     timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
-    Task, TaskAssignment, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
+    Task, TaskAssignment, TaskCommand, TaskListSnapshot, TaskStatus, TaskStatusUpdate, TaskType,
 };
 
 use crate::allocator::{Allocator, AllocatorInstance, RobotInfo};
@@ -37,6 +37,7 @@ pub async fn run(session: Session) {
     // Publishers
     let assignment_pub = session.declare_publisher(topics::TASK_ASSIGNMENTS).await.unwrap();
     let queue_pub = session.declare_publisher(topics::QUEUE_STATE).await.unwrap();
+    let task_list_pub = session.declare_publisher(topics::TASK_LIST).await.unwrap();
 
     // Subscribers
     let task_sub = session.declare_subscriber(topics::TASK_REQUESTS).await.unwrap();
@@ -83,9 +84,10 @@ pub async fn run(session: Session) {
             allocate_tasks(&mut queue, &allocator, &mut robots, &map, &mut inventory, &assignment_pub, verbose).await;
         }
 
-        // Broadcast queue state
+        // Broadcast queue state and task list
         if last_broadcast.elapsed() >= std::time::Duration::from_secs(sched_config::QUEUE_BROADCAST_SECS) {
             broadcast_state(&queue_pub, &queue, &robots).await;
+            broadcast_task_list(&task_list_pub, &queue).await;
             last_broadcast = std::time::Instant::now();
         }
 
@@ -239,11 +241,57 @@ fn handle_task_requests(
     queue: &mut dyn TaskQueue,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(req) = from_slice::<TaskRequest>(&sample.payload().to_bytes()) {
-            let id = queue.next_task_id();
-            let task = Task::new(id, req.task_type, req.priority);
-            queue.enqueue(task);
+        if let Ok(cmd) = from_slice::<TaskCommand>(&sample.payload().to_bytes()) {
+            match cmd {
+                TaskCommand::New { task_type, priority } => {
+                    let id = queue.next_task_id();
+                    let task = Task::new(id, task_type, priority);
+                    println!("[{}ms] + Task #{} created via UI", timestamp(), id);
+                    logs::save_log("Scheduler", &format!("Task {} created via UI command", id));
+                    queue.enqueue(task);
+                }
+                TaskCommand::Cancel(task_id) => {
+                    if let Some(task) = queue.get_mut(task_id) {
+                        if matches!(task.status, TaskStatus::Pending) {
+                            task.status = TaskStatus::Cancelled;
+                            println!("[{}ms] \u{2713} Task #{} cancelled via UI", timestamp(), task_id);
+                            logs::save_log("Scheduler", &format!("Task {} cancelled via UI", task_id));
+                        } else {
+                            println!("[{}ms] \u{2717} Task #{} cannot cancel (status: {:?})", timestamp(), task_id, task.status);
+                        }
+                    } else {
+                        println!("[{}ms] \u{2717} Cancel: task #{} not found", timestamp(), task_id);
+                    }
+                }
+                TaskCommand::SetPriority(task_id, priority) => {
+                    if let Some(task) = queue.get_mut(task_id) {
+                        if matches!(task.status, TaskStatus::Pending) {
+                            let old = task.priority;
+                            task.priority = priority;
+                            println!("[{}ms] \u{2713} Task #{} priority: {:?} \u{2192} {:?}", timestamp(), task_id, old, priority);
+                            logs::save_log("Scheduler", &format!("Task {} priority changed to {:?}", task_id, priority));
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+async fn broadcast_task_list(
+    publisher: &zenoh::pubsub::Publisher<'_>,
+    queue: &dyn TaskQueue,
+) {
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let snapshot = TaskListSnapshot {
+        tasks: queue.all_tasks().into_iter().cloned().collect(),
+        timestamp_ms,
+    };
+    if let Ok(payload) = to_vec(&snapshot) {
+        publisher.put(payload).await.ok();
     }
 }
 

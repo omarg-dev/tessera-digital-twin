@@ -166,6 +166,9 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visualizer crate review: shared Tokio runtime, GridMap wall truth, O(1) lookups, PlaceholderMeshes, LogBuffer-only logging, sort optimizations
 - [x] **Glowing Outline System** (`bevy_mod_outline 0.11` + native `MeshPickingPlugin`): hover (white HDR) and select (cyan HDR) outlines with bloom post-processing
 - [x] **Path Visualization** (Bevy gizmos): glowing linestrip paths from robot to destination with bloom, global/per-robot toggle
+- [x] **Task Management UI**: per-task list with Active/Failed/Completed sections, Add Task wizard with two-step minimap location picker, priority selector; Details inspector with ETA, priority editor, and cancel action
+- [x] **TaskCommand protocol**: `cancel` and `set_priority` commands from UI to scheduler over Zenoh
+- [x] **TaskListSnapshot broadcast**: scheduler sends full task list to renderer every 2 seconds on `factory/tasks/list`
 
 **Pending Features:**
 
@@ -259,6 +262,37 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-10: Task Management UI — full implementation (Phase 5)
+
+Complete Task Management UI across protocol, scheduler, and visualizer layers.
+
+**Protocol** (`protocol/src/tasks.rs`, `topics.rs`, `lib.rs`): Added `TaskCommand` enum (`New`, `Cancel`, `SetPriority`) replacing bare `TaskRequest` on the `TASK_REQUESTS` topic for full task lifecycle control. Added `TaskListSnapshot { tasks: Vec<Task>, timestamp_ms }` and `TASK_LIST` topic constant for per-task data delivery to the renderer.
+
+**Scheduler** (`scheduler/src/server.rs`): `handle_task_requests` now deserializes `TaskCommand` — supports UI-driven creation, cancellation, and priority mutation with console + log output. Added `broadcast_task_list()` publishing `TaskListSnapshot` on every 2-second heartbeat alongside `QueueState`.
+
+**Visualizer resources** (`visualizer/src/resources.rs`, `components.rs`): Added `TaskListData`, `TaskListReceiver` resources. Added wizard state to `UiState` (`task_wizard_active`, `wizard_pickup`, `wizard_dropoff`, `wizard_priority`, `selected_task_id`). Added `CancelTask(u64)` and `ChangePriority(u64, Priority)` to `UiAction`. `OutboundCommand::Task` changed to carry `TaskCommand`. `Robot.current_task` field type corrected from `Option<u32>` to `Option<u64>`.
+
+**task_receiver system** (`visualizer/src/systems/task_receiver.rs`): New module with `setup_task_listener` (background subscriber on `TASK_LIST`), `collect_task_list` (drains into `TaskListData`), and `sync_robot_tasks` (clears all robot current_task, then re-applies from `Assigned`/`InProgress` entries each frame).
+
+**commands bridge** (`visualizer/src/systems/commands.rs`): `SubmitTransportTask` now serializes as `TaskCommand::New`. New arms for `CancelTask` and `ChangePriority`.
+
+**Left Panel — Task Tab** (`visualizer/src/ui/panels.rs`): Replaces placeholder with:
+- Stats header (active/completed/failed/robots from `TaskListData` + `QueueStateData`).
+- `task_list_view()`: three `CollapsingState` sections (Active: open, Failed: open with red text, Completed: collapsed). Clicking a row selects the task ID and switches to the Details tab.
+- `wizard_view()`: multi-step wizard replacing the task list. Step 1 selects a pickup shelf via `wizard_minimap_widget`. Step 2 selects dropoff (shelves + dropoffs clickable) with the pickup cell highlighted in blue. Priority `ComboBox` (Low/Normal/High/Critical). "Add Task" button enabled only when both points chosen.
+- `wizard_minimap_widget()`: new interactive minimap shared by both wizard steps — tile-type-based coloring, `Sense::click` interactions, distinct blue/green highlight overlays.
+
+**Right Panel — Task Inspector** (`visualizer/src/ui/panels.rs`): New `task_inspector()` shown when `selected_task_id.is_some()` and no entity is selected:
+- Pickup/dropoff coordinates with `task_detail_minimap()` (read-only, blue/green highlighted cells).
+- Assignment, status (with failure reason string), UTC created timestamp.
+- ETA: looks up robot in `ActivePaths`, computes `path.len() / ROBOT_SPEED`; falls back to "N/A" / "Arriving" without panic.
+- Priority `ComboBox` that emits `ChangePriority` on change.
+- "Remove Task" button that emits `CancelTask` and clears selection.
+
+**Files changed:** `protocol/src/tasks.rs`, `protocol/src/topics.rs`, `protocol/src/lib.rs`, `scheduler/src/server.rs`, `visualizer/src/components.rs`, `visualizer/src/resources.rs`, `visualizer/src/systems/mod.rs`, `visualizer/src/systems/task_receiver.rs` (new), `visualizer/src/systems/commands.rs`, `visualizer/src/main.rs`, `visualizer/src/ui/mod.rs`, `visualizer/src/ui/panels.rs`.
+
+---
 
 ### 2026-03-09: Fix robot state pipeline — 4 bugs (Phase 5)
 

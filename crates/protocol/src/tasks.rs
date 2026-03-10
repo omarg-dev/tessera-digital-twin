@@ -144,6 +144,31 @@ pub struct TaskRequest {
     pub priority: Priority,
 }
 
+/// Command sent to the scheduler via TASK_REQUESTS topic.
+///
+/// Extends beyond simple new-task requests to support full task management
+/// (creation, cancellation, and priority mutation) from external systems.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskCommand {
+    /// Create a new task
+    New { task_type: TaskType, priority: Priority },
+    /// Cancel an existing pending task
+    Cancel(TaskId),
+    /// Change the priority of an existing pending task
+    SetPriority(TaskId, Priority),
+}
+
+/// Full task list snapshot: scheduler → renderer, broadcast periodically.
+///
+/// Allows the renderer to display individual task details.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskListSnapshot {
+    /// all tasks currently tracked by the scheduler
+    pub tasks: Vec<Task>,
+    /// Unix milliseconds when this snapshot was taken
+    pub timestamp_ms: u64,
+}
+
 /// Queue status snapshot: scheduler broadcasts this periodically
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueState {

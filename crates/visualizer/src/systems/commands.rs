@@ -2,7 +2,7 @@
 //! Also publishes outbound commands from the UI to Zenoh.
 
 use bevy::prelude::*;
-use protocol::{RobotControl, SystemCommand, topics};
+use protocol::{RobotControl, SystemCommand, TaskCommand, topics};
 use serde_json::from_slice;
 use tokio::sync::mpsc;
 use zenoh::Session;
@@ -131,8 +131,8 @@ async fn run_publisher_loop(
                     robot_pub.put(payload).await.ok();
                 }
             }
-            OutboundCommand::Task(req) => {
-                if let Ok(payload) = serde_json::to_vec(&req) {
+            OutboundCommand::Task(cmd) => {
+                if let Ok(payload) = serde_json::to_vec(&cmd) {
                     task_pub.put(payload).await.ok();
                 }
             }
@@ -173,8 +173,19 @@ pub fn bridge_ui_commands(
                 format!("[UI] Enable Robot #{id}"),
             ),
             UiAction::SubmitTransportTask(req) => (
-                OutboundCommand::Task(req.clone()),
+                OutboundCommand::Task(TaskCommand::New {
+                    task_type: req.task_type.clone(),
+                    priority: req.priority,
+                }),
                 format!("[UI] Transport task: {:?}", req.task_type),
+            ),
+            UiAction::CancelTask(id) => (
+                OutboundCommand::Task(TaskCommand::Cancel(*id)),
+                format!("[UI] Cancel task #{id}"),
+            ),
+            UiAction::ChangePriority(id, priority) => (
+                OutboundCommand::Task(TaskCommand::SetPriority(*id, *priority)),
+                format!("[UI] Set task #{id} priority: {:?}", priority),
             ),
         };
 

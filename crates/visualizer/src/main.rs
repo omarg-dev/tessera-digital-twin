@@ -44,6 +44,7 @@ use systems::{
     interpolate_robots::interpolate_robots,
     commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
     queue_receiver::{setup_queue_listener, collect_queue_state},
+    task_receiver::{setup_task_listener, collect_task_list, sync_robot_tasks},
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
     path_receiver::{setup_path_listener, collect_path_telemetry},
     draw_paths::{configure_gizmos, draw_robot_paths},
@@ -91,6 +92,7 @@ fn main() {
         .init_resource::<resources::UiState>()
         .init_resource::<resources::LogBuffer>()
         .init_resource::<resources::QueueStateData>()
+        .init_resource::<resources::TaskListData>()
         .init_resource::<resources::ActivePaths>()
         // Events
         .add_message::<resources::UiAction>()
@@ -103,6 +105,7 @@ fn main() {
             setup_system_listener,
             setup_publishers,
             setup_queue_listener,
+            setup_task_listener,
             setup_path_listener,
             configure_gizmos,
         ))
@@ -112,6 +115,8 @@ fn main() {
             sync_robots,
             interpolate_robots.after(sync_robots),
             collect_queue_state,
+            collect_task_list,
+            sync_robot_tasks.after(collect_task_list),
             collect_path_telemetry,
             handle_system_commands,
             bridge_ui_commands,

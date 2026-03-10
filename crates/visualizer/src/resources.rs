@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use protocol::config::visual::ui as ui_cfg;
 use protocol::grid_map::GridMap;
-use protocol::{QueueState, RobotControl, RobotUpdate, SystemCommand, TaskRequest};
+use protocol::{Priority, QueueState, RobotControl, RobotUpdate, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -149,6 +149,16 @@ pub struct UiState {
     /// Entities whose robot label is explicitly hidden by right-click.
     /// Cleared automatically when the entity is deselected.
     pub hidden_labels: HashSet<Entity>,
+    /// true when the Add Task wizard replaces the task list
+    pub task_wizard_active: bool,
+    /// wizard step 1: chosen pickup grid cell
+    pub wizard_pickup: Option<(usize, usize)>,
+    /// wizard step 2: chosen dropoff/shelf grid cell
+    pub wizard_dropoff: Option<(usize, usize)>,
+    /// wizard priority selection
+    pub wizard_priority: Priority,
+    /// selected task ID for the Details inspector (None = no task selected)
+    pub selected_task_id: Option<u64>,
 }
 
 impl Default for UiState {
@@ -172,6 +182,11 @@ impl Default for UiState {
             hovered_entity: None,
             entity_picked_this_frame: false,
             hidden_labels: HashSet::new(),
+            task_wizard_active: false,
+            wizard_pickup: None,
+            wizard_dropoff: None,
+            wizard_priority: Priority::default(),
+            selected_task_id: None,
         }
     }
 }
@@ -210,7 +225,7 @@ impl LogBuffer {
 pub enum OutboundCommand {
     System(SystemCommand),
     Robot(RobotControl),
-    Task(TaskRequest),
+    Task(TaskCommand),
 }
 
 /// Sends outbound commands to the background Zenoh publisher thread
@@ -229,6 +244,19 @@ pub struct QueueStateData {
     pub pending: usize,
     pub total: usize,
     pub robots_online: usize,
+}
+
+// ── Task List ────────────────────────────────────────────
+
+/// Receives TaskListSnapshot broadcasts from the scheduler via Zenoh
+#[derive(Resource)]
+pub struct TaskListReceiver(pub mpsc::Receiver<TaskListSnapshot>);
+
+/// Latest task list received from the scheduler
+#[derive(Resource, Default)]
+pub struct TaskListData {
+    pub tasks: Vec<Task>,
+    pub last_updated_secs: f64,
 }
 
 // ── Path Telemetry ───────────────────────────────────────────────
@@ -257,4 +285,8 @@ pub enum UiAction {
     EnableRobot(u32),
     /// Submit a transport task to the scheduler
     SubmitTransportTask(TaskRequest),
+    /// Cancel a task by ID
+    CancelTask(u64),
+    /// Change task priority
+    ChangePriority(u64, Priority),
 }

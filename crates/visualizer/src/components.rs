@@ -9,9 +9,8 @@ pub struct Robot {
     /// authoritative world position from the last network update (used by UI)
     pub position: Vec3,
     pub battery: f32,
-    /// TODO: Wire to task assignment display in dashboard
-    #[allow(dead_code)]
-    pub current_task: Option<u32>,
+    /// task currently assigned to this robot (populated by task_receiver::sync_robot_tasks)
+    pub current_task: Option<u64>,
     pub carrying_cargo: Option<u32>,
     /// interpolation target: latest authoritative position from firmware.
     /// the interpolate_robots system lerps transform.translation toward this.

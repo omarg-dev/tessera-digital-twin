@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use crate::components::{Dropoff, Robot, Shelf};
-use crate::resources::{LogBuffer, QueueStateData, RobotIndex, UiAction, UiState, WarehouseMap};
+use crate::resources::{ActivePaths, LogBuffer, QueueStateData, RobotIndex, TaskListData, UiAction, UiState, WarehouseMap};
 
 /// System that renders all four UI panels each frame.
 ///
@@ -27,6 +27,8 @@ pub fn draw_ui(
     mut actions: MessageWriter<UiAction>,
     robot_index: Res<RobotIndex>,
     queue_state: Res<QueueStateData>,
+    task_list: Res<TaskListData>,
+    active_paths: Res<ActivePaths>,
     robots: Query<(Entity, &Robot)>,
     shelves: Query<(Entity, &Shelf)>,
     dropoffs: Query<(Entity, &Dropoff)>,
@@ -42,9 +44,11 @@ pub fn draw_ui(
 
     let mut pending_actions = Vec::new();
 
+    let wm = warehouse_map.as_deref().map(|wm| &wm.0);
+
     panels::top_panel(ctx, &mut ui_state, &robot_index, &queue_state, &time, &mut pending_actions);
-    panels::left_panel(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state);
-    panels::right_panel(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, warehouse_map.as_deref().map(|wm| &wm.0), &mut pending_actions);
+    panels::left_panel(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state, &dropoffs, &transforms, wm, &task_list, &mut pending_actions);
+    panels::right_panel(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, wm, &task_list, &active_paths, &mut pending_actions);
     panels::bottom_panel(ctx, &mut ui_state, &mut log_buffer);
 
     // background-click deselect: checked AFTER panels are drawn so
