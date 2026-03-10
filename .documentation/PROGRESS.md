@@ -263,6 +263,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-10: Fix Zenoh always-recompiles on orchestrator run (Phase 5)
+
+Diagnosed why Zenoh's TLS/crypto stack (`ring`, `rustls`, `quinn-proto`, etc.) recompiled on every `run` command in the orchestrator. Root causes: (1) `start_all` issued two separate `cargo build` invocations -- one for `coordinator/mock_firmware/scheduler`, one for `visualizer`. When the second invocation ran, `ring`'s build script detected that `target/` had changed from the first build and re-evaluated its fingerprint, triggering a full Zenoh stack recompile. (2) No profile overrides existed for the heavy crypto deps, so every recompile paid full opt-level cost.
+
+**Fix 1 -- `orchestrator/src/processes.rs`:** Merged the two `cargo build` calls into a single `cargo build -p coordinator -p mock_firmware -p scheduler -p visualizer` invocation. Cargo now unifies the full dependency graph in one pass; `ring`'s fingerprint remains stable because `target/` is only written to once.
+
+**Fix 2 -- `Cargo.toml`:** Added `[profile.dev.package]` overrides setting `opt-level = 0` for `ring`, `rustls`, `quinn-proto`, `quinn`, and `rustls-webpki`. These crates do not need speed in dev builds, and Cranelift can codegen them cheaply at opt-level 0, reducing unavoidable recompile time significantly.
+
 ### 2026-03-10: views/ -> tabs/, per-tab LABEL+draw() convention (Phase 5)
 
 Renamed `ui/views/` to `ui/tabs/` throughout (files, module declarations, imports, comments). No logic changes -- pure structural reorganisation.

@@ -101,28 +101,19 @@ impl Processes {
 
         println!("🔨 Building all crates...");
 
-        // build coordinator, firmware, scheduler together
-        let base_status = Command::new("cargo")
-            .args(["build", "-p", "coordinator", "-p", "mock_firmware", "-p", "scheduler"])
+        // build all four crates in a single invocation so Cargo can unify the dependency
+        // graph (ring/rustls/quinn) in one pass. two separate `cargo build` calls cause
+        // ring's build script to re-run on the second call because the target/ directory
+        // was modified by the first, marking its fingerprint dirty.
+        let build_status = Command::new("cargo")
+            .args(["build", "-p", "coordinator", "-p", "mock_firmware", "-p", "scheduler", "-p", "visualizer"])
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
             .map_err(|e| format!("Failed to build: {}", e))?;
 
-        if !base_status.success() {
+        if !build_status.success() {
             return Err("Build failed".to_string());
-        }
-
-        // build visualizer separately (isolated so future feature flags only apply here)
-        let viz_status = Command::new("cargo")
-            .args(["build", "-p", "visualizer"])
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-            .map_err(|e| format!("Failed to build visualizer: {}", e))?;
-
-        if !viz_status.success() {
-            return Err("Visualizer build failed".to_string());
         }
 
         println!("✓ Build complete");
