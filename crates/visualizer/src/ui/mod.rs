@@ -7,6 +7,8 @@
 //! - **Bottom:** System logs & analytics
 
 pub mod panels;
+pub mod views;
+pub mod widgets;
 
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;

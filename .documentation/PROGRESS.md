@@ -263,6 +263,22 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-10: Visualizer codebase restructure (Phase 5)
+
+Split the bloated `panels.rs` (1387 lines, 20 functions) and flat `systems/` layout into a clean, layered structure. No logic changes — pure file organisation.
+
+**systems/ restructure:** Created `systems/receivers/` subfolder housing four renamed modules: `robot_updates.rs` (was `zenoh_receiver.rs`), `queue_state.rs` (was `queue_receiver.rs`), `path_telemetry.rs` (was `path_receiver.rs`), `task_list.rs` (was `task_receiver.rs`). Extracted outbound Zenoh publishers from `commands.rs` into new `command_bridge.rs` (`setup_publishers`, `run_publisher_loop`, `bridge_ui_commands`). `commands.rs` is now inbound-only (`setup_system_listener`, `handle_system_commands`) — consistent with every other crate's `commands.rs` pattern. `systems/mod.rs` updated accordingly.
+
+**ui/ restructure:** `panels.rs` replaced by `panels/mod.rs` (thin layout routing only: `top_panel`, `left_panel`, `right_panel`, `bottom_panel` + private `sim_controls`). Content split into two new subfolders:
+- `ui/views/`: `objects.rs` (`objects_tab`, `state_icon`, `select_entity`), `tasks.rs` (`tasks_tab`, `task_list_view`, `task_row`, `task_row_label`, `wizard_view`), `robot_inspector.rs`, `shelf_inspector.rs`, `task_inspector.rs`, `bottom.rs` (`logs_tab`, `analytics_tab`).
+- `ui/widgets/`: `common.rs` (`color_swatch`, `shelf_fill_color_egui`), `minimap.rs` (`wizard_minimap_widget`, `shelf_minimap_widget`, `task_detail_minimap`).
+
+`ui/mod.rs` gains `pub mod views; pub mod widgets;`. `main.rs` import paths updated. `cargo check --workspace` passes with zero errors, zero warnings.
+
+**Files changed:** `systems/mod.rs`, `systems/commands.rs`, `systems/command_bridge.rs` (new), `systems/receivers/` (new: 5 files), `ui/mod.rs`, `ui/panels/mod.rs` (new), `ui/views/` (new: 7 files), `ui/widgets/` (new: 3 files), `main.rs`. Deleted: `zenoh_receiver.rs`, `queue_receiver.rs`, `path_receiver.rs`, `task_receiver.rs`, `panels.rs`.
+
+---
+
 ### 2026-03-10: Task Management UI — full implementation (Phase 5)
 
 Complete Task Management UI across protocol, scheduler, and visualizer layers.

@@ -39,14 +39,17 @@ use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
 use systems::{
     camera::{spawn_camera, camera_controls, camera_follow_selected},
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes, propagate_tile_optimizations},
-    zenoh_receiver::{setup_zenoh_receiver, collect_robot_updates},
+    receivers::{
+        robot_updates::{setup_zenoh_receiver, collect_robot_updates},
+        queue_state::{setup_queue_listener, collect_queue_state},
+        task_list::{setup_task_listener, collect_task_list, sync_robot_tasks},
+        path_telemetry::{setup_path_listener, collect_path_telemetry},
+    },
     sync_robots::sync_robots,
     interpolate_robots::interpolate_robots,
-    commands::{setup_system_listener, setup_publishers, handle_system_commands, bridge_ui_commands},
-    queue_receiver::{setup_queue_listener, collect_queue_state},
-    task_receiver::{setup_task_listener, collect_task_list, sync_robot_tasks},
+    commands::{setup_system_listener, handle_system_commands},
+    command_bridge::{setup_publishers, bridge_ui_commands},
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
-    path_receiver::{setup_path_listener, collect_path_telemetry},
     draw_paths::{configure_gizmos, draw_robot_paths},
     robot_labels::draw_robot_labels,
 };

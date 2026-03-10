@@ -1,3 +1,5 @@
+//! Subscribe to robot update batches from firmware via Zenoh.
+
 use bevy::prelude::*;
 use protocol::{RobotUpdate, RobotUpdateBatch, topics};
 use serde_json::from_slice;
@@ -43,7 +45,7 @@ async fn run_zenoh_listener(session: Session, tx: mpsc::Sender<RobotUpdate>) -> 
 /// Handles an incoming Zenoh sample - now expects RobotUpdateBatch
 async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result<(), String> {
     let bytes = sample.payload().to_bytes();
-    
+
     // Try to decode as batch first (new format)
     if let Ok(batch) = from_slice::<RobotUpdateBatch>(&bytes) {
         for update in batch.updates {
@@ -53,7 +55,7 @@ async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result
         }
         return Ok(());
     }
-    
+
     // Fall back to single update (legacy/compatibility)
     if let Ok(update) = from_slice::<RobotUpdate>(&bytes) {
         tx.send(update)
@@ -61,7 +63,7 @@ async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result
             .map_err(|_| "channel closed while sending update")?;
         return Ok(());
     }
-    
+
     Err("failed to decode as RobotUpdateBatch or RobotUpdate".into())
 }
 
