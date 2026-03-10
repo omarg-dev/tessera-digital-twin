@@ -6,8 +6,10 @@ use bevy_egui::egui;
 use crate::components::{Robot, Shelf};
 use crate::resources::{RobotIndex, UiState};
 
-/// Objects list: search bar + collapsible robot/shelf sections.
-pub fn objects_tab(
+pub const LABEL: &str = "Objects";
+
+/// Collapsible robot and shelf lists with search filter.
+pub fn draw(
     ui: &mut egui::Ui,
     ui_state: &mut UiState,
     robot_index: &RobotIndex,
@@ -105,8 +107,7 @@ fn state_icon(robot: &Robot) -> &'static str {
     }
 }
 
-/// Select an entity from the list: sets selection, enables camera follow,
-/// and resets transport dropdown state.
+/// Select an entity: sets selection, enables camera follow, resets transport dropdown.
 fn select_entity(ui_state: &mut UiState, entity: Entity) {
     ui_state.selected_entity = Some(entity);
     ui_state.camera_following = true;

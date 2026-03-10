@@ -263,6 +263,22 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-10: views/ -> tabs/, per-tab LABEL+draw() convention (Phase 5)
+
+Renamed `ui/views/` to `ui/tabs/` throughout (files, module declarations, imports, comments). No logic changes -- pure structural reorganisation.
+
+**Per-tab modularity:** Every directly-selectable tab module now exports `pub const LABEL: &str` (consumed by `gui.rs` tab bars so the string is defined exactly once) and `pub fn draw(ui, ...)` as the unified entry point. Sub-inspector modules (`robot_inspector`, `shelf_inspector`, `task_inspector`) export only `draw()` -- no LABEL since they are not directly selectable.
+
+**New `tabs/details.rs`:** Extracted the inspector routing logic that was inline inside `gui.rs::inspector()` into its own module. `details.rs` owns the "entity inspector > task inspector > empty-state" decision tree. `gui.rs::inspector()` now matches tabs and delegates -- no routing logic of its own.
+
+**Splits:** `views/bottom.rs` (`logs_tab` + `analytics_tab`) replaced by two dedicated files: `tabs/logs.rs` and `tabs/analytics.rs`, each with its own LABEL constant and `draw()` function.
+
+**gui.rs:** Imports `use super::tabs;`. Tab bar string literals replaced with `tabs::objects::LABEL` etc. All `views::xxx_tab()` / `views::xxx_inspector()` calls replaced with `tabs::xxx::draw()`. The inline Details routing block replaced by a single `tabs::details::draw(...)` call.
+
+**Files created:** `tabs/mod.rs`, `tabs/control_bar.rs`, `tabs/objects.rs`, `tabs/tasks.rs`, `tabs/details.rs` (new), `tabs/network.rs`, `tabs/logs.rs` (new), `tabs/analytics.rs` (new), `tabs/robot_inspector.rs`, `tabs/shelf_inspector.rs`, `tabs/task_inspector.rs`. **Deleted:** `views/` directory (8 files). **Modified:** `ui/mod.rs`, `ui/gui.rs`. `cargo check --workspace` passes with zero errors.
+
+---
+
 ### 2026-03-10: Visualizer codebase restructure (Phase 5)
 
 Split the bloated `panels.rs` (1387 lines, 20 functions) and flat `systems/` layout into a clean, layered structure. No logic changes — pure file organisation.

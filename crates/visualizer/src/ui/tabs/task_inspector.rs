@@ -8,7 +8,7 @@ use crate::resources::{ActivePaths, UiAction, UiState};
 use crate::ui::widgets::task_detail_minimap;
 
 /// Details pane displayed when a task is selected in the task list.
-pub fn task_inspector(
+pub fn draw(
     ui: &mut egui::Ui,
     task: &protocol::Task,
     ui_state: &mut UiState,

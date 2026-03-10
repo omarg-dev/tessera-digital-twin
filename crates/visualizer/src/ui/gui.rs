@@ -1,7 +1,7 @@
 //! GUI layout for the Digital Twin Command Center.
 //!
 //! Strictly structural: register egui panel frames, tab bars, and routing.
-//! All content implementations live in the `views` module.
+//! All content implementations live in the `tabs` module.
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -13,11 +13,11 @@ use crate::resources::{
     ActivePaths, BottomTab, LeftTab, LogBuffer, QueueStateData, RightTab, RobotIndex,
     TaskListData, UiAction, UiState,
 };
-use super::views;
+use super::tabs;
 
 // ── Control Bar (top) ─────────────────────────────────────────────
 
-/// Thin top panel frame — content rendered by the control_bar view.
+/// Thin top panel frame -- content rendered by the control_bar tab.
 pub fn control_bar(
     ctx: &egui::Context,
     ui_state: &mut UiState,
@@ -30,7 +30,7 @@ pub fn control_bar(
         .exact_height(ui_cfg::TOP_PANEL_HEIGHT)
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                views::control_bar(ui, ui_state, robot_index, queue_state, time, actions);
+                tabs::control_bar::draw(ui, ui_state, robot_index, queue_state, time, actions);
             });
         });
 }
@@ -57,15 +57,15 @@ pub fn object_manager(
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut ui_state.object_tab, LeftTab::Objects, "Objects");
-                ui.selectable_value(&mut ui_state.object_tab, LeftTab::Tasks, "Tasks");
+                ui.selectable_value(&mut ui_state.object_tab, LeftTab::Objects, tabs::objects::LABEL);
+                ui.selectable_value(&mut ui_state.object_tab, LeftTab::Tasks, tabs::tasks::LABEL);
             });
 
             ui.separator();
 
             match ui_state.object_tab {
-                LeftTab::Objects => views::objects_tab(ui, ui_state, robot_index, robots, shelves),
-                LeftTab::Tasks => views::tasks_tab(
+                LeftTab::Objects => tabs::objects::draw(ui, ui_state, robot_index, robots, shelves),
+                LeftTab::Tasks => tabs::tasks::draw(
                     ui, ui_state, queue_state, task_list,
                     shelves, dropoffs, transforms, warehouse_map, actions,
                 ),
@@ -94,50 +94,19 @@ pub fn inspector(
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Details, "Details");
-                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Network, "Network");
+                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Details, tabs::details::LABEL);
+                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Network, tabs::network::LABEL);
             });
 
             ui.separator();
 
             match ui_state.inspector_tab {
-                RightTab::Network => {
-                    views::network_view(ui);
-                    return;
-                }
-                _ => {}
+                RightTab::Details => tabs::details::draw(
+                    ui, ui_state, robots, shelves, dropoffs, transforms,
+                    warehouse_map, task_list, active_paths, actions,
+                ),
+                RightTab::Network => tabs::network::draw(ui),
             }
-
-            // Entity inspector takes priority over task inspector
-            if let Some(entity) = ui_state.selected_entity {
-                if let Ok((_, robot)) = robots.get(entity) {
-                    views::robot_inspector(ui, robot, actions);
-                    return;
-                }
-                if let Ok((_, shelf)) = shelves.get(entity) {
-                    views::shelf_inspector(
-                        ui, entity, shelf, ui_state, shelves, dropoffs, transforms,
-                        warehouse_map, actions,
-                    );
-                    return;
-                }
-                ui.label(format!("Entity {:?}", entity));
-                ui.label("No detailed view for this entity type.");
-                return;
-            }
-
-            // Task inspector
-            if let Some(task_id) = ui_state.selected_task_id {
-                if let Some(task) = task_list.tasks.iter().find(|t| t.id == task_id) {
-                    views::task_inspector(ui, task, ui_state, active_paths, warehouse_map, actions);
-                } else {
-                    ui.label("Task data unavailable (pending sync).");
-                    ui.weak("The task list is broadcast every ~2 seconds.");
-                }
-                return;
-            }
-
-            ui.label("Select an entity or task to view details.");
         });
 }
 
@@ -155,15 +124,15 @@ pub fn log_console(
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut ui_state.bottom_tab, BottomTab::Logs, "Logs");
-                ui.selectable_value(&mut ui_state.bottom_tab, BottomTab::Analytics, "Analytics");
+                ui.selectable_value(&mut ui_state.bottom_tab, BottomTab::Logs, tabs::logs::LABEL);
+                ui.selectable_value(&mut ui_state.bottom_tab, BottomTab::Analytics, tabs::analytics::LABEL);
             });
 
             ui.separator();
 
             match ui_state.bottom_tab {
-                BottomTab::Logs => views::logs_tab(ui, log_buffer),
-                BottomTab::Analytics => views::analytics_tab(ui),
+                BottomTab::Logs => tabs::logs::draw(ui, log_buffer),
+                BottomTab::Analytics => tabs::analytics::draw(ui),
             }
         });
 }

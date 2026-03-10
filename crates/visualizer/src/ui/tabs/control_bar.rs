@@ -1,4 +1,5 @@
 //! Control bar content: simulation controls, KPIs, and layer toggles.
+//! This is the top bar, not a selectable tab — no LABEL constant.
 
 use bevy::prelude::*;
 use bevy_egui::egui;

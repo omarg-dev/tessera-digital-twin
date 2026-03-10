@@ -13,7 +13,7 @@ use crate::ui::widgets::{color_swatch, shelf_fill_color_egui, shelf_minimap_widg
 
 /// Inspector for a shelf: cargo display and transport task creation.
 #[allow(clippy::too_many_arguments)]
-pub fn shelf_inspector(
+pub fn draw(
     ui: &mut egui::Ui,
     shelf_entity: Entity,
     shelf: &Shelf,

@@ -9,9 +9,11 @@ use crate::components::{Dropoff, Shelf};
 use crate::resources::{QueueStateData, RightTab, TaskListData, UiAction, UiState};
 use crate::ui::widgets::wizard_minimap_widget;
 
+pub const LABEL: &str = "Tasks";
+
 /// Task queue tab -- stats summary + task list or Add Task wizard.
 #[allow(clippy::too_many_arguments)]
-pub fn tasks_tab(
+pub fn draw(
     ui: &mut egui::Ui,
     ui_state: &mut UiState,
     queue_state: &QueueStateData,

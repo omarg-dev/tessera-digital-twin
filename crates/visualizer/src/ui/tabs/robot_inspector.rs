@@ -7,7 +7,7 @@ use crate::components::Robot;
 use crate::resources::UiAction;
 
 /// Inspector for a single robot with functional action buttons.
-pub fn robot_inspector(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
+pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
     ui.label(
         egui::RichText::new(format!("Robot #{}", robot.id))
             .heading()

@@ -1,13 +1,13 @@
-//! UI module – Digital Twin Command Center
+//! UI module -- Digital Twin Command Center
 //!
 //! Four-panel layout built with `bevy_egui`:
-//! - **Top:** Simulation controls, KPIs, layer toggles
-//! - **Left:** Object Manager (robots & shelves list, task queue)
-//! - **Right:** Inspector (context-sensitive entity details)
-//! - **Bottom:** System logs & analytics
+//! - Top: Simulation controls, KPIs, layer toggles
+//! - Left: Object Manager (robots & shelves list, task queue)
+//! - Right: Inspector (context-sensitive entity details)
+//! - Bottom: System logs & analytics
 
 pub mod gui;
-pub mod views;
+pub mod tabs;
 pub mod widgets;
 
 use bevy::prelude::*;
