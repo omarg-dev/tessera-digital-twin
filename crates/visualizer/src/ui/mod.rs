@@ -6,7 +6,7 @@
 //! - **Right:** Inspector (context-sensitive entity details)
 //! - **Bottom:** System logs & analytics
 
-pub mod panels;
+pub mod gui;
 pub mod views;
 pub mod widgets;
 
@@ -48,10 +48,10 @@ pub fn draw_ui(
 
     let wm = warehouse_map.as_deref().map(|wm| &wm.0);
 
-    panels::top_panel(ctx, &mut ui_state, &robot_index, &queue_state, &time, &mut pending_actions);
-    panels::left_panel(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state, &dropoffs, &transforms, wm, &task_list, &mut pending_actions);
-    panels::right_panel(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, wm, &task_list, &active_paths, &mut pending_actions);
-    panels::bottom_panel(ctx, &mut ui_state, &mut log_buffer);
+    gui::control_bar(ctx, &mut ui_state, &robot_index, &queue_state, &time, &mut pending_actions);
+    gui::object_manager(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state, &dropoffs, &transforms, wm, &task_list, &mut pending_actions);
+    gui::inspector(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, wm, &task_list, &active_paths, &mut pending_actions);
+    gui::log_console(ctx, &mut ui_state, &mut log_buffer);
 
     // background-click deselect: checked AFTER panels are drawn so
     // ctx.is_pointer_over_area() reflects all panel regions registered this frame

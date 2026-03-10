@@ -1,8 +1,7 @@
-//! Panel layout for the Digital Twin Command Center.
+//! GUI layout for the Digital Twin Command Center.
 //!
-//! Each public function renders one panel via egui immediate mode.
-//! Content is routed to the appropriate view module; shared widgets
-//! live in the widgets module.
+//! Strictly structural: register egui panel frames, tab bars, and routing.
+//! All content implementations live in the `views` module.
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -16,10 +15,10 @@ use crate::resources::{
 };
 use super::views;
 
-// ── Top Panel ────────────────────────────────────────────────────
+// ── Control Bar (top) ─────────────────────────────────────────────
 
-/// HUD bar: simulation controls (left), KPIs (center), layer toggles (right).
-pub fn top_panel(
+/// Thin top panel frame — content rendered by the control_bar view.
+pub fn control_bar(
     ctx: &egui::Context,
     ui_state: &mut UiState,
     robot_index: &RobotIndex,
@@ -31,72 +30,16 @@ pub fn top_panel(
         .exact_height(ui_cfg::TOP_PANEL_HEIGHT)
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                // ── Left: Simulation Controls ──
-                sim_controls(ui, ui_state, actions);
-
-                ui.separator();
-
-                // Mode toggle: Simulation / Real-time
-                let mode_label = if ui_state.is_realtime { "Real-time" } else { "Simulation" };
-                let mode_btn = egui::Button::new(mode_label)
-                    .selected(ui_state.is_realtime);
-                if ui.add(mode_btn).clicked() {
-                    ui_state.is_realtime = !ui_state.is_realtime;
-                }
-
-                ui.separator();
-
-                // ── Center: KPIs ──
-                let active = robot_index.by_id.len();
-                ui.label(egui::RichText::new(format!("Robots: {active}")).strong());
-                ui.separator();
-
-                let fps = 1.0 / time.delta_secs().max(0.0001);
-                ui.label(format!("FPS: {fps:.0}"));
-                ui.separator();
-
-                // Live throughput from scheduler QueueState
-                if queue_state.total > 0 {
-                    let completed = queue_state.total.saturating_sub(queue_state.pending);
-                    ui.label(format!(
-                        "Tasks: {completed}/{} done  ({} pending)",
-                        queue_state.total, queue_state.pending
-                    ));
-                } else {
-                    ui.label("Tasks: --");
-                }
-
-                // Push layer toggles to the right
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.checkbox(&mut ui_state.show_ids, "Labels");
-                    ui.checkbox(&mut ui_state.show_heatmap, "Heatmap");
-                    ui.checkbox(&mut ui_state.show_paths, "Paths");
-                });
+                views::control_bar(ui, ui_state, robot_index, queue_state, time, actions);
             });
         });
 }
 
-/// Speed / play-pause cluster. Publishes Pause/Resume over Zenoh.
-fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiAction>) {
-    let pause_label = if ui_state.is_paused { "\u{25B6}" } else { "\u{23F8}" }; // ▶ / ⏸
-    if ui.button(pause_label).clicked() {
-        ui_state.is_paused = !ui_state.is_paused;
-        actions.push(UiAction::SetPaused(ui_state.is_paused));
-    }
+// ── Object Manager (left) ─────────────────────────────────────────
 
-    let speeds: &[(&str, f32)] = &[("1x", 1.0), ("10x", 10.0), ("Max", f32::MAX)];
-    for &(label, _factor) in speeds {
-        let btn = egui::Button::new(label).selected(label == "1x");
-        let response = ui.add_enabled(false, btn);
-        response.on_disabled_hover_text("Speed control not yet wired");
-    }
-}
-
-// ── Left Panel (Object Manager) ──────────────────────────────────
-
-/// Tabbed list of robots, shelves, and tasks with a search bar.
+/// Tabbed left panel: Objects and Tasks tabs.
 #[allow(clippy::too_many_arguments)]
-pub fn left_panel(
+pub fn object_manager(
     ctx: &egui::Context,
     ui_state: &mut UiState,
     robot_index: &RobotIndex,
@@ -113,7 +56,6 @@ pub fn left_panel(
         .default_width(ui_cfg::SIDE_PANEL_DEFAULT_WIDTH)
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
-            // ── Tab bar ──
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut ui_state.object_tab, LeftTab::Objects, "Objects");
                 ui.selectable_value(&mut ui_state.object_tab, LeftTab::Tasks, "Tasks");
@@ -131,11 +73,11 @@ pub fn left_panel(
         });
 }
 
-// ── Right Panel (Inspector) ──────────────────────────────────────
+// ── Inspector (right) ─────────────────────────────────────────────
 
-/// Tabbed inspector for the selected entity or task.
+/// Tabbed right panel: Details and Network tabs.
 #[allow(clippy::too_many_arguments)]
-pub fn right_panel(
+pub fn inspector(
     ctx: &egui::Context,
     ui_state: &mut UiState,
     robots: &Query<(Entity, &Robot)>,
@@ -151,26 +93,16 @@ pub fn right_panel(
         .default_width(ui_cfg::SIDE_PANEL_DEFAULT_WIDTH)
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
-            // ── Tab bar ──
             ui.horizontal(|ui| {
-                ui.selectable_value(
-                    &mut ui_state.inspector_tab,
-                    RightTab::Details,
-                    "Details",
-                );
-                ui.selectable_value(
-                    &mut ui_state.inspector_tab,
-                    RightTab::Network,
-                    "Network",
-                );
+                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Details, "Details");
+                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Network, "Network");
             });
 
             ui.separator();
 
             match ui_state.inspector_tab {
                 RightTab::Network => {
-                    ui.label("Network view not yet implemented.");
-                    ui.label("Future: show robot connectivity, packet loss graph, signal strength, etc.");
+                    views::network_view(ui);
                     return;
                 }
                 _ => {}
@@ -209,10 +141,10 @@ pub fn right_panel(
         });
 }
 
-// ── Bottom Panel (Logs / Analytics) ──────────────────────────────
+// ── Log Console (bottom) ──────────────────────────────────────────
 
-/// Tabbed bottom panel: system logs and analytics placeholder.
-pub fn bottom_panel(
+/// Tabbed bottom panel: Logs and Analytics tabs.
+pub fn log_console(
     ctx: &egui::Context,
     ui_state: &mut UiState,
     log_buffer: &mut LogBuffer,
@@ -222,7 +154,6 @@ pub fn bottom_panel(
         .height_range(ui_cfg::BOTTOM_PANEL_MIN_HEIGHT..=ui_cfg::BOTTOM_PANEL_MAX_HEIGHT)
         .resizable(true)
         .show(ctx, |ui| {
-            // Tab bar
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut ui_state.bottom_tab, BottomTab::Logs, "Logs");
                 ui.selectable_value(&mut ui_state.bottom_tab, BottomTab::Analytics, "Analytics");
