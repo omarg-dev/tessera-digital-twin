@@ -263,6 +263,30 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-10: Task UI polish and camera task-follow (Phase 5)
+
+Eight cohesive improvements to the task inspector, task list, and camera system.
+
+**Fix: Add Task button invisible** -- `ui/tabs/tasks.rs`: The `+ Add New Task` button was rendered after `task_list_view`, which used a `ScrollArea` with `auto_shrink([false, false])` that consumed all remaining vertical space. Moved the button to render first (before the scroll area) so it is always visible at the top of the list area.
+
+**Fix: Task deselection on background click** -- `ui/mod.rs`: The background-click deselect guard only cleared `selected_entity`. Extended the condition to also fire when `selected_task_id` is set, and clear it alongside entity in the same handler.
+
+**Feature: `completed_at` field on Task** -- `protocol/src/tasks.rs`: Added `pub completed_at: Option<u64>` with `#[serde(default)]` (backward-compatible). Initialized to `None` in `Task::new()`. Stamped in `scheduler/src/server.rs` when a `TaskStatusUpdate` transitions a task to `Completed`, `Failed`, or `Cancelled`.
+
+**Improvement: Task inspector completed-state** -- `ui/tabs/task_inspector.rs`:
+- Robot field now shows "N/A" for terminal statuses (Completed/Failed/Cancelled) instead of "Pending"
+- "Completed:"/"Failed:"/"Cancelled:" timestamp row shown when `completed_at` is set
+- Priority `ComboBox` and "Remove Task" button are hidden entirely for terminal tasks
+- All timestamps converted from UTC arithmetic to GMT+3: `secs + 3 * 3600`, label reads "GMT+3"
+
+**Improvement: Larger minimap in task inspector** -- `ui/widgets/minimap.rs`: `task_detail_minimap` cell size increased from 8 px to 11 px, `max_height` from 120 px to 200 px.
+
+**Feature: Camera task-follow system** -- `systems/camera.rs`, `protocol/src/config.rs`, `main.rs`:
+- New constants `TASK_FOLLOW_ZOOM_RADIUS = 18.0` and `DEFAULT_RESET_LERP = 0.05` in `protocol::config::visual::camera`
+- New Bevy system `camera_follow_task` (registered after `camera_follow_selected` in Update): when a task is selected in the inspector, the camera smoothly follows the relevant world target -- the pickup shelf for Pending tasks, or the assigned robot for Assigned/InProgress. On terminal status or task deselection, the camera lerps back to default `DEFAULT_FOCUS`/`DEFAULT_RADIUS`/`DEFAULT_PITCH`. Entity follow takes priority over task follow.
+
+**Rename: Objects tab -> Entities** -- `ui/tabs/objects.rs`: `LABEL` changed from `"Objects"` to `"Entities"`. Propagates automatically via `tabs::objects::LABEL` in `gui.rs`.
+
 ### 2026-03-10: Fix Zenoh always-recompiles on orchestrator run (Phase 5)
 
 Diagnosed why Zenoh's TLS/crypto stack (`ring`, `rustls`, `quinn-proto`, etc.) recompiled on every `run` command in the orchestrator. Root causes: (1) `start_all` issued two separate `cargo build` invocations -- one for `coordinator/mock_firmware/scheduler`, one for `visualizer`. When the second invocation ran, `ring`'s build script detected that `target/` had changed from the first build and re-evaluated its fingerprint, triggering a full Zenoh stack recompile. (2) No profile overrides existed for the heavy crypto deps, so every recompile paid full opt-level cost.

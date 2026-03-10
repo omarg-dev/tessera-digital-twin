@@ -103,7 +103,7 @@ pub fn task_detail_minimap(
     pickup: Option<(usize, usize)>,
     dropoff: Option<(usize, usize)>,
 ) {
-    const CELL: f32 = 8.0;
+    const CELL: f32 = 11.0;
     const GAP: f32 = 1.0;
     let step = CELL + GAP;
     let total_size = egui::Vec2::new(grid.width as f32 * step, grid.height as f32 * step);
@@ -111,7 +111,7 @@ pub fn task_detail_minimap(
     egui::ScrollArea::both()
         .id_salt("task_detail_minimap")
         .max_width(ui.available_width())
-        .max_height(120.0)
+        .max_height(200.0)
         .show(ui, |ui| {
             let (grid_rect, _) = ui.allocate_exact_size(total_size, egui::Sense::hover());
             let painter = ui.painter_at(grid_rect);

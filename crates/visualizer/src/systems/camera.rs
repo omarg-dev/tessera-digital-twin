@@ -5,8 +5,9 @@ use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
 use protocol::config::visual::camera;
 use protocol::config::visual::outline as outline_cfg;
+use protocol::TaskStatus;
 
-use crate::resources::UiState;
+use crate::resources::{RobotIndex, TaskListData, UiState};
 
 /// Marker component for the main warehouse camera
 #[derive(Component)]
@@ -183,4 +184,118 @@ fn calculate_camera_transform(controller: &CameraController) -> Transform {
 
     let position = controller.focus + Vec3::new(x, y, z);
     Transform::from_translation(position).looking_at(controller.focus, Vec3::Y)
+}
+
+/// System that moves the camera to follow the selected task's cargo or robot.
+///
+/// - Pending task: focuses on the pickup grid cell (where the cargo is)
+/// - Assigned/InProgress: follows the robot carrying the cargo
+/// - Terminal task (Completed/Failed/Cancelled): returns camera to default view
+/// - Task deselected: returns camera to default view
+///
+/// This system only fires when a task is selected and the entity inspector is
+/// not also active — entity follow (`camera_follow_selected`) takes precedence.
+pub fn camera_follow_task(
+    ui_state: Res<UiState>,
+    task_list: Res<TaskListData>,
+    robot_index: Res<RobotIndex>,
+    target_transforms: Query<&Transform, Without<Camera>>,
+    mut camera_query: Query<(&mut CameraController, &mut Transform), With<Camera>>,
+    mut prev_task_id: Local<Option<u64>>,
+    mut resetting: Local<bool>,
+    mut zooming_in: Local<bool>,
+) {
+    // entity follow has priority — don't fight camera_follow_selected
+    if ui_state.selected_entity.is_some() {
+        return;
+    }
+
+    let Ok((mut controller, mut transform)) = camera_query.single_mut() else {
+        return;
+    };
+
+    // task was deselected — start return-to-default lerp
+    if ui_state.selected_task_id.is_none() && prev_task_id.is_some() {
+        *prev_task_id = None;
+        *resetting = true;
+        *zooming_in = false;
+    }
+
+    // smoothly return to default view
+    if *resetting {
+        let def_focus = Vec3::new(camera::DEFAULT_FOCUS.0, camera::DEFAULT_FOCUS.1, camera::DEFAULT_FOCUS.2);
+        let focus_delta = (def_focus - controller.focus).length();
+        let radius_delta = (camera::DEFAULT_RADIUS - controller.radius).abs();
+        let pitch_delta = (camera::DEFAULT_PITCH - controller.pitch).abs();
+
+        if focus_delta < 0.05 && radius_delta < 0.05 && pitch_delta < 0.01 {
+            // snap to exact defaults once close enough
+            controller.focus = def_focus;
+            controller.radius = camera::DEFAULT_RADIUS;
+            controller.pitch = camera::DEFAULT_PITCH;
+            *transform = calculate_camera_transform(&controller);
+            *resetting = false;
+        } else {
+            controller.focus = controller.focus.lerp(def_focus, camera::DEFAULT_RESET_LERP);
+            controller.radius = controller.radius.lerp(camera::DEFAULT_RADIUS, camera::DEFAULT_RESET_LERP);
+            controller.pitch = controller.pitch.lerp(camera::DEFAULT_PITCH, camera::DEFAULT_RESET_LERP);
+            *transform = calculate_camera_transform(&controller);
+        }
+        return;
+    }
+
+    let Some(task_id) = ui_state.selected_task_id else {
+        return;
+    };
+    let Some(task) = task_list.tasks.iter().find(|t| t.id == task_id) else {
+        return;
+    };
+
+    // trigger zoom-in when a new task is selected
+    if *prev_task_id != Some(task_id) {
+        *prev_task_id = Some(task_id);
+        *resetting = false;
+        if controller.radius > camera::TASK_FOLLOW_ZOOM_RADIUS + 1.0 {
+            *zooming_in = true;
+        }
+    }
+
+    // determine follow target
+    let target_pos: Option<Vec3> = match &task.status {
+        TaskStatus::Assigned { robot_id } | TaskStatus::InProgress { robot_id } => {
+            robot_index.by_id.get(robot_id)
+                .and_then(|entity| target_transforms.get(*entity).ok())
+                .map(|t| t.translation)
+        }
+        TaskStatus::Pending => {
+            task.pickup_location()
+                .map(|(col, row)| Vec3::new(col as f32, 0.0, row as f32))
+        }
+        // terminal — start reset
+        TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled => {
+            if !*resetting {
+                *resetting = true;
+                *zooming_in = false;
+                *prev_task_id = None;
+            }
+            return;
+        }
+    };
+
+    let Some(target) = target_pos else {
+        return;
+    };
+
+    // zoom in on first follow
+    if *zooming_in {
+        if controller.radius > camera::TASK_FOLLOW_ZOOM_RADIUS + 0.1 {
+            controller.radius = controller.radius.lerp(camera::TASK_FOLLOW_ZOOM_RADIUS, camera::FOLLOW_ZOOM_LERP);
+        } else {
+            controller.radius = camera::TASK_FOLLOW_ZOOM_RADIUS;
+            *zooming_in = false;
+        }
+    }
+
+    controller.focus = controller.focus.lerp(target, camera::FOLLOW_FOCUS_LERP);
+    *transform = calculate_camera_transform(&controller);
 }

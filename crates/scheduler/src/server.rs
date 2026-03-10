@@ -338,6 +338,16 @@ fn handle_status_updates(
 
                 task.status = update.status.clone();
 
+                // stamp completion time for terminal transitions
+                if matches!(update.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled) {
+                    task.completed_at = Some(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64
+                    );
+                }
+
                 // Free robot on completion/failure
                 if let Some(robot_id) = update.robot_id {
                     if let Some(robot) = robots.get_mut(&robot_id) {

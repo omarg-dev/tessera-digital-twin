@@ -56,15 +56,17 @@ pub fn draw_ui(
     // background-click deselect: checked AFTER panels are drawn so
     // ctx.is_pointer_over_area() reflects all panel regions registered this frame
     let left_click = mouse_input.just_pressed(MouseButton::Left);
+    let anything_selected = ui_state.selected_entity.is_some() || ui_state.selected_task_id.is_some();
     if left_click
         && !ui_state.entity_picked_this_frame
         && !ctx.is_pointer_over_area()
-        && ui_state.selected_entity.is_some()
+        && anything_selected
     {
         if let Some(prev) = ui_state.selected_entity {
             ui_state.hidden_labels.remove(&prev);
         }
         ui_state.selected_entity = None;
+        ui_state.selected_task_id = None;
         ui_state.camera_following = false;
         ui_state.transport_dropdown_open = false;
     }

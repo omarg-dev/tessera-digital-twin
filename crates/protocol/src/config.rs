@@ -332,6 +332,11 @@ pub mod visual {
         /// Lerp factor for radius zoom-in while following
         pub const FOLLOW_ZOOM_LERP: f32 = 0.08;
 
+        /// Radius the camera uses when following a task's cargo / robot
+        pub const TASK_FOLLOW_ZOOM_RADIUS: f32 = 18.0;
+        /// Lerp factor for returning to default view on task deselect
+        pub const DEFAULT_RESET_LERP: f32 = 0.05;
+
         /// Mouse orbit sensitivity (radians per pixel)
         pub const ORBIT_SENSITIVITY: f32 = 0.005;
         /// Mouse pan sensitivity (world units per pixel)

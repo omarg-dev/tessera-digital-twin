@@ -69,9 +69,8 @@ pub fn draw(
     if ui_state.task_wizard_active {
         wizard_view(ui, ui_state, all_shelves, dropoffs, transforms, warehouse_map, actions);
     } else {
-        task_list_view(ui, ui_state, &task_list.tasks, actions);
-
-        ui.add_space(8.0);
+        // render button BEFORE the scroll area so the scroll area doesn't consume all
+        // remaining vertical space and hide the button below the visible region
         let add_btn = egui::Button::new(egui::RichText::new("+ Add New Task").strong())
             .min_size(egui::Vec2::new(ui.available_width(), 28.0));
         if ui.add(add_btn).clicked() {
@@ -80,6 +79,9 @@ pub fn draw(
             ui_state.wizard_dropoff = None;
             ui_state.wizard_priority = Priority::default();
         }
+        ui.add_space(4.0);
+
+        task_list_view(ui, ui_state, &task_list.tasks, actions);
     }
 }
 

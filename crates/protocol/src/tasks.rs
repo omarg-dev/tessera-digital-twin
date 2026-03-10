@@ -77,6 +77,9 @@ pub struct Task {
     pub status: TaskStatus,
     /// Timestamp when task was created (Unix millis)
     pub created_at: u64,
+    /// Timestamp when task was completed/failed/cancelled (Unix millis)
+    #[serde(default)]
+    pub completed_at: Option<u64>,
 }
 
 impl Task {
@@ -93,6 +96,7 @@ impl Task {
             priority,
             status: TaskStatus::Pending,
             created_at,
+            completed_at: None,
         }
     }
 

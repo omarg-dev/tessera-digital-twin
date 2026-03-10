@@ -37,7 +37,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
 use systems::{
-    camera::{spawn_camera, camera_controls, camera_follow_selected},
+    camera::{spawn_camera, camera_controls, camera_follow_selected, camera_follow_task},
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes, propagate_tile_optimizations},
     receivers::{
         robot_updates::{setup_zenoh_receiver, collect_robot_updates},
@@ -124,6 +124,7 @@ fn main() {
             handle_system_commands,
             bridge_ui_commands,
             camera_follow_selected,
+            camera_follow_task.after(camera_follow_selected),
             camera_controls,
             draw_robot_paths,
         ))

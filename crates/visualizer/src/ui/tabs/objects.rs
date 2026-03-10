@@ -6,7 +6,7 @@ use bevy_egui::egui;
 use crate::components::{Robot, Shelf};
 use crate::resources::{RobotIndex, UiState};
 
-pub const LABEL: &str = "Objects";
+pub const LABEL: &str = "Entities";
 
 /// Collapsible robot and shelf lists with search filter.
 pub fn draw(
