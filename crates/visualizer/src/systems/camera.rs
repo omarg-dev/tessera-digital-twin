@@ -63,6 +63,12 @@ pub fn camera_controls(
     mut egui_ctx: EguiContexts,
     mut ui_state: ResMut<UiState>,
 ) {
+    // clear per-frame input signals unconditionally — must happen before any early return
+    // so follow systems always see a clean slate at the start of each frame
+    ui_state.camera_scroll_this_frame = false;
+    ui_state.camera_pan_this_frame = false;
+    ui_state.camera_orbit_this_frame = false;
+
     // Don't orbit/pan/zoom if the cursor is over an egui panel
     if let Ok(ctx) = egui_ctx.ctx_mut() {
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
@@ -75,7 +81,8 @@ pub fn camera_controls(
 
     let mut changed = false;
 
-    // Orbit: Right mouse button drag (does NOT break follow)
+    // Orbit: Right mouse button drag
+    // signals orbit so the entity follow system can pause the focus lerp while orbiting
     if mouse_button.pressed(MouseButton::Right) {
         let delta = mouse_motion.delta;
         if delta != Vec2::ZERO {
@@ -84,10 +91,11 @@ pub fn camera_controls(
             // Clamp pitch to avoid flipping
             controller.pitch = controller.pitch.clamp(camera::PITCH_MIN, camera::PITCH_MAX);
             changed = true;
+            ui_state.camera_orbit_this_frame = true;
         }
     }
 
-    // Pan: Middle mouse button drag (breaks follow)
+    // Pan: Middle mouse button drag — breaks all camera follow
     if mouse_button.pressed(MouseButton::Middle) {
         let delta = mouse_motion.delta;
         if delta != Vec2::ZERO {
@@ -101,12 +109,13 @@ pub fn camera_controls(
             controller.focus += forward_xz * delta.y * camera::PAN_SENSITIVITY;
             changed = true;
 
-            // Break camera follow on manual pan
+            // Break all camera follow modes
             ui_state.camera_following = false;
+            ui_state.camera_pan_this_frame = true;
         }
     }
 
-    // Zoom: Scroll wheel
+    // Zoom: Scroll wheel — user takes over radius, cancel any zoom-in lerp
     if mouse_scroll.delta.y != 0.0 {
         let scroll_amount = match mouse_scroll.unit {
             MouseScrollUnit::Line => mouse_scroll.delta.y * camera::SCROLL_LINE_SPEED,
@@ -115,6 +124,7 @@ pub fn camera_controls(
         controller.radius -= scroll_amount;
         controller.radius = controller.radius.clamp(camera::ZOOM_MIN, camera::ZOOM_MAX);
         changed = true;
+        ui_state.camera_scroll_this_frame = true;
     }
 
     if changed {
@@ -124,8 +134,10 @@ pub fn camera_controls(
 
 /// System that moves the camera to follow the selected entity each frame.
 /// On first selection, smoothly lerps radius down to FOLLOW_ZOOM_RADIUS if the
-/// camera is farther away. The lerp stops once close enough or the user scrolls
-/// in manually — radius is never pushed back out.
+/// camera is farther away.
+/// - Scroll: cancels the zoom-in lerp so the user's position is respected
+/// - Orbit (right drag): pauses focus lerp so the user can orbit freely
+/// - Pan (middle drag): breaks follow entirely (handled by camera_controls)
 pub fn camera_follow_selected(
     ui_state: Res<UiState>,
     target_transforms: Query<&Transform, Without<Camera>>,
@@ -150,6 +162,11 @@ pub fn camera_follow_selected(
         return;
     };
 
+    // user scrolled — release zoom-in so their radius is respected
+    if ui_state.camera_scroll_this_frame {
+        *zooming_in = false;
+    }
+
     // new entity selected: trigger zoom-in if too far away
     if *last_followed != Some(entity) {
         *last_followed = Some(entity);
@@ -158,7 +175,7 @@ pub fn camera_follow_selected(
         }
     }
 
-    // lerp radius toward target — stops once close enough (user can then zoom freely)
+    // lerp radius toward target — stopped by user scroll
     if *zooming_in {
         if controller.radius > camera::FOLLOW_ZOOM_RADIUS + 0.1 {
             controller.radius = controller.radius.lerp(camera::FOLLOW_ZOOM_RADIUS, camera::FOLLOW_ZOOM_LERP);
@@ -168,10 +185,12 @@ pub fn camera_follow_selected(
         }
     }
 
-    let target_pos = target_transform.translation;
-
-    // Smoothly move focus to entity position; radius stays wherever the user left it.
-    controller.focus = controller.focus.lerp(target_pos, camera::FOLLOW_FOCUS_LERP);
+    // lerp focus toward entity — paused during orbit so the user can orbit freely
+    // without the camera snapping back every frame
+    if !ui_state.camera_orbit_this_frame {
+        let target_pos = target_transform.translation;
+        controller.focus = controller.focus.lerp(target_pos, camera::FOLLOW_FOCUS_LERP);
+    }
 
     *transform = calculate_camera_transform(&controller);
 }
@@ -213,6 +232,11 @@ pub fn camera_follow_task(
     let Ok((mut controller, mut transform)) = camera_query.single_mut() else {
         return;
     };
+
+    // any user input cancels an in-progress default-view reset
+    if *resetting && (ui_state.camera_pan_this_frame || ui_state.camera_scroll_this_frame || ui_state.camera_orbit_this_frame) {
+        *resetting = false;
+    }
 
     // task was deselected — start return-to-default lerp
     if ui_state.selected_task_id.is_none() && prev_task_id.is_some() {
@@ -258,6 +282,11 @@ pub fn camera_follow_task(
         if controller.radius > camera::TASK_FOLLOW_ZOOM_RADIUS + 1.0 {
             *zooming_in = true;
         }
+    }
+
+    // user scroll cancels the zoom-in lerp
+    if ui_state.camera_scroll_this_frame {
+        *zooming_in = false;
     }
 
     // determine follow target

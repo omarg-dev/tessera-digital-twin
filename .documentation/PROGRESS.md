@@ -263,6 +263,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-12: Fix camera lerp fighting user input (Phase 5)
+
+Three bugs where camera follow/reset lerps would keep running against user input after it occurred.
+
+**Root cause 1 — `zooming_in` never cleared by scroll:** In both `camera_follow_selected` and `camera_follow_task`, once the zoom-in lerp started it ran every frame regardless of scroll wheel input. The controller radius was being set by `camera_controls` AND simultaneously lerped back by the follow system in the same frame, creating a tug-of-war.
+
+**Root cause 2 — `resetting` never interrupted in `camera_follow_task`:** When a task was deselected, the camera would lerp back to the default view. But `*resetting` was a `Local<bool>` that was never checked against user input, so panning, scrolling, or orbiting while the reset was in progress had no effect — the reset kept overwriting the camera each frame.
+
+**Root cause 3 — Orbit fought entity focus lerp:** `camera_follow_selected` lerped focus every frame including frames where the user was right-dragging to orbit. This made orbiting around a followed robot feel sticky/resistive.
+
+**Fix:** Added three per-frame input signal fields to `UiState`: `camera_scroll_this_frame`, `camera_pan_this_frame`, `camera_orbit_this_frame`. `camera_controls` clears all three unconditionally at function entry (before the egui early-return guard, to prevent stale values from the previous frame) then sets the appropriate flag when each input fires. Follow systems consume these flags:
+- `camera_follow_selected`: clears `zooming_in` on scroll; pauses focus lerp on orbit
+- `camera_follow_task`: clears `zooming_in` on scroll; cancels `*resetting` on any input (scroll/pan/orbit)
+
 ### 2026-03-10: Task UI polish and camera task-follow (Phase 5)
 
 Eight cohesive improvements to the task inspector, task list, and camera system.

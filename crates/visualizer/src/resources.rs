@@ -159,6 +159,13 @@ pub struct UiState {
     pub wizard_priority: Priority,
     /// selected task ID for the Details inspector (None = no task selected)
     pub selected_task_id: Option<u64>,
+    /// the user scrolled the scroll wheel this frame (set by camera_controls, read by follow systems)
+    /// cleared at the start of camera_controls so it only fires in the same frame as the scroll
+    pub camera_scroll_this_frame: bool,
+    /// the user panned the camera this frame (set by camera_controls, read by follow systems)
+    pub camera_pan_this_frame: bool,
+    /// the user orbited the camera this frame (right drag) — cancels entity focus lerp
+    pub camera_orbit_this_frame: bool,
 }
 
 impl Default for UiState {
@@ -187,6 +194,9 @@ impl Default for UiState {
             wizard_dropoff: None,
             wizard_priority: Priority::default(),
             selected_task_id: None,
+            camera_scroll_this_frame: false,
+            camera_pan_this_frame: false,
+            camera_orbit_this_frame: false,
         }
     }
 }
