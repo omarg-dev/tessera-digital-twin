@@ -71,7 +71,7 @@ pub async fn run(session: Session) {
         handle_stdin(&mut rx, &mut queue, &robots, &map, paused, verbose).await;
         
         // Task requests (from other crates)
-        handle_task_requests(&task_sub, &mut queue);
+        handle_task_requests(&task_sub, &mut queue, &inventory);
         
         // Robot updates (from firmware)
         handle_robot_updates(&robot_sub, &mut robots);
@@ -239,11 +239,25 @@ fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)
 fn handle_task_requests(
     sub: &zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
     queue: &mut dyn TaskQueue,
+    inventory: &ShelfInventory,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
         if let Ok(cmd) = from_slice::<TaskCommand>(&sample.payload().to_bytes()) {
             match cmd {
                 TaskCommand::New { task_type, priority } => {
+                    // validate pickup shelf is not empty before queuing
+                    let pickup = match &task_type {
+                        TaskType::PickAndDeliver { pickup, .. } => Some(*pickup),
+                        TaskType::Relocate { from, .. } => Some(*from),
+                        TaskType::ReturnToStation { .. } => None,
+                    };
+                    if let Some(pos) = pickup {
+                        if !inventory.can_pickup(pos) {
+                            println!("[{}ms] ✗ Task rejected: pickup shelf ({},{}) is empty", timestamp(), pos.0, pos.1);
+                            logs::save_log("Scheduler", &format!("Task rejected: pickup ({},{}) is empty", pos.0, pos.1));
+                            continue;
+                        }
+                    }
                     let id = queue.next_task_id();
                     let task = Task::new(id, task_type, priority);
                     println!("[{}ms] + Task #{} created via UI", timestamp(), id);

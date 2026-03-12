@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use protocol::grid_map::GridMap;
 use protocol::{Priority, TaskRequest, TaskStatus, TaskType};
+use std::collections::HashSet;
 
 use crate::components::{Dropoff, Shelf};
 use crate::resources::{QueueStateData, RightTab, TaskListData, UiAction, UiState};
@@ -211,6 +212,13 @@ fn wizard_view(
 
     ui.add_space(4.0);
 
+    // build set of empty shelf grid positions to gray them out in the pickup minimap
+    let empty_shelves: HashSet<(usize, usize)> = all_shelves.iter()
+        .filter(|(_, sh)| sh.cargo == 0)
+        .filter_map(|(e, _)| transforms.get(e).ok())
+        .map(|t| (t.translation.x.round() as usize, t.translation.z.round() as usize))
+        .collect();
+
     // ── Step 1: Pickup ──
     let pickup_done = ui_state.wizard_pickup.is_some();
     let step1_text = if let Some((x, y)) = ui_state.wizard_pickup {
@@ -227,6 +235,7 @@ fn wizard_view(
                 ui_state.wizard_pickup,
                 ui_state.wizard_dropoff,
                 true, false, // shelves clickable, dropoffs not
+                Some(&empty_shelves),
                 "wzrd_pickup",
             ) {
                 ui_state.wizard_pickup = Some(clicked);
@@ -248,13 +257,14 @@ fn wizard_view(
         ui.label(egui::RichText::new(step2_text).strong());
 
         if !dropoff_done {
-            let _ = (all_shelves, dropoffs, transforms); // captured for future use
+            let _ = dropoffs; // not yet used in dropoff step
             if let Some(grid) = warehouse_map {
                 if let Some(clicked) = wizard_minimap_widget(
                     ui, grid,
                     ui_state.wizard_pickup,
                     ui_state.wizard_dropoff,
                     true, true, // shelves + dropoffs clickable
+                    None, // no empty-shelf filter for dropoff destination
                     "wzrd_dropoff",
                 ) {
                     // don't let them pick the same cell as pickup

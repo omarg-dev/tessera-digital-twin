@@ -79,7 +79,12 @@ pub fn draw(
 
     // ── Transport Task Picker ──
     if !ui_state.transport_dropdown_open {
-        if ui.button("Add Transport Task").clicked() {
+        let has_cargo = shelf.cargo > 0;
+        let btn = ui.add_enabled(has_cargo, egui::Button::new("Add Transport Task"));
+        if !has_cargo {
+            ui.weak("Shelf is empty — nothing to transport");
+        }
+        if btn.clicked() {
             ui_state.transport_dropdown_open = true;
         }
     } else {

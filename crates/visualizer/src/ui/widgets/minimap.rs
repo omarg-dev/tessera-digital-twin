@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use protocol::grid_map::{GridMap, TileType};
 use protocol::{Priority, TaskRequest, TaskType};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::resources::{UiAction, UiState};
 use super::common::{color_swatch, shelf_fill_color_egui};
@@ -19,6 +19,7 @@ pub fn wizard_minimap_widget(
     highlight_b: Option<(usize, usize)>,
     clickable_shelves: bool,
     clickable_dropoffs: bool,
+    empty_positions: Option<&HashSet<(usize, usize)>>,
     id_salt: &str,
 ) -> Option<(usize, usize)> {
     const CELL: f32 = 8.0;
@@ -53,7 +54,13 @@ pub fn wizard_minimap_widget(
                             Some(TileType::Ground) => egui::Color32::from_gray(70),
                             Some(TileType::Station) => egui::Color32::from_rgb(100, 40, 60),
                             Some(TileType::Dropoff) => egui::Color32::from_rgb(20, 130, 70),
-                            Some(TileType::Shelf(_)) => egui::Color32::from_rgb(60, 100, 60),
+                            Some(TileType::Shelf(_)) => {
+                                if empty_positions.map_or(false, |s| s.contains(&gpos)) {
+                                    egui::Color32::from_gray(45) // empty shelf
+                                } else {
+                                    egui::Color32::from_rgb(60, 100, 60)
+                                }
+                            }
                             Some(TileType::Empty) | None => egui::Color32::from_gray(15),
                         }
                     };
@@ -68,7 +75,8 @@ pub fn wizard_minimap_widget(
                     let Some(tile) = grid.get_tile(col, row) else { continue };
                     let is_shelf = matches!(tile.tile_type, TileType::Shelf(_));
                     let is_dropoff = matches!(tile.tile_type, TileType::Dropoff);
-                    let interactive = (is_shelf && clickable_shelves) || (is_dropoff && clickable_dropoffs);
+                    let is_empty_shelf = is_shelf && empty_positions.map_or(false, |s| s.contains(&gpos));
+                    let interactive = (is_shelf && clickable_shelves && !is_empty_shelf) || (is_dropoff && clickable_dropoffs);
                     if !interactive { continue; }
 
                     let cell_rect = egui::Rect::from_min_size(

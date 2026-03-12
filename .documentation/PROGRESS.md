@@ -263,6 +263,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+
+### 2026-03-12: Empty shelf pickup validation (Phase 5)
+
+- `wizard_minimap_widget` in `minimap.rs` gains `empty_positions: Option<&HashSet<(usize,usize)>>` parameter; empty shelves render dark gray (`from_gray(45)`) and are non-interactive when in pickup mode.
+- `wizard_view` in `tasks.rs` builds `empty_shelves` HashSet from live `Shelf.cargo` components and passes it to the Step 1 pickup minimap; Step 2 (dropoff) passes `None` so any shelf is a valid destination.
+- `shelf_inspector.rs` "Add Transport Task" button disabled (`add_enabled`) when `shelf.cargo == 0` with a "Shelf is empty" hint label.
+- `scheduler/server.rs` `handle_task_requests` gains `&ShelfInventory` parameter; `TaskCommand::New` handler checks `inventory.can_pickup(pickup)` before enqueuing and rejects with a log message if the source shelf is empty.
+
 ### 2026-03-12: Fix camera lerp fighting user input (Phase 5)
 
 Three bugs where camera follow/reset lerps would keep running against user input after it occurred.
