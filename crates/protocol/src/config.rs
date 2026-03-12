@@ -376,10 +376,12 @@ pub mod visual {
         pub const OFFLINE_TIMEOUT_SECS: f32 = 3.0;
 
         /// egui font size for the small robot ID (`#3`)
-        pub const FONT_SIZE: f32 = 10.0;
+        /// tune this value to adjust default label size (see also ICON_SIZE below)
+        pub const FONT_SIZE: f32 = 8.0;
 
         /// egui font size for the large goal/status icon
-        pub const ICON_SIZE: f32 = 15.0;
+        /// tune this value to adjust default label size
+        pub const ICON_SIZE: f32 = 11.0;
 
         /// Label background color (fully opaque dark)
         pub const BG_COLOR: (u8, u8, u8, u8) = (18, 18, 18, 245);

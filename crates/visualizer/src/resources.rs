@@ -166,6 +166,12 @@ pub struct UiState {
     pub camera_pan_this_frame: bool,
     /// the user orbited the camera this frame (right drag) — cancels entity focus lerp
     pub camera_orbit_this_frame: bool,
+    /// actual width of the left side panel in egui logical pixels — updated each frame by gui.rs
+    pub left_panel_width: f32,
+    /// actual width of the right side panel in egui logical pixels — updated each frame by gui.rs
+    pub right_panel_width: f32,
+    /// actual height of the bottom panel in egui logical pixels — updated each frame by gui.rs
+    pub bottom_panel_height: f32,
 }
 
 impl Default for UiState {
@@ -197,6 +203,9 @@ impl Default for UiState {
             camera_scroll_this_frame: false,
             camera_pan_this_frame: false,
             camera_orbit_this_frame: false,
+            left_panel_width: ui_cfg::SIDE_PANEL_DEFAULT_WIDTH,
+            right_panel_width: ui_cfg::SIDE_PANEL_DEFAULT_WIDTH,
+            bottom_panel_height: ui_cfg::BOTTOM_PANEL_DEFAULT_HEIGHT,
         }
     }
 }

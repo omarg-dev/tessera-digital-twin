@@ -45,20 +45,25 @@ pub fn draw_robot_labels(
     let now = time.elapsed_secs();
     let scale = window.scale_factor();
 
-    // scale labels with zoom: at default radius labels are 1×; closer = slightly larger,
-    // farther = smaller. sqrt smooths the curve; clamped so labels stay legible.
+    // scale labels with zoom: at default radius labels are 1×; closer = larger, farther = smaller.
+    // sqrt smooths the curve. clamp range controls how extreme the size change is:
+    //   lower bound: minimum scale at max zoom-out (e.g. 0.3 = 30% of base size)
+    //   upper bound: maximum scale at max zoom-in  (e.g. 1.5 = 150% of base size)
+    // FONT_SIZE and ICON_SIZE in protocol::config::visual::labels set the base sizes.
     let zoom_scale = if let Ok(ctrl) = camera_ctrl.single() {
-        (cam_cfg::DEFAULT_RADIUS / ctrl.radius).sqrt().clamp(0.45, 1.6)
+        (cam_cfg::DEFAULT_RADIUS / ctrl.radius).sqrt().clamp(0.3, 1.5)
     } else {
         1.0
     };
 
     // viewport rect in egui logical pixels — labels are clipped to this area
     // so they never bleed into the side panels, top bar, or bottom panel.
+    // uses actual runtime panel widths from UiState (updated each frame by gui.rs)
+    // so the rect stays correct even when the user resizes panels.
     let screen = ctx.content_rect();
     let vp = egui::Rect::from_min_max(
-        egui::pos2(screen.left() + ui_cfg::SIDE_PANEL_DEFAULT_WIDTH, screen.top() + ui_cfg::TOP_PANEL_HEIGHT),
-        egui::pos2(screen.right() - ui_cfg::SIDE_PANEL_DEFAULT_WIDTH, screen.bottom() - ui_cfg::BOTTOM_PANEL_DEFAULT_HEIGHT),
+        egui::pos2(screen.left() + ui_state.left_panel_width, screen.top() + ui_cfg::TOP_PANEL_HEIGHT),
+        egui::pos2(screen.right() - ui_state.right_panel_width, screen.bottom() - ui_state.bottom_panel_height),
     );
 
     let (bg_r, bg_g, bg_b, bg_a) = lbl::BG_COLOR;

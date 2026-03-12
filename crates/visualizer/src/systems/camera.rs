@@ -209,8 +209,9 @@ fn calculate_camera_transform(controller: &CameraController) -> Transform {
 ///
 /// - Pending task: focuses on the pickup grid cell (where the cargo is)
 /// - Assigned/InProgress: follows the robot carrying the cargo
-/// - Terminal task (Completed/Failed/Cancelled): returns camera to default view
-/// - Task deselected: returns camera to default view
+/// - Terminal task selected fresh: camera is left alone (already done)
+/// - Live task that becomes terminal: camera lerps back to default once
+/// - Task deselected after being live: camera lerps back to default
 ///
 /// This system only fires when a task is selected and the entity inspector is
 /// not also active — entity follow (`camera_follow_selected`) takes precedence.
@@ -223,6 +224,9 @@ pub fn camera_follow_task(
     mut prev_task_id: Local<Option<u64>>,
     mut resetting: Local<bool>,
     mut zooming_in: Local<bool>,
+    // true while we are actively following this task as a live (non-terminal) task.
+    // the camera only lerps back to default when this transitions false -> terminal.
+    mut was_live: Local<bool>,
 ) {
     // entity follow has priority — don't fight camera_follow_selected
     if ui_state.selected_entity.is_some() {
@@ -238,11 +242,14 @@ pub fn camera_follow_task(
         *resetting = false;
     }
 
-    // task was deselected — start return-to-default lerp
+    // task was deselected — return to default only if we were tracking it as live
     if ui_state.selected_task_id.is_none() && prev_task_id.is_some() {
         *prev_task_id = None;
-        *resetting = true;
         *zooming_in = false;
+        if *was_live {
+            *resetting = true;
+        }
+        *was_live = false;
     }
 
     // smoothly return to default view
@@ -275,14 +282,32 @@ pub fn camera_follow_task(
         return;
     };
 
-    // trigger zoom-in when a new task is selected
+    let is_terminal = matches!(task.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled);
+
+    // new task selected
     if *prev_task_id != Some(task_id) {
         *prev_task_id = Some(task_id);
         *resetting = false;
-        if controller.radius > camera::TASK_FOLLOW_ZOOM_RADIUS + 1.0 {
+        *zooming_in = false;
+        *was_live = false;
+        // only initiate zoom-in for live tasks — terminal tasks are browsed passively
+        if !is_terminal && controller.radius > camera::TASK_FOLLOW_ZOOM_RADIUS + 1.0 {
             *zooming_in = true;
         }
     }
+
+    // terminal task — only reset if we were following it as live (i.e., it just completed)
+    if is_terminal {
+        if *was_live {
+            *resetting = true;
+            *zooming_in = false;
+            *was_live = false;
+        }
+        return;
+    }
+
+    // actively following a live task
+    *was_live = true;
 
     // user scroll cancels the zoom-in lerp
     if ui_state.camera_scroll_this_frame {
@@ -300,15 +325,8 @@ pub fn camera_follow_task(
             task.pickup_location()
                 .map(|(col, row)| Vec3::new(col as f32, 0.0, row as f32))
         }
-        // terminal — start reset
-        TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled => {
-            if !*resetting {
-                *resetting = true;
-                *zooming_in = false;
-                *prev_task_id = None;
-            }
-            return;
-        }
+        // already handled above
+        TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled => return,
     };
 
     let Some(target) = target_pos else {

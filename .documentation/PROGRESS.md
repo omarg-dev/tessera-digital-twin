@@ -263,6 +263,12 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-12: Camera/label polish fixes (Phase 5)
+
+- `camera_follow_task` (`camera.rs`): added `was_live: Local<bool>` tracking. Camera now only lerps to default when a task that was being actively followed transitions to terminal. Selecting an already-completed task leaves the camera untouched. Deselecting a terminal task also does nothing.
+- `robot_labels.rs` zoom scale clamp widened from `(0.45, 1.6)` to `(0.3, 1.5)` for a more noticeable size change with zoom. Label base sizes reduced in `protocol::config::visual::labels`: `FONT_SIZE` 10 -> 8, `ICON_SIZE` 15 -> 11 (user tunable).
+- Label viewport clip rect now uses live panel widths stored in `UiState` (`left_panel_width`, `right_panel_width`, `bottom_panel_height`) instead of hardcoded `SIDE_PANEL_DEFAULT_WIDTH`. `gui.rs` captures `panel_resp.response.rect` after each `.show()` and writes it back to `UiState` each frame, so the clip rect always matches the actual panel boundaries even when the user resizes panels.
+
 
 ### 2026-03-12: Empty shelf pickup validation (Phase 5)
 

@@ -52,7 +52,7 @@ pub fn object_manager(
     task_list: &TaskListData,
     actions: &mut Vec<UiAction>,
 ) {
-    egui::SidePanel::left("left_panel")
+    let panel_resp = egui::SidePanel::left("left_panel")
         .default_width(ui_cfg::SIDE_PANEL_DEFAULT_WIDTH)
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
@@ -71,6 +71,7 @@ pub fn object_manager(
                 ),
             }
         });
+    ui_state.left_panel_width = panel_resp.response.rect.width();
 }
 
 // ── Inspector (right) ─────────────────────────────────────────────
@@ -89,7 +90,7 @@ pub fn inspector(
     active_paths: &ActivePaths,
     actions: &mut Vec<UiAction>,
 ) {
-    egui::SidePanel::right("right_panel")
+    let panel_resp = egui::SidePanel::right("right_panel")
         .default_width(ui_cfg::SIDE_PANEL_DEFAULT_WIDTH)
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
@@ -108,6 +109,7 @@ pub fn inspector(
                 RightTab::Network => tabs::network::draw(ui),
             }
         });
+    ui_state.right_panel_width = panel_resp.response.rect.width();
 }
 
 // ── Log Console (bottom) ──────────────────────────────────────────
@@ -118,7 +120,7 @@ pub fn log_console(
     ui_state: &mut UiState,
     log_buffer: &mut LogBuffer,
 ) {
-    egui::TopBottomPanel::bottom("bottom_panel")
+    let panel_resp = egui::TopBottomPanel::bottom("bottom_panel")
         .default_height(ui_cfg::BOTTOM_PANEL_DEFAULT_HEIGHT)
         .height_range(ui_cfg::BOTTOM_PANEL_MIN_HEIGHT..=ui_cfg::BOTTOM_PANEL_MAX_HEIGHT)
         .resizable(true)
@@ -135,4 +137,5 @@ pub fn log_console(
                 BottomTab::Analytics => tabs::analytics::draw(ui),
             }
         });
+    ui_state.bottom_panel_height = panel_resp.response.rect.height();
 }
