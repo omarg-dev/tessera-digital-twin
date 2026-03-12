@@ -215,6 +215,7 @@ impl SimRobot {
             battery: self.battery,
             carrying_cargo: self.carrying_cargo,
             station_position: self.station_position,
+            enabled: self.enabled,
         }
     }
     

@@ -241,6 +241,10 @@ pub mod visual {
     /// Y offset for placeholder planes (station/dropoff) to sit above the floor
     pub const PLACEHOLDER_Y_OFFSET: f32 = 0.001;
 
+    /// Y offset for floor tiles (negative = below wall model's embedded floor plane)
+    /// Fixes z-fighting between floor tiles and wall bases.
+    pub const GROUND_Y_OFFSET: f32 = -0.001;
+
     /// Box placement
     pub mod shelf {
         /// Shelf mesh dimensions (width, height, depth)

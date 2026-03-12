@@ -167,6 +167,7 @@ mod tests {
             battery: 100.0,
             carrying_cargo: None,
             station_position: [15.0, 0.25, 1.0],
+            enabled: true,
         }
     }
 

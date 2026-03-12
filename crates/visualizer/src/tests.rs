@@ -23,7 +23,8 @@ mod component_tests {
             carrying_cargo: None,
             target_position: Vec3::new(5.0, 0.25, 3.0),
             network_velocity: Vec3::ZERO,
-            last_update_secs: 0.0
+            last_update_secs: 0.0,
+            enabled: true,
         };
 
         assert_eq!(robot.id, 42);
@@ -44,7 +45,8 @@ mod component_tests {
             carrying_cargo: Some(999),
             target_position: Vec3::ZERO,
             network_velocity: Vec3::ZERO,
-            last_update_secs: 0.0
+            last_update_secs: 0.0,
+            enabled: true,
         };
 
         assert_eq!(robot.carrying_cargo, Some(999));
@@ -105,6 +107,7 @@ mod resource_tests {
             battery: 100.0,
             carrying_cargo: None,
             station_position: [0.0, 0.25, 0.0],
+            enabled: true,
         });
 
         assert_eq!(updates.updates.len(), 1);
@@ -159,7 +162,8 @@ mod integration_tests {
                 carrying_cargo: None,
                 target_position: Vec3::ZERO,
                 network_velocity: Vec3::ZERO,
-                last_update_secs: 0.0
+                last_update_secs: 0.0,
+                enabled: true,
             };
             
             assert_eq!(robot.state, state);

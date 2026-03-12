@@ -52,6 +52,7 @@ pub fn draw_ui(
     gui::object_manager(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state, &dropoffs, &transforms, wm, &task_list, &mut pending_actions);
     gui::inspector(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, wm, &task_list, &active_paths, &mut pending_actions);
     gui::log_console(ctx, &mut ui_state, &mut log_buffer);
+    gui::realtime_overlay(ctx, &ui_state);
 
     // background-click deselect: checked AFTER panels are drawn so
     // ctx.is_pointer_over_area() reflects all panel regions registered this frame

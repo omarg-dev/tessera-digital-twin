@@ -63,6 +63,9 @@ pub enum SystemCommand {
     Verbose(bool),
     /// Toggle chaos engineering mode
     Chaos(bool),
+    /// Set simulation time scale (1.0 = real-time, 2.0 = 2x speed, etc.)
+    /// Clamped to 0.1..1000.0 by consumers.
+    SetTimeScale(f32),
 }
 
 /// Individual robot control (orchestrator → firmware)
@@ -85,6 +88,8 @@ pub enum SystemCommandEffect {
     Verbose(bool),
     /// Chaos mode changed
     Chaos(bool),
+    /// Time scale changed
+    TimeScale(f32),
     /// No state change needed for this crate
     None,
 }
@@ -124,6 +129,8 @@ impl SystemCommand {
                 }
                 SystemCommandEffect::Chaos(*c)
             }
+            // time scale is handled separately by consumers that track it
+            SystemCommand::SetTimeScale(s) => SystemCommandEffect::TimeScale(*s),
         }
     }
 
@@ -143,6 +150,7 @@ impl SystemCommand {
             SystemCommandEffect::Verbose(false) => println!("🔇 {} verbose OFF", crate_name),
             SystemCommandEffect::Chaos(true) => println!("💥 {} chaos ON", crate_name),
             SystemCommandEffect::Chaos(false) => println!("✨ {} chaos OFF", crate_name),
+            SystemCommandEffect::TimeScale(s) => println!("⏱️ {} time scale: {:.1}x", crate_name, s),
             SystemCommandEffect::None => {}
         }
         effect

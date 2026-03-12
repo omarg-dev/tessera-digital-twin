@@ -20,6 +20,8 @@ pub struct Robot {
     /// elapsed seconds when the last network update was applied.
     /// used by the label system to detect offline robots (no recent update).
     pub last_update_secs: f32,
+    /// whether this robot is currently enabled (accepting commands)
+    pub enabled: bool,
 }
 
 /// Ground tile marker

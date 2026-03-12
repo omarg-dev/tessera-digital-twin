@@ -12,6 +12,7 @@ pub struct RobotUpdate {
     pub battery: f32,          // 0.0 to 100.0
     pub carrying_cargo: Option<u32>,
     pub station_position: [f32; 3],  // Home charging station location
+    pub enabled: bool,         // Whether this robot is currently active
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

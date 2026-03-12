@@ -22,14 +22,14 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 ## Phase Overview
 
-| Phase | Name                                      | Status        | Description                                               |
-| ------ | ------------------------------------------ | -------------- ------------------------------------------------------------ |
-| 1     | Foundation & Scene Setup                  | ✅ Complete   | Bevy app, warehouse layout, camera, environment           |
-| 2     | Zenoh Integration & Robot Sync            | ✅ Complete   | Real-time robot updates, dynamic spawning, HUD            |
-| 3     | Distributed Architecture & Pathfinding    | ✅ Complete   | Multi-crate architecture, A* pathfinding, map validation  |
-| 4     | Task & Cargo Management                   | ✅ Complete   | Task queue, allocation, execution loop, collision detection  |
-| 5     | Polish & Presentation                     | 🔄 In Progress | Digital Twin Command Center UI, performance, demo scenarios |
-| 6     | ROS2 Bridge & Hardware Validation         | ⏳ Planned    | External physics integration, real robot support          |
+| Phase | Name | Status | Description |
+| ----- | ---- | ------ | ----------- |
+| 1     | Foundation & Scene Setup                        | ✅ Complete   | Bevy app, warehouse layout, camera, environment           |
+| 2     | Zenoh Integration & Robot Sync                  | ✅ Complete   | Real-time robot updates, dynamic spawning, HUD            |
+| 3     | Distributed Architecture & Pathfinding          | ✅ Complete   | Multi-crate architecture, A* pathfinding, map validation  |
+| 4     | Task & Cargo Management                         | ✅ Complete   | Task queue, allocation, execution loop, collision detection  |
+| 5     | Polish & Presentation                           | 🔄 In Progress | Digital Twin Command Center UI, performance, demo scenarios |
+| 6     | Inbound/Outbound Bridge & Hardware Validation | ⏳ Planned    | External physics integration, real robot support          |
 
 ---
 
@@ -99,7 +99,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 ---
 
-## Phase 4: Task & Cargo Management 🔄
+## Phase 4: Task & Cargo Management ✅
 
 **Goal:** Automated task assignment, execution, and tracking.
 
@@ -262,6 +262,26 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-12: Time scale, robot enable/disable, floor z-fighting (Phase 5)
+
+Four fixes addressing floor rendering, simulation speed controls, and robot actions.
+
+**Fix: Floor z-fighting with walls** -- `protocol/src/config.rs`, `visualizer/systems/models.rs`: Added `GROUND_Y_OFFSET = -0.001` constant. `spawn_floor` now places floor tiles 0.001 units below y=0, eliminating z-fighting with wall models that have embedded floor planes.
+
+**Feature: Simulation time scale** -- Full wire-up from UI to firmware:
+- `protocol/commands.rs`: Added `SystemCommand::SetTimeScale(f32)` and `SystemCommandEffect::TimeScale(f32)`
+- `mock_firmware/commands.rs`: `handle_system_commands` now accepts `time_scale: &mut f32` and applies `TimeScale` effect (clamped to 0.1..1000)
+- `mock_firmware/driver.rs`: Physics passes `dt * time_scale` instead of raw `dt`
+- `visualizer/resources.rs`: Added `SetTimeScale(f32)` to `UiAction`, plus `custom_speed_editing: bool` and `custom_speed_text: String` to `UiState`
+- `visualizer/systems/command_bridge.rs`: Wires `SetTimeScale` action to `SystemCommand`
+- `visualizer/ui/tabs/control_bar.rs`: Replaced stub speed buttons with functional 1x/2x/5x/10x presets plus "Custom" button that accepts values up to 1000x
+
+**Fix: Robot enable/disable buttons** -- `protocol/robot.rs`: Added `enabled: bool` field to `RobotUpdate`. Firmware now broadcasts all robots (including disabled ones) with their `enabled` flag. `visualizer/components.rs` and `sync_robots.rs` updated to track the field. `robot_inspector.rs` now shows contextual "Enable"/"Disable" button based on robot state.
+
+**Feature: Real-time mode overlay** -- `visualizer/ui/gui.rs`: New `realtime_overlay()` function renders a centered popup when `is_realtime` is true, explaining that physical robot tracking is not yet implemented.
+
+**Housekeeping:** Fixed pre-existing `ShelfInventory` tests in `grid_map.rs` that were failing because they assumed shelf capacity equals initial stock, when actual capacity is `SHELF_MAX_CAPACITY = 16`.
 
 ### 2026-03-12: Camera/label polish fixes (Phase 5)
 

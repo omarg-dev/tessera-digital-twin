@@ -31,6 +31,7 @@ pub fn sync_robots(
                 robot.state = update.state.clone();
                 robot.battery = update.battery;
                 robot.carrying_cargo = update.carrying_cargo;
+                robot.enabled = update.enabled;
                 let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
                 let vel = Vec3::new(update.velocity[0], update.velocity[1], update.velocity[2]);
                 robot.position = pos;
@@ -107,6 +108,7 @@ pub fn sync_robots(
                         target_position: pos,
                         network_velocity: Vec3::ZERO,
                         last_update_secs: time.elapsed_secs(),
+                        enabled: update.enabled,
                     },
                 )).id()
             } else {
@@ -123,6 +125,7 @@ pub fn sync_robots(
                         target_position: pos,
                         network_velocity: Vec3::ZERO,
                         last_update_secs: time.elapsed_secs(),
+                        enabled: update.enabled,
                     },
                 )).id()
             };

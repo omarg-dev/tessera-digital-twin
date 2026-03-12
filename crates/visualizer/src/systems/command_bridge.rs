@@ -97,6 +97,14 @@ pub fn bridge_ui_commands(
                 OutboundCommand::Robot(RobotControl::Up(*id)),
                 format!("[UI] Enable Robot #{id}"),
             ),
+            UiAction::DisableRobot(id) => (
+                OutboundCommand::Robot(RobotControl::Down(*id)),
+                format!("[UI] Disable Robot #{id}"),
+            ),
+            UiAction::SetTimeScale(scale) => (
+                OutboundCommand::System(SystemCommand::SetTimeScale(*scale)),
+                format!("[UI] Speed: {scale:.1}x"),
+            ),
             UiAction::SubmitTransportTask(req) => (
                 OutboundCommand::Task(TaskCommand::New {
                     task_type: req.task_type.clone(),

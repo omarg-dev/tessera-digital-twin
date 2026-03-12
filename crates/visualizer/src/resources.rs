@@ -122,9 +122,11 @@ pub struct UiState {
     /// Layer toggle: show robot ID labels
     pub show_ids: bool,
     /// Simulation speed multiplier (1.0 = real-time)
-    /// TODO: wire to firmware tick rate when speed control is implemented
-    #[allow(dead_code)]
     pub sim_speed: f32,
+    /// Custom speed text field is being edited
+    pub custom_speed_editing: bool,
+    /// Custom speed text buffer
+    pub custom_speed_text: String,
     /// Whether the simulation is paused
     pub is_paused: bool,
     /// Real-time mode toggle (true = real hardware, false = simulation)
@@ -184,6 +186,8 @@ impl Default for UiState {
             show_debug_grid: false,
             show_ids: true,
             sim_speed: 1.0,
+            custom_speed_editing: false,
+            custom_speed_text: String::new(),
             is_paused: false,
             is_realtime: false,
             object_tab: LeftTab::default(),
@@ -302,6 +306,10 @@ pub enum UiAction {
     RestartRobot(u32),
     /// Publish RobotControl::Up(id)
     EnableRobot(u32),
+    /// Publish RobotControl::Down(id) - explicitly disable a robot
+    DisableRobot(u32),
+    /// Publish SystemCommand::SetTimeScale(f32)
+    SetTimeScale(f32),
     /// Submit a transport task to the scheduler
     SubmitTransportTask(TaskRequest),
     /// Cancel a task by ID

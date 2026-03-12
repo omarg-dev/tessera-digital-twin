@@ -341,8 +341,9 @@ mod tests {
     fn inventory_from_map_starts_full() {
         let map = GridMap::parse("x5 . x3").unwrap();
         let inv = ShelfInventory::from_map(&map);
-        assert_eq!(inv.stock_at((0, 0)), Some((5, 5)));
-        assert_eq!(inv.stock_at((2, 0)), Some((3, 3)));
+        // stock starts at parsed value, capacity is SHELF_MAX_CAPACITY (16)
+        assert_eq!(inv.stock_at((0, 0)), Some((5, 16)));
+        assert_eq!(inv.stock_at((2, 0)), Some((3, 16)));
         assert_eq!(inv.stock_at((1, 0)), None); // ground
     }
 
@@ -371,7 +372,8 @@ mod tests {
 
     #[test]
     fn inventory_cannot_dropoff_full_shelf() {
-        let map = GridMap::parse("x3").unwrap();
+        // x16 starts at capacity (SHELF_MAX_CAPACITY = 16)
+        let map = GridMap::parse("x16").unwrap();
         let inv = ShelfInventory::from_map(&map);
         assert!(!inv.can_dropoff((0, 0))); // starts full
     }
@@ -381,7 +383,7 @@ mod tests {
         let map = GridMap::parse("x3").unwrap();
         let mut inv = ShelfInventory::from_map(&map);
         assert!(inv.pickup((0, 0)));
-        assert_eq!(inv.stock_at((0, 0)), Some((2, 3)));
+        assert_eq!(inv.stock_at((0, 0)), Some((2, 16)));
     }
 
     #[test]
@@ -390,7 +392,7 @@ mod tests {
         let mut inv = ShelfInventory::from_map(&map);
         inv.pickup((0, 0));
         assert!(inv.dropoff((0, 0)));
-        assert_eq!(inv.stock_at((0, 0)), Some((3, 3)));
+        assert_eq!(inv.stock_at((0, 0)), Some((3, 16)));
     }
 
     #[test]
@@ -398,9 +400,9 @@ mod tests {
         let map = GridMap::parse("x3").unwrap();
         let mut inv = ShelfInventory::from_map(&map);
         inv.pickup((0, 0));
-        assert_eq!(inv.stock_at((0, 0)), Some((2, 3)));
+        assert_eq!(inv.stock_at((0, 0)), Some((2, 16)));
         inv.undo_pickup((0, 0));
-        assert_eq!(inv.stock_at((0, 0)), Some((3, 3)));
+        assert_eq!(inv.stock_at((0, 0)), Some((3, 16)));
     }
 
     #[test]
@@ -410,7 +412,7 @@ mod tests {
         inv.pickup((0, 0));
         inv.dropoff((0, 0));
         inv.undo_dropoff((0, 0));
-        assert_eq!(inv.stock_at((0, 0)), Some((2, 3)));
+        assert_eq!(inv.stock_at((0, 0)), Some((2, 16)));
     }
 
     #[test]

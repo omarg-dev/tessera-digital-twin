@@ -9,7 +9,7 @@ use bevy::picking::prelude::Pickable;
 use rand::Rng;
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
-use protocol::config::visual::{PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
+use protocol::config::visual::{GROUND_Y_OFFSET, PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
 use protocol::config::warehouse::SHELF_MAX_CAPACITY;
 use protocol::config::visual::shelf::{SHELF_LEVEL_HEIGHTS,
     BOX_X_OFFSETS, BOX_Z_OFFSETS,BOX_SCALE};
@@ -285,7 +285,7 @@ fn load_scene(asset_server: &AssetServer, path: &str) -> Handle<Scene> {
 pub fn spawn_floor(commands: &mut Commands, asset_server: &AssetServer, pos: Vec3) {
     let entity = commands.spawn((
         SceneRoot(load_scene(asset_server, assets::FLOOR)),
-        Transform::from_translation(pos),
+        Transform::from_translation(pos + Vec3::Y * GROUND_Y_OFFSET),
         Ground,
     )).id();
     if opt::DISABLE_TILE_PICKING {

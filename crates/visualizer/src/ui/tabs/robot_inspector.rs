@@ -80,8 +80,15 @@ pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
         if ui.button("Restart").clicked() {
             actions.push(UiAction::RestartRobot(robot.id));
         }
-        if ui.button("Enable").clicked() {
-            actions.push(UiAction::EnableRobot(robot.id));
+        // contextual enable/disable based on robot state
+        if robot.enabled {
+            if ui.button("Disable").clicked() {
+                actions.push(UiAction::DisableRobot(robot.id));
+            }
+        } else {
+            if ui.button("Enable").clicked() {
+                actions.push(UiAction::EnableRobot(robot.id));
+            }
         }
     });
 }

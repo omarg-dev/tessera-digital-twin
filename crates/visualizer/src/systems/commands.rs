@@ -76,6 +76,10 @@ pub fn handle_system_commands(
             SystemCommand::Chaos(on) => {
                 log_buffer.push(format!("[System] Chaos {}", if *on { "ON" } else { "OFF" }));
             }
+            SystemCommand::SetTimeScale(scale) => {
+                ui_state.sim_speed = *scale;
+                log_buffer.push(format!("[System] Speed {:.1}x (external)", scale));
+            }
         }
     }
 }

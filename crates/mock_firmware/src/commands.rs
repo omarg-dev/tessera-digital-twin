@@ -8,15 +8,19 @@ use zenoh::sample::Sample;
 
 use crate::robot::SimRobot;
 
-/// Process system commands (pause/resume/chaos)
+/// Process system commands (pause/resume/chaos/time_scale)
 pub fn handle_system_commands(
     subscriber: &Subscriber<FifoChannelHandler<Sample>>,
     paused: &mut bool,
     chaos: &mut bool,
+    time_scale: &mut f32,
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
         if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-            cmd.apply_with_log("Physics", Some(paused), None, Some(chaos));
+            let effect = cmd.apply_with_log("Physics", Some(paused), None, Some(chaos));
+            if let protocol::SystemCommandEffect::TimeScale(s) = effect {
+                *time_scale = s.clamp(0.1, 1000.0);
+            }
         }
     }
 }

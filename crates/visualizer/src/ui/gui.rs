@@ -139,3 +139,30 @@ pub fn log_console(
         });
     ui_state.bottom_panel_height = panel_resp.response.rect.height();
 }
+
+// ── Real-time Mode Overlay ────────────────────────────────────────
+
+/// Shows a centered overlay when real-time mode is active.
+pub fn realtime_overlay(ctx: &egui::Context, ui_state: &UiState) {
+    if !ui_state.is_realtime {
+        return;
+    }
+    
+    egui::Area::new(egui::Id::new("realtime_overlay"))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style())
+                .fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 230))
+                .corner_radius(8.0)
+                .inner_margin(24.0)
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("Real-time Mode").size(20.0).strong());
+                        ui.add_space(8.0);
+                        ui.label("Physical robot tracking is not yet implemented.");
+                        ui.label("Switch back to Simulation mode to continue.");
+                    });
+                });
+        });
+}

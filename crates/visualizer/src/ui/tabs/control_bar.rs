@@ -64,10 +64,69 @@ fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiA
         actions.push(UiAction::SetPaused(ui_state.is_paused));
     }
 
-    let speeds: &[(&str, f32)] = &[("1x", 1.0), ("10x", 10.0), ("Max", f32::MAX)];
-    for &(label, _factor) in speeds {
-        let btn = egui::Button::new(label).selected(label == "1x");
-        let response = ui.add_enabled(false, btn);
-        response.on_disabled_hover_text("Speed control not yet wired");
+    // preset speeds
+    let speeds: &[(f32, &str)] = &[
+        (1.0, "1x"),
+        (2.0, "2x"),
+        (5.0, "5x"),
+        (10.0, "10x"),
+    ];
+
+    for &(factor, label) in speeds {
+        let is_selected = !ui_state.custom_speed_editing
+            && (ui_state.sim_speed - factor).abs() < 0.001;
+        let btn = egui::Button::new(label).selected(is_selected);
+        if ui.add(btn).clicked() {
+            ui_state.sim_speed = factor;
+            ui_state.custom_speed_editing = false;
+            ui_state.custom_speed_text.clear();
+            actions.push(UiAction::SetTimeScale(factor));
+        }
+    }
+
+    // custom speed button/input
+    if ui_state.custom_speed_editing {
+        // show text input
+        let response = ui.add(
+            egui::TextEdit::singleline(&mut ui_state.custom_speed_text)
+                .desired_width(40.0)
+                .hint_text("x"),
+        );
+        // auto-focus on first frame
+        if response.gained_focus() || ui_state.custom_speed_text.is_empty() {
+            response.request_focus();
+        }
+        // submit on enter or lose focus
+        if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if let Ok(val) = ui_state.custom_speed_text.trim().parse::<f32>() {
+                let clamped = val.clamp(0.1, 1000.0);
+                ui_state.sim_speed = clamped;
+                ui_state.custom_speed_text = format!("{:.0}", clamped);
+                actions.push(UiAction::SetTimeScale(clamped));
+            }
+            ui_state.custom_speed_editing = false;
+        }
+        // cancel on escape
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ui_state.custom_speed_editing = false;
+            ui_state.custom_speed_text.clear();
+        }
+    } else {
+        // determine button label: "Custom" or the custom value
+        let is_custom_value = !speeds.iter().any(|(f, _)| (ui_state.sim_speed - f).abs() < 0.001);
+        let label = if is_custom_value {
+            format!("{:.0}x", ui_state.sim_speed)
+        } else {
+            "Custom".to_string()
+        };
+        let btn = egui::Button::new(&label).selected(is_custom_value);
+        if ui.add(btn).clicked() {
+            ui_state.custom_speed_editing = true;
+            ui_state.custom_speed_text = if is_custom_value {
+                format!("{:.0}", ui_state.sim_speed)
+            } else {
+                String::new()
+            };
+        }
     }
 }
