@@ -231,9 +231,12 @@ impl WHCAPathfinder {
 
     /// Check for edge collision (two robots swapping positions)
     fn has_edge_collision(&self, from: GridPos, to: GridPos, time_ms: u64, exclude_robot: Option<u32>) -> bool {
-        // Check if another robot is moving from 'to' to 'from' at the same time.
+        // Check if another robot is moving from 'to' to 'from' across this move step.
+        // Our move is from `from@time_ms` to `to@(time_ms + MOVE_TIME_MS)`.
+        // A swap conflict exists if another robot is on `to` now and on `from`
+        // at our arrival time (with tolerance).
         for offset in 0..=RESERVATION_TOLERANCE_MS {
-            let t_next = time_ms + offset as u64;
+            let t_next = time_ms + MOVE_TIME_MS + offset as u64;
             if let Some(reserved_by) = self.reservations.get(&(from.0, from.1, t_next)) {
                 if let Some(exclude) = exclude_robot {
                     if *reserved_by == exclude {
@@ -753,5 +756,36 @@ mod tests {
         // Should end adjacent to the shelf, not on it
         assert!(*last_pos != (1, 1));
         assert!(is_adjacent(*last_pos, (1, 1)));
+    }
+
+    #[test]
+    fn test_find_path_for_robot_strict_no_fallback_when_window_blocked() {
+        let map_str = ". .";
+        let map = GridMap::parse(map_str).unwrap();
+        let mut pathfinder = WHCAPathfinder::new(MOVE_TIME_MS);
+
+        // Robot 1 occupies both corridor cells for the full stationary window.
+        pathfinder.reserve_stationary(1, (0, 0));
+        pathfinder.reserve_stationary(1, (1, 0));
+
+        // Strict WHCA behavior: no A* fallback, so blocked window returns None.
+        let result = pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_edge_swap_conflict_blocks_unsafe_path() {
+        let map_str = ". .";
+        let map = GridMap::parse(map_str).unwrap();
+        let mut pathfinder = WHCAPathfinder::with_defaults();
+
+        // Reserve robot 1 crossing from left to right.
+        pathfinder.reserve_path(1, &[(0, 0), (1, 0)], [2.0, 0.0, 0.0]);
+
+        // Robot 2 attempting the opposite direction should not get an unsafe swap path.
+        let result = pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2);
+        // In a strict 2-cell corridor with conflicting reservation, returning None
+        // is preferred over dispatching a potentially colliding swap path.
+        assert!(result.is_none());
     }
 }

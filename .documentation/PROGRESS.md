@@ -175,6 +175,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Firmware command-path logging cleanup (reduced runtime console noise, file-log-first policy)
 - [x] Coordinator and scheduler runtime hardening pass (panic-safe publish paths, malformed payload diagnostics, shared protocol utility dedup)
 - [x] Strict WHCA safety pass 1 (no reservation-ignoring fallback, stronger stationary reservations, transactional scheduler assignment publish)
+- [x] WHCA pass 2 refinement (shared protocol publish helper centralization, station occupancy guarding, edge-swap regression coverage)
 
 **Pending Features:**
 
@@ -268,6 +269,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: WHCA pass 2 refinement and protocol publish helper centralization (Phase 5)
+
+- `protocol/src/publish.rs` + `protocol/src/lib.rs` + `protocol/Cargo.toml`: introduced shared `publish_json_logged` helper and exported it so coordinator/scheduler no longer duplicate local JSON publish helpers.
+- `scheduler/src/server.rs`: migrated assignment/task-list/queue-state publishing to protocol helper while preserving transactional assignment rollback behavior.
+- `coordinator/src/server.rs` + `coordinator/src/task_manager.rs`: migrated all command/status/telemetry publishing to protocol helper, removing duplicate local helper implementations.
+- `coordinator/src/task_manager.rs`: added station occupancy guards for low-battery return, post-delivery return, and station-arrival charging transitions to reduce multi-robot station overlap risk under contention.
+- `coordinator/src/pathfinding/whca.rs`: fixed edge-swap timing check to compare occupancy across the move step (`time_ms` to `time_ms + MOVE_TIME_MS`) and added strict WHCA regression tests for blocked-window no-fallback behavior and unsafe swap blocking.
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, `cargo test -p scheduler`, and `cargo test --workspace` all pass.
+- Observed trade-off update: stricter station-occupancy and edge-swap blocking further reduce unsafe close-contact behavior, with additional waiting under dense contention and slightly lower peak throughput.
 
 ### 2026-03-13: Strict WHCA safety pass 1 and publish-transaction hardening (Phase 5)
 

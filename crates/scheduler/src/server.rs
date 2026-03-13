@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time;
 use zenoh::Session;
-use serde_json::{from_slice, to_vec};
-use serde::Serialize;
+use serde_json::from_slice;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
@@ -321,7 +320,13 @@ async fn broadcast_task_list(
         tasks: queue.all_tasks().into_iter().cloned().collect(),
         timestamp_ms,
     };
-    let _ = publish_json_logged(publisher, &snapshot, "task list snapshot").await;
+    let _ = protocol::publish_json_logged(
+        "Scheduler",
+        "task list snapshot",
+        &snapshot,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }
 
 fn handle_robot_updates(
@@ -477,7 +482,14 @@ async fn allocate_tasks(
             let mut assigned_task = task.clone();
             assigned_task.status = TaskStatus::Assigned { robot_id };
             let assignment = TaskAssignment { task: assigned_task, robot_id };
-            if publish_json_logged(publisher, &assignment, "task assignment").await {
+            if protocol::publish_json_logged(
+                "Scheduler",
+                "task assignment",
+                &assignment,
+                |payload| async move { publisher.put(payload).await.map(|_| ()) },
+            )
+            .await
+            {
                 task.status = TaskStatus::Assigned { robot_id };
                 if verbose {
                     println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
@@ -516,29 +528,11 @@ async fn broadcast_state(
         robots_online: robots.len(),
     };
 
-    let _ = publish_json_logged(publisher, &state, "queue state broadcast").await;
-}
-
-async fn publish_json_logged<T: Serialize>(
-    publisher: &zenoh::pubsub::Publisher<'_>,
-    message: &T,
-    context: &str,
-) -> bool {
-    match to_vec(message) {
-        Ok(payload) => {
-            if publisher.put(payload).await.is_err() {
-                logs::save_log("Scheduler", &format!("publish failed: {}", context));
-                false
-            } else {
-                true
-            }
-        }
-        Err(err) => {
-            logs::save_log(
-                "Scheduler",
-                &format!("serialization failed for {}: {}", context, err),
-            );
-            false
-        }
-    }
+    let _ = protocol::publish_json_logged(
+        "Scheduler",
+        "queue state broadcast",
+        &state,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }

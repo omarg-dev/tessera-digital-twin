@@ -11,7 +11,6 @@ use protocol::config::coordinator::{collision as collision_config, sensor as sen
 use protocol::logs;
 use protocol::grid_map::ShelfInventory;
 use serde_json::{to_vec, from_slice};
-use serde::Serialize;
 use std::collections::HashMap;
 
 use crate::state::{TrackedRobot, TaskStage};
@@ -125,11 +124,13 @@ pub async fn run(session: Session, map: GridMap) {
     loop {
         // Republish map hash periodically (ensures latecomers can validate)
         if last_validation_publish.elapsed() >= std::time::Duration::from_secs(coord_config::MAP_HASH_REPUBLISH_SECS) {
-            let _ = publish_json_logged(
-                &map_publisher,
-                &map_validation,
+            let _ = protocol::publish_json_logged(
+                "Coordinator",
                 "periodic map validation",
-            ).await;
+                &map_validation,
+                |payload| async { map_publisher.put(payload).await.map(|_| ()) },
+            )
+            .await;
             last_validation_publish = std::time::Instant::now();
         }
         
@@ -447,11 +448,13 @@ async fn send_path_commands(
                     command: PathCommand::Stop,
                 };
                 *next_cmd_id += 1;
-                let _ = publish_json_logged(
-                    cmd_publisher,
-                    &stop_cmd,
+                let _ = protocol::publish_json_logged(
+                    "Coordinator",
                     "reservation stop command",
-                ).await;
+                    &stop_cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await;
                 robot.path_sent = false; // will resend FollowPath once unblocked
                 continue;
             }
@@ -483,7 +486,14 @@ async fn send_path_commands(
                     command,
                 };
                 *next_cmd_id += 1;
-                if publish_json_logged(cmd_publisher, &cmd, "path follow command").await {
+                if protocol::publish_json_logged(
+                    "Coordinator",
+                    "path follow command",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await
+                {
                     robot.path_sent = true;
                 }
             }
@@ -521,7 +531,13 @@ async fn broadcast_path_telemetry(
         };
 
         let telemetry = RobotPathTelemetry { robot_id, waypoints };
-        let _ = publish_json_logged(publisher, &telemetry, "path telemetry broadcast").await;
+        let _ = protocol::publish_json_logged(
+            "Coordinator",
+            "path telemetry broadcast",
+            &telemetry,
+            |payload| async move { publisher.put(payload).await.map(|_| ()) },
+        )
+        .await;
     }
 }
 
@@ -821,36 +837,19 @@ async fn detect_inter_robot_collisions(
                 command: PathCommand::Stop,
             };
             *next_cmd_id += 1;
-            if publish_json_logged(cmd_publisher, &stop_cmd, "collision stop command").await {
+            if protocol::publish_json_logged(
+                "Coordinator",
+                "collision stop command",
+                &stop_cmd,
+                |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+            )
+            .await
+            {
                 robot.path_sent = false;
             }
             if verbose {
                 println!("[{}ms] Robot {} stopped: path routes through collision zone", timestamp(), robot_id);
             }
-        }
-    }
-}
-
-async fn publish_json_logged<T: Serialize>(
-    publisher: &zenoh::pubsub::Publisher<'_>,
-    message: &T,
-    context: &str,
-) -> bool {
-    match to_vec(message) {
-        Ok(payload) => {
-            if publisher.put(payload).await.is_err() {
-                logs::save_log("Coordinator", &format!("publish failed: {}", context));
-                false
-            } else {
-                true
-            }
-        }
-        Err(err) => {
-            logs::save_log(
-                "Coordinator",
-                &format!("serialization failed for {}: {}", context, err),
-            );
-            false
         }
     }
 }
