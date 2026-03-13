@@ -32,17 +32,14 @@ fn apply_robot_control(robot: &mut SimRobot, cmd: &RobotControl) {
     match cmd {
         RobotControl::Down(id) => {
             robot.enabled = false;
-            println!("🔻 Robot {} disabled", id);
             protocol::logs::save_log("Firmware", &format!("Robot {} disabled", id));
         }
         RobotControl::Up(id) => {
             robot.enabled = true;
-            println!("🤖 Robot {} enabled", id);
             protocol::logs::save_log("Firmware", &format!("Robot {} enabled", id));
         }
         RobotControl::Restart(id) => {
             robot.restart();
-            println!("🔄 Robot {} restarted", id);
             protocol::logs::save_log("Firmware", &format!("Robot {} restarted", id));
         }
     }
@@ -57,9 +54,27 @@ pub fn handle_system_commands(
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
         if let Some(cmd) = parse_sample::<SystemCommand>(&sample, "SystemCommand") {
-            let effect = cmd.apply_with_log("Physics", Some(paused), None, Some(chaos));
+            let effect = cmd.apply(Some(paused), None, Some(chaos));
             if let protocol::SystemCommandEffect::TimeScale(s) = effect {
                 *time_scale = s.clamp(0.1, 1000.0);
+            }
+            match effect {
+                protocol::SystemCommandEffect::Paused(true) => {
+                    protocol::logs::save_log("Firmware", "System paused");
+                }
+                protocol::SystemCommandEffect::Paused(false) => {
+                    protocol::logs::save_log("Firmware", "System resumed");
+                }
+                protocol::SystemCommandEffect::Verbose(v) => {
+                    protocol::logs::save_log("Firmware", &format!("Verbose set to {}", v));
+                }
+                protocol::SystemCommandEffect::Chaos(c) => {
+                    protocol::logs::save_log("Firmware", &format!("Chaos set to {}", c));
+                }
+                protocol::SystemCommandEffect::TimeScale(s) => {
+                    protocol::logs::save_log("Firmware", &format!("Time scale set to {:.2}x", s));
+                }
+                protocol::SystemCommandEffect::None => {}
             }
         }
     }
@@ -76,7 +91,6 @@ pub fn handle_robot_control(
             if let Some(robot) = find_robot_mut(robots, id) {
                 apply_robot_control(robot, &cmd);
             } else {
-                eprintln!("⚠ Cannot apply {:?}: robot {} not found", cmd, id);
                 protocol::logs::save_log("Firmware", &format!("Robot control ignored, robot {} not found", id));
             }
         }
@@ -121,11 +135,9 @@ pub fn handle_path_commands(
                 // Log execution
                 match &status {
                     CommandStatus::Accepted => {
-                        println!("[{}ms] → Robot {} received command: {:?}", protocol::timestamp(), cmd.robot_id, cmd.command);
                         protocol::logs::save_log("Firmware", &format!("Robot {} executed command: {:?}", cmd.robot_id, cmd.command));
                     }
                     CommandStatus::Rejected { reason } => {
-                        println!("[{}ms] ✗ Robot {} rejected command: {}", protocol::timestamp(), cmd.robot_id, reason);
                         protocol::logs::save_log("Firmware", &format!("Robot {} rejected command: {}", cmd.robot_id, reason));
                     }
                 }
@@ -133,14 +145,13 @@ pub fn handle_path_commands(
                 // Send response back to coordinator
                 publish_response(
                     response_publisher,
-                    CommandResponse {
-                        cmd_id: cmd.cmd_id,
-                        robot_id: cmd.robot_id,
-                        status,
+                    match status {
+                        CommandStatus::Accepted => CommandResponse::accepted(cmd.cmd_id, cmd.robot_id),
+                        CommandStatus::Rejected { reason } => CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, reason),
                     },
                 );
             } else {
-                eprintln!("⚠ PathCmd for unknown robot {}", cmd.robot_id);
+                protocol::logs::save_log("Firmware", &format!("PathCmd rejected, unknown robot {}", cmd.robot_id));
                 publish_response(
                     response_publisher,
                     CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Robot not found"),

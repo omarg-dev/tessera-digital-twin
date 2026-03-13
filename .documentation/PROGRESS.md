@@ -172,6 +172,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] High-speed simulation stability: firmware waypoint handling prevents oscillation at 5x+ and coordinator position validation scales with time multiplier
 - [x] Real-time mode integration: toggling Real-time now pauses simulation, and toggling back restores prior pause/running state
 - [x] Runtime hardening pass for orchestrator/protocol/mock_firmware (panic-safe publish paths, protocol utility extraction, command dedup)
+- [x] Firmware command-path logging cleanup (reduced runtime console noise, file-log-first policy)
 
 **Pending Features:**
 
@@ -265,6 +266,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: Firmware command-path logging cleanup (Phase 5)
+
+- `mock_firmware/src/commands.rs`: removed high-frequency command-path `println!/eprintln!` output and moved reporting to `protocol::logs::save_log` for quieter runtime consoles.
+- `mock_firmware/src/commands.rs`: switched system command application from `apply_with_log` to `apply` and added explicit file-log entries per effect (`Pause`, `Resume`, `Verbose`, `Chaos`, `SetTimeScale`).
+- `mock_firmware/src/commands.rs`: standardized response publishing using `CommandResponse::accepted` / `CommandResponse::rejected` helpers for consistent command acknowledgements.
+- Validation: `cargo check --workspace` and `cargo test --workspace` both pass after this pass.
 
 ### 2026-03-13: Parser robustness and protocol docs cleanup (Phase 5)
 
