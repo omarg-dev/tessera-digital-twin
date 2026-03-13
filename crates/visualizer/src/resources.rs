@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use protocol::config::visual::ui as ui_cfg;
 use protocol::grid_map::GridMap;
-use protocol::{Priority, QueueState, RobotControl, RobotUpdate, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest};
+use protocol::{Priority, QueueState, RobotControl, RobotUpdate, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest, WhcaMetricsTelemetry};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -296,6 +296,19 @@ pub struct PathTelemetryReceiver(pub mpsc::Receiver<protocol::RobotPathTelemetry
 /// Keys are robot IDs, values are remaining waypoints in Bevy world space (y = 0.05).
 #[derive(Resource, Default)]
 pub struct ActivePaths(pub HashMap<u32, Vec<bevy::math::Vec3>>);
+
+// ── WHCA Metrics Telemetry ──────────────────────────────────────
+
+/// Receives WHCA metrics telemetry from coordinator via Zenoh.
+#[derive(Resource)]
+pub struct WhcaMetricsReceiver(pub mpsc::Receiver<WhcaMetricsTelemetry>);
+
+/// Latest WHCA metrics telemetry for analytics UI.
+#[derive(Resource, Default)]
+pub struct WhcaMetricsData {
+    pub latest: Option<WhcaMetricsTelemetry>,
+    pub last_updated_secs: f64,
+}
 
 // ── UI Events ────────────────────────────────────────────────────
 

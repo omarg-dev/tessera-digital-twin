@@ -51,3 +51,21 @@ pub struct RobotPathTelemetry {
     /// Remaining waypoints in world coordinates [x, y, z]
     pub waypoints: Vec<[f32; 3]>,
 }
+
+/// WHCA runtime metrics telemetry broadcast by coordinator for analytics UI.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct WhcaMetricsTelemetry {
+    /// Reporting window size in seconds for delta fields.
+    pub window_secs: u64,
+    pub searches_total: u64,
+    pub searches_succeeded: u64,
+    pub searches_failed: u64,
+    pub nodes_expanded_total: u64,
+    pub reservation_probe_calls_total: u64,
+    pub edge_collision_checks_total: u64,
+    pub wait_actions_added_total: u64,
+    pub avg_search_time_us: u64,
+    pub last_search_time_us: u64,
+    pub open_set_peak_observed: u64,
+    pub reservation_entries_peak: u64,
+}

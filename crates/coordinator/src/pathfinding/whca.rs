@@ -1042,4 +1042,103 @@ mod tests {
         assert_eq!(reset.nodes_expanded_total, 0);
         assert_eq!(reset.total_search_time_us, 0);
     }
+
+    #[derive(Debug)]
+    struct ScenarioOutcome {
+        name: &'static str,
+        searches: u64,
+        success_rate_pct: f64,
+        avg_us: u64,
+        node_expansions: u64,
+        no_paths: u64,
+    }
+
+    fn build_outcome(name: &'static str, stats: WHCAStatsSnapshot, no_paths: u64) -> ScenarioOutcome {
+        let success_rate_pct = if stats.searches_total > 0 {
+            (stats.searches_succeeded as f64 * 100.0) / stats.searches_total as f64
+        } else {
+            0.0
+        };
+        let avg_us = if stats.searches_total > 0 {
+            stats.total_search_time_us / stats.searches_total
+        } else {
+            0
+        };
+
+        ScenarioOutcome {
+            name,
+            searches: stats.searches_total,
+            success_rate_pct,
+            avg_us,
+            node_expansions: stats.nodes_expanded_total,
+            no_paths,
+        }
+    }
+
+    #[test]
+    fn test_whca_scenario_metrics_table() {
+        let baseline_map = GridMap::parse(". . . . .").unwrap();
+        let head_on_map = GridMap::parse(". .").unwrap();
+        let intersection_map = GridMap::parse(". . .\n. . .\n. . .").unwrap();
+
+        let mut baseline_no_path = 0u64;
+        let mut head_on_no_path = 0u64;
+        let mut intersection_no_path = 0u64;
+
+        let mut baseline = WHCAPathfinder::with_defaults();
+        baseline.reset_stats();
+        for _ in 0..30 {
+            let result = baseline.find_path_for_robot(&baseline_map, (0, 0), (4, 0), 1);
+            if result.is_none() {
+                baseline_no_path += 1;
+            }
+            baseline.clear_robot_reservations(1);
+        }
+        let baseline_outcome = build_outcome("Baseline", baseline.stats_snapshot(), baseline_no_path);
+
+        let mut head_on = WHCAPathfinder::with_defaults();
+        head_on.reset_stats();
+        for _ in 0..30 {
+            head_on.clear_robot_reservations(1);
+            head_on.clear_robot_reservations(2);
+            head_on.reserve_path(1, &[(0, 0), (1, 0)], [2.0, 0.0, 0.0]);
+            if head_on.find_path_for_robot(&head_on_map, (1, 0), (0, 0), 2).is_none() {
+                head_on_no_path += 1;
+            }
+        }
+        let head_on_outcome = build_outcome("HeadOn", head_on.stats_snapshot(), head_on_no_path);
+
+        let mut intersection = WHCAPathfinder::with_defaults();
+        intersection.reset_stats();
+        for _ in 0..30 {
+            intersection.clear_robot_reservations(1);
+            intersection.clear_robot_reservations(2);
+            intersection.reserve_path(1, &[(0, 1), (1, 1), (2, 1)], [2.0, 0.0, 0.0]);
+            if intersection
+                .find_path_for_robot(&intersection_map, (1, 0), (1, 2), 2)
+                .is_none()
+            {
+                intersection_no_path += 1;
+            }
+        }
+        let intersection_outcome =
+            build_outcome("Intersection", intersection.stats_snapshot(), intersection_no_path);
+
+        println!("| Scenario | Searches | Success % | Avg us | Node Expansions | No-Path |\n| --- | ---: | ---: | ---: | ---: | ---: |");
+        for outcome in [&baseline_outcome, &head_on_outcome, &intersection_outcome] {
+            println!(
+                "| {} | {} | {:.1} | {} | {} | {} |",
+                outcome.name,
+                outcome.searches,
+                outcome.success_rate_pct,
+                outcome.avg_us,
+                outcome.node_expansions,
+                outcome.no_paths,
+            );
+        }
+
+        assert!(baseline_outcome.searches > 0);
+        assert!(head_on_outcome.no_paths > baseline_outcome.no_paths);
+        assert!(intersection_outcome.searches > 0);
+    }
 }

@@ -14,7 +14,10 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use crate::components::{Dropoff, Robot, Shelf};
-use crate::resources::{ActivePaths, LogBuffer, QueueStateData, RobotIndex, TaskListData, UiAction, UiState, WarehouseMap};
+use crate::resources::{
+    ActivePaths, LogBuffer, QueueStateData, RobotIndex, TaskListData, UiAction, UiState,
+    WarehouseMap, WhcaMetricsData,
+};
 
 /// System that renders all four UI panels each frame.
 ///
@@ -29,6 +32,7 @@ pub fn draw_ui(
     mut actions: MessageWriter<UiAction>,
     robot_index: Res<RobotIndex>,
     queue_state: Res<QueueStateData>,
+    whca_metrics: Res<WhcaMetricsData>,
     task_list: Res<TaskListData>,
     active_paths: Res<ActivePaths>,
     robots: Query<(Entity, &Robot)>,
@@ -51,7 +55,7 @@ pub fn draw_ui(
     gui::control_bar(ctx, &mut ui_state, &robot_index, &queue_state, &time, &mut pending_actions);
     gui::object_manager(ctx, &mut ui_state, &robot_index, &robots, &shelves, &queue_state, &dropoffs, &transforms, wm, &task_list, &mut pending_actions);
     gui::inspector(ctx, &mut ui_state, &robots, &shelves, &dropoffs, &transforms, wm, &task_list, &active_paths, &mut pending_actions);
-    gui::log_console(ctx, &mut ui_state, &mut log_buffer);
+    gui::log_console(ctx, &mut ui_state, &mut log_buffer, &whca_metrics);
     gui::realtime_overlay(ctx, &ui_state);
 
     // background-click deselect: checked AFTER panels are drawn so

@@ -11,7 +11,7 @@ use protocol::grid_map::GridMap;
 use crate::components::{Dropoff, Robot, Shelf};
 use crate::resources::{
     ActivePaths, BottomTab, LeftTab, LogBuffer, QueueStateData, RightTab, RobotIndex,
-    TaskListData, UiAction, UiState,
+    TaskListData, UiAction, UiState, WhcaMetricsData,
 };
 use super::tabs;
 
@@ -119,6 +119,7 @@ pub fn log_console(
     ctx: &egui::Context,
     ui_state: &mut UiState,
     log_buffer: &mut LogBuffer,
+    whca_metrics: &WhcaMetricsData,
 ) {
     let panel_resp = egui::TopBottomPanel::bottom("bottom_panel")
         .default_height(ui_cfg::BOTTOM_PANEL_DEFAULT_HEIGHT)
@@ -134,7 +135,7 @@ pub fn log_console(
 
             match ui_state.bottom_tab {
                 BottomTab::Logs => tabs::logs::draw(ui, log_buffer),
-                BottomTab::Analytics => tabs::analytics::draw(ui),
+                BottomTab::Analytics => tabs::analytics::draw(ui, whca_metrics),
             }
         });
     ui_state.bottom_panel_height = panel_resp.response.rect.height();

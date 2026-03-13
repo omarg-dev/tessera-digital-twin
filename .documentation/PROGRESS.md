@@ -181,6 +181,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA strict trait-path closure (removed trait-level A* fallback bypass) and robot-aware `goto` path routing
 - [x] WHCA reservation hot-path optimization (robot-indexed reservation cleanup and linearized edge-swap conflict checks)
 - [x] WHCA runtime instrumentation (search latency/counter snapshots and periodic coordinator metrics logging)
+- [x] WHCA scenario benchmark runners (deterministic comparison table) and live analytics-tab telemetry integration
 
 **Pending Features:**
 
@@ -274,6 +275,17 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: WHCA scenario runner benchmarks + visualizer analytics integration (Phase 5)
+
+- `protocol/src/robot.rs` + `protocol/src/topics.rs` + `protocol/src/lib.rs`: added `WhcaMetricsTelemetry` wire type and `factory/telemetry/whca_metrics` topic export for coordinator-to-renderer WHCA analytics streaming.
+- `coordinator/src/server.rs`: declared `TELEMETRY_WHCA_METRICS` publisher and now broadcasts periodic 5-second WHCA metrics deltas alongside existing coordinator logs.
+- `coordinator/src/pathfinding/whca.rs`: added deterministic scenario benchmark runner test (`test_whca_scenario_metrics_table`) that prints a markdown comparison table for baseline, head-on, and intersection contention scenarios using the new runtime counters.
+- `visualizer/src/resources.rs`: added `WhcaMetricsReceiver` and `WhcaMetricsData` resources for WHCA telemetry ingestion.
+- `visualizer/src/systems/receivers/whca_metrics.rs` + `visualizer/src/systems/receivers/mod.rs` + `visualizer/src/main.rs`: added Zenoh receiver setup/collection systems and app wiring for WHCA metrics telemetry.
+- `visualizer/src/ui/mod.rs` + `visualizer/src/ui/gui.rs` + `visualizer/src/ui/tabs/analytics.rs`: replaced analytics placeholder with live WHCA analytics panel (search volume, success rate, latency, expansions, reservation probes, edge checks, waits, peaks).
+- Validation: `cargo check --workspace`, `cargo test -p coordinator test_whca_scenario_metrics_table -- --nocapture`, and `cargo test --workspace` all pass.
+- Measured sample output (deterministic test): Baseline `100%` success with low latency, Head-on `0%` success with strict no-path enforcement, Intersection `100%` success with higher average latency under contention.
 
 ### 2026-03-13: WHCA runtime instrumentation and coordinator metrics logging (Phase 5)
 

@@ -62,6 +62,11 @@ pub async fn run(session: Session, map: GridMap) {
         .declare_publisher(topics::TELEMETRY_PATHS)
         .await
         .expect("Failed to declare TELEMETRY_PATHS publisher");
+
+    let whca_metrics_publisher = session
+        .declare_publisher(topics::TELEMETRY_WHCA_METRICS)
+        .await
+        .expect("Failed to declare TELEMETRY_WHCA_METRICS publisher");
     
     // Subscribers
     let robot_subscriber = session
@@ -323,6 +328,7 @@ pub async fn run(session: Session, map: GridMap) {
 
         if last_whca_stats_log.elapsed() >= std::time::Duration::from_secs(5) {
             if let Some(current) = pathfinder.whca_stats_snapshot() {
+                let window_secs = 5;
                 let delta = if let Some(previous) = last_whca_stats_snapshot {
                     pathfinding::WHCAStatsSnapshot {
                         searches_total: current.searches_total.saturating_sub(previous.searches_total),
@@ -370,6 +376,29 @@ pub async fn run(session: Session, map: GridMap) {
                     println!("{}", msg);
                 }
                 logs::save_log("Coordinator", &msg);
+
+                let telemetry = WhcaMetricsTelemetry {
+                    window_secs,
+                    searches_total: delta.searches_total,
+                    searches_succeeded: delta.searches_succeeded,
+                    searches_failed: delta.searches_failed,
+                    nodes_expanded_total: delta.nodes_expanded_total,
+                    reservation_probe_calls_total: delta.reservation_probe_calls_total,
+                    edge_collision_checks_total: delta.edge_collision_checks_total,
+                    wait_actions_added_total: delta.wait_actions_added_total,
+                    avg_search_time_us: avg_us,
+                    last_search_time_us: delta.last_search_time_us,
+                    open_set_peak_observed: delta.open_set_peak_observed,
+                    reservation_entries_peak: delta.reservation_entries_peak,
+                };
+
+                let _ = protocol::publish_json_logged(
+                    "Coordinator",
+                    "whca metrics telemetry",
+                    &telemetry,
+                    |payload| async { whca_metrics_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await;
 
                 last_whca_stats_snapshot = Some(current);
             }

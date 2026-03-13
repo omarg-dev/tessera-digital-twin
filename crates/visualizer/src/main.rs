@@ -44,6 +44,7 @@ use systems::{
         queue_state::{setup_queue_listener, collect_queue_state},
         task_list::{setup_task_listener, collect_task_list, sync_robot_tasks},
         path_telemetry::{setup_path_listener, collect_path_telemetry},
+        whca_metrics::{setup_whca_metrics_listener, collect_whca_metrics},
     },
     sync_robots::sync_robots,
     interpolate_robots::interpolate_robots,
@@ -97,6 +98,7 @@ fn main() {
         .init_resource::<resources::QueueStateData>()
         .init_resource::<resources::TaskListData>()
         .init_resource::<resources::ActivePaths>()
+        .init_resource::<resources::WhcaMetricsData>()
         // Events
         .add_message::<resources::UiAction>()
         // Startup: scene, camera, Zenoh subscribers & publishers
@@ -110,6 +112,7 @@ fn main() {
             setup_queue_listener,
             setup_task_listener,
             setup_path_listener,
+            setup_whca_metrics_listener,
             configure_gizmos,
         ))
         // Update: poll Zenoh channels, sync state, bridge UI commands
@@ -121,6 +124,7 @@ fn main() {
             collect_task_list,
             sync_robot_tasks.after(collect_task_list),
             collect_path_telemetry,
+            collect_whca_metrics,
             handle_system_commands,
             bridge_ui_commands,
             camera_follow_selected,

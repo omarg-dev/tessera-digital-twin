@@ -47,6 +47,9 @@ pub const TASK_LIST: &str = "factory/tasks/list";
 /// Path telemetry for visualization (coordinator → renderer)
 pub const TELEMETRY_PATHS: &str = "factory/telemetry/paths";
 
+/// WHCA runtime metrics telemetry (coordinator → renderer)
+pub const TELEMETRY_WHCA_METRICS: &str = "factory/telemetry/whca_metrics";
+
 // ============ Sender Identifiers ============
 // Used in MapValidation.sender to identify the source of broadcasts
 
