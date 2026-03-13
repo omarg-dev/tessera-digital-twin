@@ -1,4 +1,4 @@
-//! Robot state types broadcast over Zenoh
+//! Robot telemetry types shared across firmware, coordinator, scheduler, and renderer.
 
 use serde::{Deserialize, Serialize};
 
@@ -6,15 +6,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RobotUpdate {
     pub id: u32,
-    pub position: [f32; 3],    // [x, y, z] world coordinates
-    pub velocity: [f32; 3],    // Current velocity
+    /// [x, y, z] world coordinates
+    pub position: [f32; 3],
+    /// Current velocity in world units per second
+    pub velocity: [f32; 3],
     pub state: RobotState,
-    pub battery: f32,          // 0.0 to 100.0
+    /// Battery percentage in range 0.0..=100.0
+    pub battery: f32,
     pub carrying_cargo: Option<u32>,
-    pub station_position: [f32; 3],  // Home charging station location
-    pub enabled: bool,         // Whether this robot is currently active
+    /// Home charging station location
+    pub station_position: [f32; 3],
+    /// Whether this robot can accept and execute commands
+    pub enabled: bool,
 }
 
+/// Runtime robot states produced by firmware and consumed by higher layers.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum RobotState {
     Idle,
@@ -32,7 +38,8 @@ pub enum RobotState {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RobotUpdateBatch {
     pub updates: Vec<RobotUpdate>,
-    pub tick: u64,  // Simulation tick for ordering
+    /// Simulation tick for receiver-side ordering and de-duplication
+    pub tick: u64,
 }
 
 /// Path telemetry broadcast by coordinator for visualization.

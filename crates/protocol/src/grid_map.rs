@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use crate::config::warehouse::SHELF_MAX_CAPACITY;
 
+const DEFAULT_SHELF_STOCK: u8 = 5;
+
 /// Tile types in the warehouse grid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TileType {
@@ -88,15 +90,12 @@ impl GridMap {
             "_" => TileType::Station,
             "v" => TileType::Dropoff,
             t if t.starts_with('x') && t.len() > 1 => {
-                let capacity = match t[1..].parse() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        println!("Warning: failed to parse shelf capacity from token '{}': 
-                            {}. Defaulting to 5.",t, e);
-                        5
-                    }
-                };
-                TileType::Shelf(capacity)
+                let parsed_stock = t[1..].parse::<u8>().ok();
+                let stock = parsed_stock
+                    .filter(|value| *value > 0)
+                    .unwrap_or(DEFAULT_SHELF_STOCK)
+                    .min(SHELF_MAX_CAPACITY as u8);
+                TileType::Shelf(stock)
             }
             _ => TileType::Empty,
         }

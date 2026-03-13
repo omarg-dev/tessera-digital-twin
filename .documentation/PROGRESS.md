@@ -266,6 +266,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-03-13: Parser robustness and protocol docs cleanup (Phase 5)
+
+- `protocol/src/grid_map.rs`: removed warning prints from shelf-token parsing and made shelf stock parsing deterministic by using a default (`x5`) for invalid/zero values and clamping to `SHELF_MAX_CAPACITY`.
+- `protocol/src/robot.rs`: tightened module/type field documentation for clearer wire-contract boundaries between firmware, coordinator, scheduler, and renderer.
+- `mock_firmware/src/main.rs`: hardened `MAP_VALIDATION` subscription handling by logging malformed payloads and continuing safely instead of silently ignoring decode failures.
+- Validation: `cargo check --workspace`, `cargo test -p protocol`, `cargo test -p mock_firmware`, and `cargo test -p orchestrator` all pass.
+
 ### 2026-03-13: Core runtime hardening pass (Phase 5)
 
 - `protocol/src/util.rs` + `protocol/src/lib.rs`: added shared world/grid and distance helpers (`world_to_grid`, `grid_to_world`, `distance_xz`, `distance_sq_xz`, `is_finite_position`) and exported them for cross-crate reuse.
