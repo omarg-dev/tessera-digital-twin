@@ -4,7 +4,6 @@ use zenoh::Session;
 use tokio::time;
 use protocol::*;
 use protocol::config::physics::TICK_INTERVAL_MS;
-use serde_json::to_vec;
 use std::time::Instant;
 
 use crate::robot::SimRobot;
@@ -62,7 +61,7 @@ pub async fn run(session: Session, map: GridMap) {
         handle_robot_control(&robot_control_subscriber, &mut robots);
         
         // Handle path commands from coordinator
-        handle_path_commands(&cmd_subscriber, &response_publisher, &mut robots, chaos);
+        handle_path_commands(&cmd_subscriber, &response_publisher, &mut robots, chaos).await;
         
         // Physics update for all robots (dt scaled by time_scale)
         let scaled_dt = dt * time_scale;
@@ -116,15 +115,11 @@ async fn publish_batch_update(
         tick,
     };
 
-    let payload = match to_vec(&batch) {
-        Ok(payload) => payload,
-        Err(e) => {
-            protocol::logs::save_log(
-                "Firmware",
-                &format!("Failed to serialize RobotUpdateBatch at tick {}: {}", tick, e),
-            );
-            return;
-        }
-    };
-    publisher.put(payload).await.ok();
+    let _ = protocol::publish_json_logged(
+        "Firmware",
+        &format!("RobotUpdateBatch tick={}", tick),
+        &batch,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }

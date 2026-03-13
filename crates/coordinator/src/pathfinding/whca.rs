@@ -788,4 +788,36 @@ mod tests {
         // is preferred over dispatching a potentially colliding swap path.
         assert!(result.is_none());
     }
+
+    #[test]
+    fn test_tradeoff_strict_vs_trait_fallback_head_on_corridor() {
+        let map_str = ". .";
+        let map = GridMap::parse(map_str).unwrap();
+
+        let trials = 25;
+        let mut strict_success = 0;
+        let mut fallback_success = 0;
+
+        for _ in 0..trials {
+            let mut pathfinder = WHCAPathfinder::with_defaults();
+            // Robot 1 reserves a left->right crossing through the only corridor.
+            pathfinder.reserve_path(1, &[(0, 0), (1, 0)], [2.0, 0.0, 0.0]);
+
+            if pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2).is_some() {
+                strict_success += 1;
+            }
+            // Trait pathfinder lacks robot_id context and can still succeed via fallback.
+            if pathfinder.find_path(&map, (1, 0), (0, 0)).is_some() {
+                fallback_success += 1;
+            }
+        }
+
+        println!(
+            "WHCA tradeoff benchmark: strict_success={}/{} fallback_success={}/{}",
+            strict_success, trials, fallback_success, trials
+        );
+
+        assert_eq!(strict_success, 0);
+        assert_eq!(fallback_success, trials);
+    }
 }

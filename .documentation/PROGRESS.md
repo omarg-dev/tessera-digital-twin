@@ -176,6 +176,8 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Coordinator and scheduler runtime hardening pass (panic-safe publish paths, malformed payload diagnostics, shared protocol utility dedup)
 - [x] Strict WHCA safety pass 1 (no reservation-ignoring fallback, stronger stationary reservations, transactional scheduler assignment publish)
 - [x] WHCA pass 2 refinement (shared protocol publish helper centralization, station occupancy guarding, edge-swap regression coverage)
+- [x] Orchestrator and firmware publish-path migration to shared protocol JSON helper (removed local serde_json publish duplication)
+- [x] WHCA strict-vs-fallback benchmark test for head-on corridor contention (quantified zero-collision trade-off)
 
 **Pending Features:**
 
@@ -269,6 +271,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: Publish helper migration parity and WHCA tradeoff quantification (Phase 5)
+
+- `orchestrator/src/main.rs`: removed local `publish_json` implementation and migrated all admin/robot-control broadcasts to `protocol::publish_json_logged` for consistent serialization/publish error handling.
+- `mock_firmware/src/driver.rs`: migrated `RobotUpdateBatch` publish path to `protocol::publish_json_logged`, replacing local `serde_json::to_vec` + silent publish handling.
+- `mock_firmware/src/commands.rs`: migrated command response publishing to `protocol::publish_json_logged`; made `handle_path_commands` async so response publishes are awaited and logged consistently.
+- `protocol/src/publish.rs` + `protocol/src/lib.rs`: added and exported `publish_json_logged_sync` to complete protocol-level helper coverage for sync callsites.
+- `coordinator/src/pathfinding/whca.rs`: added deterministic benchmark test `test_tradeoff_strict_vs_trait_fallback_head_on_corridor` quantifying strict safety behavior under head-on two-cell corridor contention.
+- Validation: `cargo check --workspace`, `cargo test --workspace`, and `cargo test -p coordinator test_tradeoff_strict_vs_trait_fallback_head_on_corridor -- --nocapture` all pass.
+- Quantified trade-off (benchmark): strict robot-aware WHCA success `0/25` vs trait fallback success `25/25` in the constrained head-on corridor scenario, showing strict mode blocks unsafe swaps at the cost of immediate throughput in saturated bottlenecks.
 
 ### 2026-03-13: WHCA pass 2 refinement and protocol publish helper centralization (Phase 5)
 

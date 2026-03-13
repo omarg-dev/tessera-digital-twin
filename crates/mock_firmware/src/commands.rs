@@ -1,17 +1,21 @@
 //! System command handling for mock firmware (firmware layer)
 
 use protocol::{PathCmd, RobotControl, SystemCommand, CommandResponse, CommandStatus};
-use serde_json::{from_slice, to_vec};
+use serde_json::from_slice;
 use zenoh::handlers::FifoChannelHandler;
 use zenoh::pubsub::{Subscriber, Publisher};
 use zenoh::sample::Sample;
 
 use crate::robot::SimRobot;
 
-fn publish_response(response_publisher: &Publisher, response: CommandResponse) {
-    if let Ok(payload) = to_vec(&response) {
-        let _ = response_publisher.put(payload);
-    }
+async fn publish_response(response_publisher: &Publisher<'_>, response: CommandResponse) {
+    let _ = protocol::publish_json_logged(
+        "Firmware",
+        &format!("CommandResponse cmd_id={} robot_id={}", response.cmd_id, response.robot_id),
+        &response,
+        |payload| async move { response_publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }
 
 fn parse_sample<T: serde::de::DeserializeOwned>(sample: &Sample, kind: &str) -> Option<T> {
@@ -98,9 +102,9 @@ pub fn handle_robot_control(
 }
 
 /// Process path commands from coordinator
-pub fn handle_path_commands(
+pub async fn handle_path_commands(
     subscriber: &Subscriber<FifoChannelHandler<Sample>>,
-    response_publisher: &Publisher,
+    response_publisher: &Publisher<'_>,
     robots: &mut [SimRobot],
     chaos: bool,
 ) {
@@ -115,7 +119,7 @@ pub fn handle_path_commands(
                 publish_response(
                     response_publisher,
                     CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Chaos: Random rejection"),
-                );
+                ).await;
                 continue;
             }
 
@@ -125,7 +129,7 @@ pub fn handle_path_commands(
                     publish_response(
                         response_publisher,
                         CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Robot disabled"),
-                    );
+                    ).await;
                     continue;
                 }
                 
@@ -149,13 +153,13 @@ pub fn handle_path_commands(
                         CommandStatus::Accepted => CommandResponse::accepted(cmd.cmd_id, cmd.robot_id),
                         CommandStatus::Rejected { reason } => CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, reason),
                     },
-                );
+                ).await;
             } else {
                 protocol::logs::save_log("Firmware", &format!("PathCmd rejected, unknown robot {}", cmd.robot_id));
                 publish_response(
                     response_publisher,
                     CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Robot not found"),
-                );
+                ).await;
             }
         }
     }

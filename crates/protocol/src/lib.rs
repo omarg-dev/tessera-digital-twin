@@ -59,7 +59,7 @@ pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
 pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch};
 pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
 pub use logs::{timestamp, save_log};
-pub use publish::publish_json_logged;
+pub use publish::{publish_json_logged, publish_json_logged_sync};
 pub use util::{
 	distance_sq_xz,
 	distance_xz,

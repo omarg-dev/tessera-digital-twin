@@ -18,8 +18,7 @@ mod processes;
 
 use cli::Command;
 use processes::Processes;
-use protocol::{topics, SystemCommand, RobotControl, logs};
-use serde::Serialize;
+use protocol::{topics, SystemCommand, RobotControl, logs, publish_json_logged};
 use std::time::Duration;
 
 #[tokio::main]
@@ -111,50 +110,78 @@ async fn main() {
             // Runtime commands (broadcast via Zenoh)
             Command::Pause => {
                 logs::save_log("Orchestrator", "System command issued: PAUSE");
-                if let Err(e) = publish_json(&publisher, &SystemCommand::Pause, "⏸ PAUSE broadcast").await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "PAUSE broadcast", &SystemCommand::Pause, |payload| {
+                    async { publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to broadcast PAUSE");
+                } else {
+                    println!("⏸ PAUSE broadcast");
                 }
             }
             Command::Resume => {
                 logs::save_log("Orchestrator", "System command issued: RESUME");
-                if let Err(e) = publish_json(&publisher, &SystemCommand::Resume, "▶ RESUME broadcast").await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "RESUME broadcast", &SystemCommand::Resume, |payload| {
+                    async { publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to broadcast RESUME");
+                } else {
+                    println!("▶ RESUME broadcast");
                 }
             }
             Command::Verbose(on) => {
                 let status = if on { "ON" } else { "OFF" };
                 logs::save_log("Orchestrator", &format!("System command issued: VERBOSE {}", status));
                 let msg = if on { "🔊 VERBOSE ON" } else { "🔇 VERBOSE OFF" };
-                if let Err(e) = publish_json(&publisher, &SystemCommand::Verbose(on), &format!("{} broadcast", msg)).await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "VERBOSE broadcast", &SystemCommand::Verbose(on), |payload| {
+                    async { publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to broadcast VERBOSE {}", status);
+                } else {
+                    println!("{} broadcast", msg);
                 }
             }
             Command::Chaos(on) => {
                 let status = if on { "ON" } else { "OFF" };
                 logs::save_log("Orchestrator", &format!("System command issued: CHAOS {}", status));
                 let msg = if on { "💥 CHAOS ON" } else { "✨ CHAOS OFF" };
-                if let Err(e) = publish_json(&publisher, &SystemCommand::Chaos(on), &format!("{} broadcast", msg)).await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "CHAOS broadcast", &SystemCommand::Chaos(on), |payload| {
+                    async { publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to broadcast CHAOS {}", status);
+                } else {
+                    println!("{} broadcast", msg);
                 }
             }
 
             // Robot control
             Command::RobotEnable(id) => {
                 logs::save_log("Orchestrator", &format!("Robot control: ENABLE robot {}", id));
-                if let Err(e) = publish_json(&robot_publisher, &RobotControl::Up(id), &format!("🤖 Robot {} ENABLE", id)).await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "robot enable", &RobotControl::Up(id), |payload| {
+                    async { robot_publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to enable robot {}", id);
+                } else {
+                    println!("🤖 Robot {} ENABLE", id);
                 }
             }
             Command::RobotDisable(id) => {
                 logs::save_log("Orchestrator", &format!("Robot control: DISABLE robot {}", id));
-                if let Err(e) = publish_json(&robot_publisher, &RobotControl::Down(id), &format!("🔻 Robot {} DISABLE", id)).await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "robot disable", &RobotControl::Down(id), |payload| {
+                    async { robot_publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to disable robot {}", id);
+                } else {
+                    println!("🔻 Robot {} DISABLE", id);
                 }
             }
             Command::RobotRestart(id) => {
                 logs::save_log("Orchestrator", &format!("Robot control: RESTART robot {}", id));
-                if let Err(e) = publish_json(&robot_publisher, &RobotControl::Restart(id), &format!("🔄 Robot {} RESTART", id)).await {
-                    println!("✗ {}", e);
+                if !publish_json_logged("Orchestrator", "robot restart", &RobotControl::Restart(id), |payload| {
+                    async { robot_publisher.put(payload).await.map(|_| ()) }
+                }).await {
+                    println!("✗ Failed to restart robot {}", id);
+                } else {
+                    println!("🔄 Robot {} RESTART", id);
                 }
             }
 
@@ -180,18 +207,4 @@ async fn main() {
             }
         }
     }
-}
-
-async fn publish_json<T: Serialize>(
-    publisher: &zenoh::pubsub::Publisher<'_>,
-    cmd: &T,
-    msg: &str,
-) -> Result<(), String> {
-    let payload = serde_json::to_vec(cmd).map_err(|e| format!("Failed to serialize command: {}", e))?;
-    publisher
-        .put(payload)
-        .await
-        .map_err(|e| format!("Failed to publish command: {}", e))?;
-    println!("{}", msg);
-    Ok(())
 }

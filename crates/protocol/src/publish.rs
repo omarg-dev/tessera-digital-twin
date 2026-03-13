@@ -41,3 +41,35 @@ where
         }
     }
 }
+
+/// Synchronous counterpart for callsites that do not await publish operations.
+pub fn publish_json_logged_sync<T, F, E>(
+    layer: &str,
+    context: &str,
+    message: &T,
+    publish: F,
+) -> bool
+where
+    T: Serialize,
+    F: FnOnce(Vec<u8>) -> Result<(), E>,
+    E: Display,
+{
+    let payload = match serde_json::to_vec(message) {
+        Ok(payload) => payload,
+        Err(err) => {
+            save_log(
+                layer,
+                &format!("serialization failed for {}: {}", context, err),
+            );
+            return false;
+        }
+    };
+
+    match publish(payload) {
+        Ok(()) => true,
+        Err(err) => {
+            save_log(layer, &format!("publish failed for {}: {}", context, err));
+            false
+        }
+    }
+}
