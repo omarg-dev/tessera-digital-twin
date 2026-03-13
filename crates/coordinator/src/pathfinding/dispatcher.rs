@@ -90,8 +90,8 @@ impl PathfinderInstance {
 
     /// Find path with robot self-exclusion (WHCA* won't collide with own reservations)
     ///
-    /// Falls back to A* if WHCA* fails due to reservation congestion.
     /// For A* strategy, robot_id is ignored (no reservation table).
+    /// For WHCA*, strict no-fallback behavior applies.
     pub fn find_path_for_robot(
         &self,
         map: &GridMap,
@@ -107,7 +107,7 @@ impl PathfinderInstance {
 
     /// Find path to non-walkable tile with robot self-exclusion
     ///
-    /// Falls back to A* if WHCA* fails due to reservation congestion.
+    /// For WHCA*, strict no-fallback behavior applies.
     pub fn find_path_to_non_walkable_for_robot(
         &self,
         map: &GridMap,

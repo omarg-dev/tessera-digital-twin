@@ -178,6 +178,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA pass 2 refinement (shared protocol publish helper centralization, station occupancy guarding, edge-swap regression coverage)
 - [x] Orchestrator and firmware publish-path migration to shared protocol JSON helper (removed local serde_json publish duplication)
 - [x] WHCA strict-vs-fallback benchmark test for head-on corridor contention (quantified zero-collision trade-off)
+- [x] WHCA strict trait-path closure (removed trait-level A* fallback bypass) and robot-aware `goto` path routing
 
 **Pending Features:**
 
@@ -271,6 +272,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: WHCA strict trait closure and robot-aware goto routing (Phase 5)
+
+- `coordinator/src/pathfinding/whca.rs`: removed trait-level A* fallbacks from WHCA `find_path` and `find_path_to_non_walkable`; trait calls now remain strict and emit explicit no-path logs in no-robot-context paths.
+- `coordinator/src/pathfinding/whca.rs`: updated strictness benchmark test to assert both robot-aware and trait-path calls reject unsafe head-on corridor swaps under strict policy.
+- `coordinator/src/server.rs`: changed coordinator `goto` command handling to call `find_path_for_robot(...)` so manual path dispatch participates in reservation-aware strict planning.
+- `coordinator/src/pathfinding/dispatcher.rs`: updated API comments to reflect strict no-fallback WHCA behavior.
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, and `cargo test --workspace` all pass.
 
 ### 2026-03-13: Publish helper migration parity and WHCA tradeoff quantification (Phase 5)
 

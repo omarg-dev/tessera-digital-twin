@@ -502,9 +502,17 @@ impl Pathfinder for WHCAPathfinder {
         start: GridPos,
         goal: GridPos,
     ) -> Option<PathResult> {
-        // Trait method has no robot_id context — try without exclusion, fallback to A*
-        self.find_path_whca(map, start, goal, None)
-            .or_else(|| super::AStarPathfinder::new().find_path(map, start, goal))
+        let result = self.find_path_whca(map, start, goal, None);
+        if result.is_none() {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* strict no-path (no robot context) from ({},{}) to ({},{})",
+                    start.0, start.1, goal.0, goal.1
+                ),
+            );
+        }
+        result
     }
 
     fn find_path_to_non_walkable(
@@ -527,8 +535,44 @@ impl Pathfinder for WHCAPathfinder {
                 cost: 0,
             });
         }
-        // Fallback: use A* for non-walkable since we have no robot_id
-        super::AStarPathfinder::new().find_path_to_non_walkable(map, start, goal)
+
+        let mut best_path: Option<PathResult> = None;
+        let mut best_cost = u32::MAX;
+
+        for (dx, dy) in DIRS {
+            let nx = goal.0 as i32 + dx;
+            let ny = goal.1 as i32 + dy;
+            if nx < 0 || ny < 0 {
+                continue;
+            }
+
+            let (nx, ny) = (nx as usize, ny as usize);
+            if nx >= map.width || ny >= map.height {
+                continue;
+            }
+            if !map.is_walkable(nx, ny) {
+                continue;
+            }
+
+            if let Some(path) = self.find_path_whca(map, start, (nx, ny), None) {
+                if path.cost < best_cost {
+                    best_cost = path.cost;
+                    best_path = Some(path);
+                }
+            }
+        }
+
+        if best_path.is_none() {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* strict no-path to non-walkable goal (no robot context) from ({},{}) to ({},{})",
+                    start.0, start.1, goal.0, goal.1
+                ),
+            );
+        }
+
+        best_path
     }
 
     fn find_path_avoiding(
@@ -538,8 +582,8 @@ impl Pathfinder for WHCAPathfinder {
         goal: GridPos,
         _other_robots: &[(u32, GridPos)],
     ) -> Option<PathResult> {
-        // The reservation table already handles collision avoidance
-        // No robot_id available via trait — fallback included
+        // The reservation table already handles collision avoidance.
+        // This trait method has no robot_id, so strict behavior applies without fallback.
         self.find_path(map, start, goal)
     }
 
@@ -790,13 +834,13 @@ mod tests {
     }
 
     #[test]
-    fn test_tradeoff_strict_vs_trait_fallback_head_on_corridor() {
+    fn test_tradeoff_strict_vs_trait_head_on_corridor() {
         let map_str = ". .";
         let map = GridMap::parse(map_str).unwrap();
 
         let trials = 25;
         let mut strict_success = 0;
-        let mut fallback_success = 0;
+        let mut trait_success = 0;
 
         for _ in 0..trials {
             let mut pathfinder = WHCAPathfinder::with_defaults();
@@ -806,18 +850,18 @@ mod tests {
             if pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2).is_some() {
                 strict_success += 1;
             }
-            // Trait pathfinder lacks robot_id context and can still succeed via fallback.
+            // Trait pathfinder lacks robot_id context but now remains strict (no fallback).
             if pathfinder.find_path(&map, (1, 0), (0, 0)).is_some() {
-                fallback_success += 1;
+                trait_success += 1;
             }
         }
 
         println!(
-            "WHCA tradeoff benchmark: strict_success={}/{} fallback_success={}/{}",
-            strict_success, trials, fallback_success, trials
+            "WHCA strict benchmark: strict_success={}/{} trait_success={}/{}",
+            strict_success, trials, trait_success, trials
         );
 
         assert_eq!(strict_success, 0);
-        assert_eq!(fallback_success, trials);
+        assert_eq!(trait_success, 0);
     }
 }

@@ -222,7 +222,7 @@ pub async fn run(session: Session, map: GridMap) {
                         let start = pathfinding::world_to_grid(robot.last_update.position);
                         let goal = (x, y);
                         
-                        if let Some(result) = pathfinder.find_path(&map, start, goal) {
+                        if let Some(result) = pathfinder.find_path_for_robot(&map, start, goal, robot_id) {
                             println!("→ Robot {} path: {} waypoints (cost: {})", robot_id, result.world_path.len(), result.cost);
                             robot.set_path(result.world_path);
                         } else {
