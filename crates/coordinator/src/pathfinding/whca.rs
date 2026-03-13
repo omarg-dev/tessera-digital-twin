@@ -27,7 +27,7 @@
 //! ```
 
 use super::{GridPos, PathResult, Pathfinder, grid_to_world_path};
-use protocol::GridMap;
+use protocol::{GridMap, logs};
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::whca::{
     WINDOW_SIZE_MS,
@@ -119,8 +119,8 @@ impl WHCAPathfinder {
             let to = path[i + 1];
 
             // Reserve the current cell at the segment start time
-            for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
-                let t = (time_ms as i64 + offset) as u64;
+            for offset in 0..=RESERVATION_TOLERANCE_MS {
+                let t = time_ms + offset as u64;
                 self.reserve_cell_with_buffer(from, t, robot_id);
             }
             
@@ -133,8 +133,8 @@ impl WHCAPathfinder {
             time_ms += travel_time_ms;
             
             // Reserve destination cell at predicted arrival time with tolerance
-            for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
-                let t = (time_ms as i64 + offset) as u64;
+            for offset in 0..=RESERVATION_TOLERANCE_MS {
+                let t = time_ms + offset as u64;
                 self.reserve_cell_with_buffer(to, t, robot_id);
             }
         }
@@ -231,18 +231,29 @@ impl WHCAPathfinder {
 
     /// Check for edge collision (two robots swapping positions)
     fn has_edge_collision(&self, from: GridPos, to: GridPos, time_ms: u64, exclude_robot: Option<u32>) -> bool {
-        // Check if another robot is moving from 'to' to 'from' at the same time
-        // (Within ±tolerance window)
+        // Check if another robot is moving from 'to' to 'from' at the same time.
         for offset in 0..=RESERVATION_TOLERANCE_MS {
             let t_next = time_ms + offset as u64;
             if let Some(reserved_by) = self.reservations.get(&(from.0, from.1, t_next)) {
                 if let Some(exclude) = exclude_robot {
-                    if *reserved_by != exclude {
-                        // Check if that robot was at 'to' at time_ms
-                        if let Some(prev_robot) = self.reservations.get(&(to.0, to.1, time_ms)) {
-                            if *prev_robot == *reserved_by {
-                                return true;
-                            }
+                    if *reserved_by == exclude {
+                        continue;
+                    }
+                }
+
+                // check forward swap: reserved robot to -> from
+                if let Some(prev_robot) = self.reservations.get(&(to.0, to.1, time_ms)) {
+                    if *prev_robot == *reserved_by {
+                        return true;
+                    }
+                }
+
+                // check reverse-time entry for same robot near time boundary
+                for reverse_offset in 0..=RESERVATION_TOLERANCE_MS {
+                    let t_prev = time_ms.saturating_sub(reverse_offset as u64);
+                    if let Some(prev_robot) = self.reservations.get(&(to.0, to.1, t_prev)) {
+                        if *prev_robot == *reserved_by {
+                            return true;
                         }
                     }
                 }
@@ -398,13 +409,17 @@ impl WHCAPathfinder {
         goal: GridPos,
         robot_id: u32,
     ) -> Option<PathResult> {
-        // Try WHCA* first (respects reservations, excludes self)
-        if let Some(result) = self.find_path_whca(map, start, goal, Some(robot_id)) {
-            return Some(result);
+        let result = self.find_path_whca(map, start, goal, Some(robot_id));
+        if result.is_none() {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* no-path for robot {} from ({},{}) to ({},{})",
+                    robot_id, start.0, start.1, goal.0, goal.1
+                ),
+            );
         }
-        // Fallback: plain A* ignoring reservations (better than no path)
-        println!("[WHCA*] Reservation-aware search failed for robot {}, falling back to A*", robot_id);
-        super::AStarPathfinder::new().find_path(map, start, goal)
+        result
     }
 
     /// Find path to non-walkable tile (e.g. shelf) with self-exclusion
@@ -457,10 +472,14 @@ impl WHCAPathfinder {
             }
         }
 
-        // Fallback: try plain A* if WHCA* couldn't find any path
         if best_path.is_none() {
-            println!("[WHCA*] Non-walkable search failed for robot {}, falling back to A*", robot_id);
-            best_path = super::AStarPathfinder::new().find_path_to_non_walkable(map, start, goal);
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* no-path to non-walkable goal for robot {} from ({},{}) to ({},{})",
+                    robot_id, start.0, start.1, goal.0, goal.1
+                ),
+            );
         }
 
         best_path

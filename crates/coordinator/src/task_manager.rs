@@ -255,9 +255,7 @@ pub async fn handle_task_assignment(
         status: TaskStatus::InProgress { robot_id },
         robot_id: Some(robot_id),
     };
-    if let Ok(payload) = to_vec(&update) {
-        status_publisher.put(payload).await.ok();
-    }
+    let _ = publish_json_logged(status_publisher, &update, "task in-progress status").await;
     
     // Send full path to pickup immediately (FollowPath - firmware follows all waypoints
     // without stopping, eliminating the per-tile pause from coordinator round-trips)
@@ -305,9 +303,7 @@ pub async fn send_task_failure(
         status: TaskStatus::Failed { reason },
         robot_id: Some(robot_id),
     };
-    if let Ok(payload) = to_vec(&update) {
-        publisher.put(payload).await.ok();
-    }
+    let _ = publish_json_logged(publisher, &update, "task failure status").await;
 }
 
 // ============================================================================
@@ -509,9 +505,7 @@ async fn handle_task_timeouts(
                 status: TaskStatus::Failed { reason: format!("Timeout ({}s no progress)", elapsed) },
                 robot_id: Some(robot_id),
             };
-            if let Ok(payload) = to_vec(&update) {
-                status_publisher.put(payload).await.ok();
-            }
+            let _ = publish_json_logged(status_publisher, &update, "task timeout status").await;
             
             // Clear robot state
             robot.current_task = None;
@@ -674,9 +668,7 @@ async fn handle_fault_cleanup(
             // clear stale WHCA* reservations before sending restart
             pathfinder.clear_robot_reservations(*robot_id);
             let cmd = RobotControl::Restart(*robot_id);
-            if let Ok(payload) = to_vec(&cmd) {
-                robot_control_publisher.put(payload).await.ok();
-            }
+            let _ = publish_json_logged(robot_control_publisher, &cmd, "robot restart control").await;
             if verbose {
                 println!("[{}ms] 🔄 Robot {} restart after fault cleanup", timestamp(), robot_id);
             }
@@ -1075,9 +1067,7 @@ async fn handle_delivering(
         status: TaskStatus::Completed,
         robot_id: Some(robot_id),
     };
-    if let Ok(payload) = to_vec(&update) {
-        status_publisher.put(payload).await.ok();
-    }
+    let _ = publish_json_logged(status_publisher, &update, "task completed status").await;
 
     // Clear task state
     robot.current_task = None;

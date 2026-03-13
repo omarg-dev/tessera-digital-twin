@@ -174,6 +174,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Runtime hardening pass for orchestrator/protocol/mock_firmware (panic-safe publish paths, protocol utility extraction, command dedup)
 - [x] Firmware command-path logging cleanup (reduced runtime console noise, file-log-first policy)
 - [x] Coordinator and scheduler runtime hardening pass (panic-safe publish paths, malformed payload diagnostics, shared protocol utility dedup)
+- [x] Strict WHCA safety pass 1 (no reservation-ignoring fallback, stronger stationary reservations, transactional scheduler assignment publish)
 
 **Pending Features:**
 
@@ -267,6 +268,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: Strict WHCA safety pass 1 and publish-transaction hardening (Phase 5)
+
+- `coordinator/src/pathfinding/whca.rs`: switched to strict WHCA behavior by removing A* fallback from robot-aware path methods; no reservation-ignoring path is dispatched when WHCA* reports no safe route.
+- `coordinator/src/pathfinding/whca.rs`: tightened reservation behavior by using forward-only tolerance reservation windows and stronger edge-swap collision checks.
+- `coordinator/src/server.rs`: added rolling reservation refresh in the path watchdog loop to keep long path tails protected as the WHCA planning window advances.
+- `scheduler/src/server.rs`: made assignment publish transactional; task/robot/inventory assignment state now rolls back if `TaskAssignment` publish fails.
+- `scheduler/src/server.rs`: replaced queue/task-list state broadcasts with logged-safe publish helper paths.
+- `coordinator/src/task_manager.rs`: replaced remaining silent status/control publish `.ok()` calls with logged-safe publish helper usage.
+- `protocol/src/config.rs`: increased stationary safety coverage (`STATIONARY_HISTORY_TILES` 2 -> 4, `STATIONARY_RESERVATION_MS` 1500 -> 2500) and reduced replan wait threshold (`RESERVATION_WAIT_REPLAN_SECS` 3 -> 2).
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, `cargo test -p scheduler`, and `cargo test --workspace` all pass.
+- Observed trade-off: stricter safety policy increases conservative waiting/retry behavior under dense contention, reducing peak throughput while improving collision resistance and state consistency.
 
 ### 2026-03-13: Coordinator and scheduler runtime hardening (Phase 5)
 

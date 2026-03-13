@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use zenoh::Session;
 use serde_json::{from_slice, to_vec};
+use serde::Serialize;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
@@ -320,9 +321,7 @@ async fn broadcast_task_list(
         tasks: queue.all_tasks().into_iter().cloned().collect(),
         timestamp_ms,
     };
-    if let Ok(payload) = to_vec(&snapshot) {
-        publisher.put(payload).await.ok();
-    }
+    let _ = publish_json_logged(publisher, &snapshot, "task list snapshot").await;
 }
 
 fn handle_robot_updates(
@@ -459,6 +458,7 @@ async fn allocate_tasks(
         let Some(robot_id) = allocator.allocate(&task, &reachable_robots) else { continue };
 
         // Mark robot assigned
+        let previous_assignment = robots.get(&robot_id).and_then(|robot| robot.assigned_task);
         if let Some(robot) = robots.get_mut(&robot_id) {
             robot.assigned_task = Some(task_id);
         }
@@ -473,14 +473,33 @@ async fn allocate_tasks(
 
         // Update task status
         if let Some(task) = queue.get_mut(task_id) {
-            task.status = TaskStatus::Assigned { robot_id };
-
-            let assignment = TaskAssignment { task: task.clone(), robot_id };
-            if let Ok(payload) = to_vec(&assignment) {
-                publisher.put(payload).await.ok();
+            let previous_status = task.status.clone();
+            let mut assigned_task = task.clone();
+            assigned_task.status = TaskStatus::Assigned { robot_id };
+            let assignment = TaskAssignment { task: assigned_task, robot_id };
+            if publish_json_logged(publisher, &assignment, "task assignment").await {
+                task.status = TaskStatus::Assigned { robot_id };
                 if verbose {
                     println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
                 }
+            } else {
+                task.status = previous_status;
+                if let Some(robot) = robots.get_mut(&robot_id) {
+                    robot.assigned_task = previous_assignment;
+                }
+                if let Some(pickup_pos) = task.pickup_location() {
+                    inventory.undo_pickup(pickup_pos);
+                }
+                if let Some(dropoff_pos) = task.target_location() {
+                    inventory.undo_dropoff(dropoff_pos);
+                }
+                logs::save_log(
+                    "Scheduler",
+                    &format!(
+                        "Task {} assignment publish failed, rolled back reservation/state",
+                        task_id
+                    ),
+                );
             }
         }
     }
@@ -497,7 +516,29 @@ async fn broadcast_state(
         robots_online: robots.len(),
     };
 
-    if let Ok(payload) = to_vec(&state) {
-        publisher.put(payload).await.ok();
+    let _ = publish_json_logged(publisher, &state, "queue state broadcast").await;
+}
+
+async fn publish_json_logged<T: Serialize>(
+    publisher: &zenoh::pubsub::Publisher<'_>,
+    message: &T,
+    context: &str,
+) -> bool {
+    match to_vec(message) {
+        Ok(payload) => {
+            if publisher.put(payload).await.is_err() {
+                logs::save_log("Scheduler", &format!("publish failed: {}", context));
+                false
+            } else {
+                true
+            }
+        }
+        Err(err) => {
+            logs::save_log(
+                "Scheduler",
+                &format!("serialization failed for {}: {}", context, err),
+            );
+            false
+        }
     }
 }

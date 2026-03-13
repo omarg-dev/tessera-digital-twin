@@ -112,10 +112,10 @@ pub mod coordinator {
         pub const MOVE_TIME_MS: u64 = 500;
 
         /// How many recent tiles to keep reserved for stationary robots
-        pub const STATIONARY_HISTORY_TILES: usize = 2;
+        pub const STATIONARY_HISTORY_TILES: usize = 4;
 
         /// How long to reserve stationary tiles (milliseconds)
-        pub const STATIONARY_RESERVATION_MS: u64 = 1500;
+        pub const STATIONARY_RESERVATION_MS: u64 = 2500;
 
         /// Collision buffer radius (tiles) reserved around each reserved cell
         /// Set to 0 to avoid over-reserving narrow corridors.
@@ -140,7 +140,7 @@ pub mod coordinator {
         pub const REPLAN_BACKOFF_MS: u64 = 2000;
 
         /// How long a robot may wait on a reserved cell before forcing a replan (seconds)
-        pub const RESERVATION_WAIT_REPLAN_SECS: u64 = 3;
+        pub const RESERVATION_WAIT_REPLAN_SECS: u64 = 2;
 
         /// How long a robot may wait before overriding reservation wait (seconds)
         /// Use to break deadlocks in tight corridors.

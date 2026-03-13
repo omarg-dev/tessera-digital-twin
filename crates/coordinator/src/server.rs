@@ -488,6 +488,16 @@ async fn send_path_commands(
                 }
             }
         }
+
+        // Refresh rolling reservations for long paths so windowed WHCA* protection
+        // does not expire on the untraversed path tail.
+        let remaining_grid: Vec<(usize, usize)> = robot.current_path[robot.path_index..]
+            .iter()
+            .map(|wp| pathfinding::world_to_grid(*wp))
+            .collect();
+        if remaining_grid.len() > 1 {
+            pathfinder.reserve_path(*robot_id, &remaining_grid, robot.last_update.velocity);
+        }
     }
 }
 
@@ -511,9 +521,7 @@ async fn broadcast_path_telemetry(
         };
 
         let telemetry = RobotPathTelemetry { robot_id, waypoints };
-        if let Ok(payload) = to_vec(&telemetry) {
-            publisher.put(payload).await.ok();
-        }
+        let _ = publish_json_logged(publisher, &telemetry, "path telemetry broadcast").await;
     }
 }
 
