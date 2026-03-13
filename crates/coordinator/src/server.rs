@@ -11,6 +11,7 @@ use protocol::config::coordinator::{collision as collision_config, sensor as sen
 use protocol::logs;
 use protocol::grid_map::ShelfInventory;
 use serde_json::{to_vec, from_slice};
+use serde::Serialize;
 use std::collections::HashMap;
 
 use crate::state::{TrackedRobot, TaskStage};
@@ -94,8 +95,10 @@ pub async fn run(session: Session, map: GridMap) {
         map_hash: map.hash,
         map_dimensions: (map.width, map.height),
     };
+    let map_validation_payload = to_vec(&map_validation)
+        .expect("Failed to serialize map validation payload");
     map_publisher
-        .put(to_vec(&map_validation).unwrap())
+        .put(map_validation_payload)
         .await
         .expect("Failed to publish map validation");
     println!("✓ Map hash broadcast for validation");
@@ -122,75 +125,88 @@ pub async fn run(session: Session, map: GridMap) {
     loop {
         // Republish map hash periodically (ensures latecomers can validate)
         if last_validation_publish.elapsed() >= std::time::Duration::from_secs(coord_config::MAP_HASH_REPUBLISH_SECS) {
-            map_publisher
-                .put(to_vec(&map_validation).unwrap())
-                .await
-                .ok();
+            let _ = publish_json_logged(
+                &map_publisher,
+                &map_validation,
+                "periodic map validation",
+            ).await;
             last_validation_publish = std::time::Instant::now();
         }
         
         // Handle system commands (from orchestrator via Zenoh)
         while let Ok(Some(sample)) = control_subscriber.try_recv() {
-            if let Ok(sys_cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-                commands::handle_system_command(
-                    &sys_cmd,
-                    &mut paused,
-                    &mut verbose,
-                    &mut chaos,
-                    &mut time_scale,
-                );
+            let payload = sample.payload().to_bytes();
+            match from_slice::<SystemCommand>(&payload) {
+                Ok(sys_cmd) => {
+                    commands::handle_system_command(
+                        &sys_cmd,
+                        &mut paused,
+                        &mut verbose,
+                        &mut chaos,
+                        &mut time_scale,
+                    );
+                }
+                Err(err) => log_deserialize_failure("SystemCommand", topics::ADMIN_CONTROL, &payload, &err),
             }
         }
         
         // Handle task assignments (from scheduler)
         while let Ok(Some(sample)) = task_subscriber.try_recv() {
-            if let Ok(assignment) = from_slice::<TaskAssignment>(&sample.payload().to_bytes()) {
-                let result = task_manager::handle_task_assignment(
-                    &assignment,
-                    &mut robots,
-                    &map,
-                    &mut pathfinder,
-                    &mut inventory,
-                    &cmd_publisher,
-                    &status_publisher,
-                    &mut next_cmd_id,
-                    verbose,
-                ).await;
+            let payload = sample.payload().to_bytes();
+            match from_slice::<TaskAssignment>(&payload) {
+                Ok(assignment) => {
+                    let result = task_manager::handle_task_assignment(
+                        &assignment,
+                        &mut robots,
+                        &map,
+                        &mut pathfinder,
+                        &mut inventory,
+                        &cmd_publisher,
+                        &status_publisher,
+                        &mut next_cmd_id,
+                        verbose,
+                    ).await;
 
-                let reason = match result {
-                    task_manager::AssignmentResult::Accepted { waypoints, cost } => {
-                        format!("accepted: {} waypoints (cost: {})", waypoints, cost)
-                    }
-                    task_manager::AssignmentResult::LowBatteryReturn { battery } => {
-                        format!("rejected: low battery ({:.1}%)", battery)
-                    }
-                    task_manager::AssignmentResult::RobotNotFound => "rejected: robot not found".to_string(),
-                    task_manager::AssignmentResult::RobotFaultedOrBlocked => "rejected: robot faulted/blocked".to_string(),
-                    task_manager::AssignmentResult::RobotBusy => "rejected: robot busy".to_string(),
-                    task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
-                    task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
-                    task_manager::AssignmentResult::InvalidTileCombination => "rejected: invalid pickup/dropoff".to_string(),
-                    task_manager::AssignmentResult::ShelfCapacity { reason } => format!("rejected: {}", reason),
-                    task_manager::AssignmentResult::NoPathToPickup => "rejected: no path to pickup".to_string(),
-                };
+                    let reason = match result {
+                        task_manager::AssignmentResult::Accepted { waypoints, cost } => {
+                            format!("accepted: {} waypoints (cost: {})", waypoints, cost)
+                        }
+                        task_manager::AssignmentResult::LowBatteryReturn { battery } => {
+                            format!("rejected: low battery ({:.1}%)", battery)
+                        }
+                        task_manager::AssignmentResult::RobotNotFound => "rejected: robot not found".to_string(),
+                        task_manager::AssignmentResult::RobotFaultedOrBlocked => "rejected: robot faulted/blocked".to_string(),
+                        task_manager::AssignmentResult::RobotBusy => "rejected: robot busy".to_string(),
+                        task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
+                        task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
+                        task_manager::AssignmentResult::InvalidTileCombination => "rejected: invalid pickup/dropoff".to_string(),
+                        task_manager::AssignmentResult::ShelfCapacity { reason } => format!("rejected: {}", reason),
+                        task_manager::AssignmentResult::NoPathToPickup => "rejected: no path to pickup".to_string(),
+                    };
 
-                let log = &format!("Task {} assignment result (robot {}): {}", assignment.task.id, assignment.robot_id, reason);
-                
-                if verbose {
-                    println!("{}", log);
+                    let log = &format!("Task {} assignment result (robot {}): {}", assignment.task.id, assignment.robot_id, reason);
+
+                    if verbose {
+                        println!("{}", log);
+                    }
+
+                    logs::save_log(
+                        "Coordinator",
+                        log,
+                    );
                 }
-                
-                logs::save_log(
-                    "Coordinator",
-                    log,
-                );
+                Err(err) => log_deserialize_failure("TaskAssignment", topics::TASK_ASSIGNMENTS, &payload, &err),
             }
         }
         
         // Handle queue state updates (from scheduler)
         while let Ok(Some(sample)) = queue_subscriber.try_recv() {
-            if let Ok(state) = from_slice::<QueueState>(&sample.payload().to_bytes()) {
-                pending_tasks = state.pending;
+            let payload = sample.payload().to_bytes();
+            match from_slice::<QueueState>(&payload) {
+                Ok(state) => {
+                    pending_tasks = state.pending;
+                }
+                Err(err) => log_deserialize_failure("QueueState", topics::QUEUE_STATE, &payload, &err),
             }
         }
         
@@ -221,37 +237,46 @@ pub async fn run(session: Session, map: GridMap) {
         
         // Process incoming robot updates (non-blocking) - expects RobotUpdateBatch
         while let Ok(Some(sample)) = robot_subscriber.try_recv() {
+            let payload = sample.payload().to_bytes();
             // Try batched format first (current standard)
-            if let Ok(batch) = from_slice::<RobotUpdateBatch>(&sample.payload().to_bytes()) {
-                for update in batch.updates {
-                    handle_robot_update(
-                        &map,
-                        &mut robots,
-                        update,
-                        Some(batch.tick),
-                        time_scale,
-                        &cmd_publisher,
-                        &status_publisher,
-                        &mut next_cmd_id,
-                        &mut pathfinder,
-                        verbose,
-                    ).await;
+            match from_slice::<RobotUpdateBatch>(&payload) {
+                Ok(batch) => {
+                    for update in batch.updates {
+                        handle_robot_update(
+                            &map,
+                            &mut robots,
+                            update,
+                            Some(batch.tick),
+                            time_scale,
+                            &cmd_publisher,
+                            &status_publisher,
+                            &mut next_cmd_id,
+                            &mut pathfinder,
+                            verbose,
+                        ).await;
+                    }
                 }
-            }
-            // Fallback: legacy individual RobotUpdate
-            else if let Ok(update) = from_slice::<RobotUpdate>(&sample.payload().to_bytes()) {
-                handle_robot_update(
-                    &map,
-                    &mut robots,
-                    update,
-                    None,
-                    time_scale,
-                    &cmd_publisher,
-                    &status_publisher,
-                    &mut next_cmd_id,
-                    &mut pathfinder,
-                    verbose,
-                ).await;
+                // Fallback: legacy individual RobotUpdate
+                Err(batch_err) => match from_slice::<RobotUpdate>(&payload) {
+                    Ok(update) => {
+                        handle_robot_update(
+                            &map,
+                            &mut robots,
+                            update,
+                            None,
+                            time_scale,
+                            &cmd_publisher,
+                            &status_publisher,
+                            &mut next_cmd_id,
+                            &mut pathfinder,
+                            verbose,
+                        ).await;
+                    }
+                    Err(single_err) => {
+                        log_deserialize_failure("RobotUpdateBatch", topics::ROBOT_UPDATES, &payload, &batch_err);
+                        log_deserialize_failure("RobotUpdate", topics::ROBOT_UPDATES, &payload, &single_err);
+                    }
+                },
             }
         }
         
@@ -302,27 +327,31 @@ fn handle_command_responses(
     verbose: bool,
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
-        if let Ok(response) = from_slice::<CommandResponse>(&sample.payload().to_bytes()) {
-            match response.status {
-                CommandStatus::Accepted => {
-                    if verbose {
-                        println!("[{}ms] ✓ Robot {} accepted command #{}", 
-                            timestamp(), response.robot_id, response.cmd_id);
+        let payload = sample.payload().to_bytes();
+        match from_slice::<CommandResponse>(&payload) {
+            Ok(response) => {
+                match response.status {
+                    CommandStatus::Accepted => {
+                        if verbose {
+                            println!("[{}ms] ✓ Robot {} accepted command #{}", 
+                                timestamp(), response.robot_id, response.cmd_id);
+                        }
+                        logs::save_log("Coordinator", &format!(
+                            "Robot {} accepted command #{}", 
+                            response.robot_id, response.cmd_id
+                        ));
                     }
-                    logs::save_log("Coordinator", &format!(
-                        "Robot {} accepted command #{}", 
-                        response.robot_id, response.cmd_id
-                    ));
-                }
-                CommandStatus::Rejected { ref reason } => {
-                    println!("[{}ms] ✗ Robot {} rejected command #{}: {}", 
-                        timestamp(), response.robot_id, response.cmd_id, reason);
-                    logs::save_log("Coordinator", &format!(
-                        "Robot {} rejected command #{}: {}", 
-                        response.robot_id, response.cmd_id, reason
-                    ));
+                    CommandStatus::Rejected { ref reason } => {
+                        println!("[{}ms] ✗ Robot {} rejected command #{}: {}", 
+                            timestamp(), response.robot_id, response.cmd_id, reason);
+                        logs::save_log("Coordinator", &format!(
+                            "Robot {} rejected command #{}: {}", 
+                            response.robot_id, response.cmd_id, reason
+                        ));
+                    }
                 }
             }
+            Err(err) => log_deserialize_failure("CommandResponse", topics::COMMAND_RESPONSES, &payload, &err),
         }
     }
 }
@@ -368,7 +397,17 @@ async fn send_path_commands(
         // checking only next_waypoint() gave the coordinator one tick to react before
         // the firmware crossed into a reserved cell; scanning ahead stops the robot
         // earlier, giving WHCA* time to find an alternate route.
-        let next_wp = robot.next_waypoint().expect("path not complete but no waypoint");
+        let Some(next_wp) = robot.next_waypoint() else {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} has incomplete path but no next waypoint; resetting send state",
+                    robot_id
+                ),
+            );
+            robot.path_sent = false;
+            continue;
+        };
         let target_grid = pathfinding::world_to_grid(next_wp);
         let is_blocked = robot.current_path[robot.path_index..]
             .iter()
@@ -408,7 +447,11 @@ async fn send_path_commands(
                     command: PathCommand::Stop,
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&stop_cmd).unwrap()).await.ok();
+                let _ = publish_json_logged(
+                    cmd_publisher,
+                    &stop_cmd,
+                    "reservation stop command",
+                ).await;
                 robot.path_sent = false; // will resend FollowPath once unblocked
                 continue;
             }
@@ -440,8 +483,9 @@ async fn send_path_commands(
                     command,
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-                robot.path_sent = true;
+                if publish_json_logged(cmd_publisher, &cmd, "path follow command").await {
+                    robot.path_sent = true;
+                }
             }
         }
     }
@@ -769,11 +813,56 @@ async fn detect_inter_robot_collisions(
                 command: PathCommand::Stop,
             };
             *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&stop_cmd).unwrap()).await.ok();
-            robot.path_sent = false;
+            if publish_json_logged(cmd_publisher, &stop_cmd, "collision stop command").await {
+                robot.path_sent = false;
+            }
             if verbose {
                 println!("[{}ms] Robot {} stopped: path routes through collision zone", timestamp(), robot_id);
             }
         }
     }
+}
+
+async fn publish_json_logged<T: Serialize>(
+    publisher: &zenoh::pubsub::Publisher<'_>,
+    message: &T,
+    context: &str,
+) -> bool {
+    match to_vec(message) {
+        Ok(payload) => {
+            if publisher.put(payload).await.is_err() {
+                logs::save_log("Coordinator", &format!("publish failed: {}", context));
+                false
+            } else {
+                true
+            }
+        }
+        Err(err) => {
+            logs::save_log(
+                "Coordinator",
+                &format!("serialization failed for {}: {}", context, err),
+            );
+            false
+        }
+    }
+}
+
+fn log_deserialize_failure(expected_type: &str, topic: &str, payload: &[u8], err: &serde_json::Error) {
+    let preview = payload
+        .iter()
+        .take(8)
+        .map(|byte| format!("{:02x}", byte))
+        .collect::<Vec<_>>()
+        .join("");
+    logs::save_log(
+        "Coordinator",
+        &format!(
+            "Malformed {} on {} ({} bytes, preview={}): {}",
+            expected_type,
+            topic,
+            payload.len(),
+            preview,
+            err
+        ),
+    );
 }

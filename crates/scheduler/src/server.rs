@@ -12,6 +12,7 @@ use protocol::config::scheduler as sched_config;
 use protocol::{
     timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
     Task, TaskAssignment, TaskCommand, TaskListSnapshot, TaskStatus, TaskStatusUpdate, TaskType,
+    is_reachable_on_map, world_to_grid,
 };
 
 use crate::allocator::{Allocator, AllocatorInstance, RobotInfo};
@@ -134,8 +135,13 @@ async fn handle_stdin(
                 }
 
                 let mut rng = thread_rng();
-                let shelf = shelves.choose(&mut rng).unwrap();
-                let dropoff = dropoffs.choose(&mut rng).unwrap();
+                let (Some(shelf), Some(dropoff)) = (
+                    shelves.choose(&mut rng),
+                    dropoffs.choose(&mut rng),
+                ) else {
+                    logs::save_log("Scheduler", "Random task creation aborted: no shelf/dropoff candidates");
+                    continue;
+                };
 
                 let id = queue.next_task_id();
                 let task = Task::new(id, TaskType::PickAndDeliver {
@@ -242,7 +248,8 @@ fn handle_task_requests(
     inventory: &ShelfInventory,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(cmd) = from_slice::<TaskCommand>(&sample.payload().to_bytes()) {
+        let payload = sample.payload().to_bytes();
+        if let Ok(cmd) = from_slice::<TaskCommand>(&payload) {
             match cmd {
                 TaskCommand::New { task_type, priority } => {
                     // validate pickup shelf is not empty before queuing
@@ -288,6 +295,15 @@ fn handle_task_requests(
                     }
                 }
             }
+        } else {
+            logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Malformed TaskCommand payload on {} ({} bytes)",
+                    topics::TASK_REQUESTS,
+                    payload.len()
+                ),
+            );
         }
     }
 }
@@ -314,7 +330,8 @@ fn handle_robot_updates(
     robots: &mut HashMap<u32, RobotInfo>,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(batch) = from_slice::<RobotUpdateBatch>(&sample.payload().to_bytes()) {
+        let payload = sample.payload().to_bytes();
+        if let Ok(batch) = from_slice::<RobotUpdateBatch>(&payload) {
             for update in &batch.updates {
                 let entry = robots.entry(update.id).or_insert_with(|| RobotInfo::from(update));
                 entry.position = update.position;
@@ -323,6 +340,15 @@ fn handle_robot_updates(
                 // NOTE: Do NOT touch assigned_task here!
                 // It's managed by handle_status_updates based on TaskStatusUpdate messages
             }
+        } else {
+            logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Malformed RobotUpdateBatch payload on {} ({} bytes)",
+                    topics::ROBOT_UPDATES,
+                    payload.len()
+                ),
+            );
         }
     }
 }
@@ -334,7 +360,8 @@ fn handle_status_updates(
     inventory: &mut ShelfInventory,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(update) = from_slice::<TaskStatusUpdate>(&sample.payload().to_bytes()) {
+        let payload = sample.payload().to_bytes();
+        if let Ok(update) = from_slice::<TaskStatusUpdate>(&payload) {
             if let Some(task) = queue.get_mut(update.task_id) {
                 println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
                 logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
@@ -371,6 +398,15 @@ fn handle_status_updates(
                     }
                 }
             }
+        } else {
+            logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Malformed TaskStatusUpdate payload on {} ({} bytes)",
+                    topics::TASK_STATUS,
+                    payload.len()
+                ),
+            );
         }
     }
 }
@@ -414,8 +450,8 @@ async fn allocate_tasks(
         let Some(pickup) = task.pickup_location() else { continue };
         let mut reachable_robots: HashMap<u32, RobotInfo> = HashMap::new();
         for (id, robot) in robots.iter() {
-            let start = world_to_grid(robot.position);
-            if is_reachable(map, start, pickup) {
+            let Some(start) = world_to_grid(robot.position) else { continue; };
+            if is_reachable_on_map(map, start, pickup) {
                 reachable_robots.insert(*id, robot.clone());
             }
         }
@@ -448,64 +484,6 @@ async fn allocate_tasks(
             }
         }
     }
-}
-
-fn world_to_grid(pos: [f32; 3]) -> (usize, usize) {
-    ((pos[0] + 0.5) as usize, (pos[2] + 0.5) as usize)
-}
-
-fn is_reachable(map: &GridMap, start: (usize, usize), goal: (usize, usize)) -> bool {
-    if start.0 >= map.width || start.1 >= map.height {
-        return false;
-    }
-    if !map.is_walkable(start.0, start.1) {
-        return false;
-    }
-
-    let mut goals: Vec<(usize, usize)> = Vec::new();
-    if map.is_walkable(goal.0, goal.1) {
-        goals.push(goal);
-    } else {
-        for (dx, dy) in [(1i32,0i32), (-1,0), (0,1), (0,-1)] {
-            let nx = goal.0 as i32 + dx;
-            let ny = goal.1 as i32 + dy;
-            if nx < 0 || ny < 0 { continue; }
-            let nx = nx as usize;
-            let ny = ny as usize;
-            if nx >= map.width || ny >= map.height { continue; }
-            if map.is_walkable(nx, ny) {
-                goals.push((nx, ny));
-            }
-        }
-    }
-    if goals.is_empty() {
-        return false;
-    }
-
-    let mut visited = vec![vec![false; map.width]; map.height];
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(start);
-    visited[start.1][start.0] = true;
-
-    while let Some((x, y)) = queue.pop_front() {
-        if goals.iter().any(|g| g.0 == x && g.1 == y) {
-            return true;
-        }
-        for (dx, dy) in [(1i32,0i32), (-1,0), (0,1), (0,-1)] {
-            let nx = x as i32 + dx;
-            let ny = y as i32 + dy;
-            if nx < 0 || ny < 0 { continue; }
-            let nx = nx as usize;
-            let ny = ny as usize;
-            if nx >= map.width || ny >= map.height { continue; }
-            if visited[ny][nx] { continue; }
-            if !map.is_walkable(nx, ny) { continue; }
-            visited[ny][nx] = true;
-            queue.push_back((nx, ny));
-        }
-    }
-
-    false
 }
 
 async fn broadcast_state(

@@ -2,7 +2,7 @@
 
 use super::{Allocator, RobotInfo};
 use protocol::config::battery::MIN_BATTERY_FOR_TASK;
-use protocol::{RobotState, Task};
+use protocol::{RobotState, Task, manhattan_distance_xz};
 use std::collections::HashMap;
 
 /// Allocator that picks the closest idle robot
@@ -20,10 +20,8 @@ impl ClosestIdleAllocator {
         let Some(pickup) = task.pickup_location() else {
             return f32::MAX;
         };
-
-        let dx = (robot.position[0] - pickup.0 as f32).abs();
-        let dz = (robot.position[2] - pickup.1 as f32).abs();
-        dx + dz
+        let pickup_world = [pickup.0 as f32, robot.position[1], pickup.1 as f32];
+        manhattan_distance_xz(robot.position, pickup_world)
     }
 }
 
@@ -59,9 +57,13 @@ impl Allocator for ClosestIdleAllocator {
         }
 
         if let Some(robot_id) = best_robot {
-                println!("[{}ms] → Allocating Task {} to Robot {} (distance: {:.1})", 
-                    protocol::timestamp(), task.id, robot_id, best_distance);
-                protocol::logs::save_log("Scheduler", &format!("Task {} allocated to Robot {} (distance: {:.1})", task.id, robot_id, best_distance));
+            protocol::logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Task {} allocated to Robot {} (distance: {:.1})",
+                    task.id, robot_id, best_distance
+                ),
+            );
         }
 
         best_robot

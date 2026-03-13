@@ -16,6 +16,7 @@ use protocol::config::battery as battery_config;
 use protocol::grid_map::ShelfInventory;
 use protocol::logs;
 use serde_json::to_vec;
+use serde::Serialize;
 
 use crate::state::{TrackedRobot, TaskStage, ReturnReason};
 use crate::pathfinding::{self, GridPos, PathfinderInstance};
@@ -271,8 +272,9 @@ pub async fn handle_task_assignment(
             },
         };
         *next_cmd_id += 1;
-        cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-        robot.path_sent = true;
+        if publish_json_logged(cmd_publisher, &cmd, "task assignment follow path").await {
+            robot.path_sent = true;
+        }
     }
 
     AssignmentResult::Accepted { waypoints, cost }
@@ -463,8 +465,9 @@ pub async fn progress_tasks(
                         command: PathCommand::Stop,
                     };
                     *next_cmd_id += 1;
-                    cmd_publisher.put(to_vec(&stop_cmd).unwrap()).await.ok();
-                    robot.path_sent = false;
+                    if publish_json_logged(cmd_publisher, &stop_cmd, "replan conflict stop").await {
+                        robot.path_sent = false;
+                    }
                     if verbose {
                         println!("[{}ms] Robot {} stopped: next waypoint conflicts with replanned path of robot {}", timestamp(), robot_id, replanned_id);
                     }
@@ -579,7 +582,7 @@ pub async fn mark_robot_faulted(
         command: PathCommand::Fault,
     };
     *next_cmd_id += 1;
-    cmd_publisher.put(to_vec(&fault_cmd).unwrap()).await.ok();
+    let _ = publish_json_logged(cmd_publisher, &fault_cmd, "robot fault command").await;
 
     // Clear reservations for this robot
     pathfinder.clear_robot_reservations(robot_id);
@@ -753,8 +756,9 @@ async fn attempt_replan(
             },
         };
         *next_cmd_id += 1;
-        cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-        robot.path_sent = true;
+        if publish_json_logged(cmd_publisher, &cmd, "replanned follow path").await {
+            robot.path_sent = true;
+        }
     }
 
     true
@@ -784,7 +788,7 @@ async fn handle_returning_to_station(
                 command: PathCommand::ReturnToCharge,
             };
             *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+            let _ = publish_json_logged(cmd_publisher, &cmd, "return to charge command").await;
             
             robot.current_path.clear();
             robot.path_index = 0;
@@ -851,8 +855,9 @@ async fn handle_idle_low_battery(
                     },
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-                robot.path_sent = true;
+                if publish_json_logged(cmd_publisher, &cmd, "idle low battery return path").await {
+                    robot.path_sent = true;
+                }
             }
         }
     }
@@ -885,7 +890,7 @@ async fn handle_moving_to_pickup(
                     command: PathCommand::Pickup { cargo_id: task_id as u32 },
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                let _ = publish_json_logged(cmd_publisher, &cmd, "pickup command").await;
                 
                 if verbose {
                     println!("[{}ms] 📦 Robot {} picking up cargo ({}s delay)...", 
@@ -971,8 +976,9 @@ async fn handle_picking(
                         },
                     };
                     *next_cmd_id += 1;
-                    cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-                    robot.path_sent = true;
+                    if publish_json_logged(cmd_publisher, &cmd, "dropoff follow path").await {
+                        robot.path_sent = true;
+                    }
                 }
             }
         }
@@ -1007,7 +1013,7 @@ async fn handle_moving_to_dropoff(
                     command: PathCommand::Drop,
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                let _ = publish_json_logged(cmd_publisher, &cmd, "drop command").await;
 
                 if verbose {
                     println!(
@@ -1126,14 +1132,39 @@ async fn handle_delivering(
                     },
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-                robot.path_sent = true;
+                if publish_json_logged(cmd_publisher, &cmd, "post-delivery return path").await {
+                    robot.path_sent = true;
+                }
             }
         }
     } else {
         // Staying idle at dropoff: reserve the current cell immediately
         let current_grid = pathfinding::world_to_grid(robot.last_update.position);
         pathfinder.reserve_stationary(robot_id, current_grid);
+    }
+}
+
+async fn publish_json_logged<T: Serialize>(
+    publisher: &zenoh::pubsub::Publisher<'_>,
+    message: &T,
+    context: &str,
+) -> bool {
+    match to_vec(message) {
+        Ok(payload) => {
+            if publisher.put(payload).await.is_err() {
+                logs::save_log("Coordinator", &format!("publish failed: {}", context));
+                false
+            } else {
+                true
+            }
+        }
+        Err(err) => {
+            logs::save_log(
+                "Coordinator",
+                &format!("serialization failed for {}: {}", context, err),
+            );
+            false
+        }
     }
 }
 

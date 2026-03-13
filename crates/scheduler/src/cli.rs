@@ -423,8 +423,8 @@ mod tests {
     #[test]
     fn test_marker_values_distinguishable() {
         // Ensure shelf and dropoff markers don't overlap
-        let s1 = parse_named_location("S1").unwrap();
-        let d1 = parse_named_location("D1").unwrap();
+        let s1 = parse_named_location("S1").expect("S1 should parse as a shelf marker");
+        let d1 = parse_named_location("D1").expect("D1 should parse as a dropoff marker");
         assert!(s1.0 < protocol::config::scheduler::DROPOFF_MARKER_BASE);  // Shelf range
         assert!(d1.0 >= protocol::config::scheduler::DROPOFF_MARKER_BASE); // Dropoff range
     }

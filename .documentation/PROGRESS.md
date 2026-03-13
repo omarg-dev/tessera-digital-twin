@@ -173,6 +173,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Real-time mode integration: toggling Real-time now pauses simulation, and toggling back restores prior pause/running state
 - [x] Runtime hardening pass for orchestrator/protocol/mock_firmware (panic-safe publish paths, protocol utility extraction, command dedup)
 - [x] Firmware command-path logging cleanup (reduced runtime console noise, file-log-first policy)
+- [x] Coordinator and scheduler runtime hardening pass (panic-safe publish paths, malformed payload diagnostics, shared protocol utility dedup)
 
 **Pending Features:**
 
@@ -266,6 +267,17 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: Coordinator and scheduler runtime hardening (Phase 5)
+
+- `protocol/src/util.rs` + `protocol/src/lib.rs`: added shared `manhattan_distance_xz` and `is_reachable_on_map` helpers with coverage tests, then exported them for cross-crate reuse.
+- `scheduler/src/server.rs`: removed local world/grid + BFS duplication in favor of protocol helpers, replaced random-task `unwrap()` usage with safe pattern matching, and added malformed payload logging for task requests, robot updates, and task status updates.
+- `scheduler/src/allocator/closest.rs`: replaced manual distance arithmetic with protocol Manhattan helper and removed hot-loop console prints in favor of structured file logging.
+- `scheduler/src/queue/mod.rs` + `scheduler/src/cli.rs`: clarified queue semantics docs (priority-first with FIFO ties) and replaced test `unwrap()` calls with explicit `expect(...)` messages.
+- `coordinator/src/server.rs`: removed runtime `to_vec(...).unwrap()` paths in recurring loops, replaced invariant `next_waypoint().expect(...)` with safe handling, and added malformed payload diagnostics across all inbound subscriber handlers.
+- `coordinator/src/task_manager.rs`: removed runtime command publish `unwrap()` usage and centralized safe publish behavior with serialization/publish failure logging.
+- `coordinator/src/pathfinding/mod.rs`: delegated coordinate conversion wrappers to `protocol` utilities to reduce duplicate arithmetic logic while preserving existing public APIs.
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, `cargo test -p scheduler`, and `cargo test --workspace` all pass.
 
 ### 2026-03-13: Firmware command-path logging cleanup (Phase 5)
 
