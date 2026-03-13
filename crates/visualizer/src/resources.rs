@@ -131,6 +131,9 @@ pub struct UiState {
     pub is_paused: bool,
     /// Real-time mode toggle (true = real hardware, false = simulation)
     pub is_realtime: bool,
+    /// Pause state captured when entering real-time mode.
+    /// Used to restore pause/resume behavior when leaving real-time mode.
+    pub paused_before_realtime: Option<bool>,
     /// Active tab in left Object Manager panel
     pub object_tab: LeftTab,
     /// Active tab in bottom panel
@@ -190,6 +193,7 @@ impl Default for UiState {
             custom_speed_text: String::new(),
             is_paused: false,
             is_realtime: false,
+            paused_before_realtime: None,
             object_tab: LeftTab::default(),
             bottom_tab: BottomTab::default(),
             inspector_tab: RightTab::default(),
@@ -300,6 +304,8 @@ pub struct ActivePaths(pub HashMap<u32, Vec<bevy::math::Vec3>>);
 pub enum UiAction {
     /// Publish SystemCommand::Pause or Resume
     SetPaused(bool),
+    /// Toggle real-time mode and synchronize simulation pause state
+    SetRealtime(bool),
     /// Publish RobotControl::Down(id)
     KillRobot(u32),
     /// Publish RobotControl::Restart(id)

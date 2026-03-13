@@ -129,8 +129,14 @@ impl SimRobot {
             let dx = target[0] - self.position[0];
             let dz = target[2] - self.position[2];
             let dist = (dx * dx + dz * dz).sqrt();
+            let moving = self.velocity[0].abs() > 0.01 || self.velocity[2].abs() > 0.01;
+            let passed_target = moving && (self.velocity[0] * dx + self.velocity[2] * dz) <= 0.0;
             
-            if dist < physics::ARRIVAL_THRESHOLD {
+            if dist < physics::ARRIVAL_THRESHOLD || passed_target {
+                // snap to waypoint when we reach or pass it in one large dt step
+                // this prevents high-speed oscillation around waypoints.
+                self.position[0] = target[0];
+                self.position[2] = target[2];
                 // Arrived at this waypoint - pop the next from the queue
                 if let Some(next) = self.waypoint_queue.pop_front() {
                     // transition directly to next waypoint without stopping

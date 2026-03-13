@@ -24,7 +24,10 @@ pub fn draw(
     let mode_label = if ui_state.is_realtime { "Real-time" } else { "Simulation" };
     let mode_btn = egui::Button::new(mode_label).selected(ui_state.is_realtime);
     if ui.add(mode_btn).clicked() {
-        ui_state.is_realtime = !ui_state.is_realtime;
+        let realtime = !ui_state.is_realtime;
+        ui_state.is_realtime = realtime;
+        ui_state.custom_speed_editing = false;
+        actions.push(UiAction::SetRealtime(realtime));
     }
 
     ui.separator();
@@ -58,8 +61,10 @@ pub fn draw(
 
 /// Play/pause button and speed multiplier selector.
 fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiAction>) {
+    let controls_enabled = !ui_state.is_realtime;
+
     let pause_label = if ui_state.is_paused { "\u{25B6}" } else { "\u{23F8}" }; // ▶ / ⏸
-    if ui.button(pause_label).clicked() {
+    if ui.add_enabled(controls_enabled, egui::Button::new(pause_label)).clicked() {
         ui_state.is_paused = !ui_state.is_paused;
         actions.push(UiAction::SetPaused(ui_state.is_paused));
     }
@@ -76,7 +81,7 @@ fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiA
         let is_selected = !ui_state.custom_speed_editing
             && (ui_state.sim_speed - factor).abs() < 0.001;
         let btn = egui::Button::new(label).selected(is_selected);
-        if ui.add(btn).clicked() {
+        if ui.add_enabled(controls_enabled, btn).clicked() {
             ui_state.sim_speed = factor;
             ui_state.custom_speed_editing = false;
             ui_state.custom_speed_text.clear();
@@ -87,7 +92,8 @@ fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiA
     // custom speed button/input
     if ui_state.custom_speed_editing {
         // show text input
-        let response = ui.add(
+        let response = ui.add_enabled(
+            controls_enabled,
             egui::TextEdit::singleline(&mut ui_state.custom_speed_text)
                 .desired_width(40.0)
                 .hint_text("x"),
@@ -120,7 +126,7 @@ fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiA
             "Custom".to_string()
         };
         let btn = egui::Button::new(&label).selected(is_custom_value);
-        if ui.add(btn).clicked() {
+        if ui.add_enabled(controls_enabled, btn).clicked() {
             ui_state.custom_speed_editing = true;
             ui_state.custom_speed_text = if is_custom_value {
                 format!("{:.0}", ui_state.sim_speed)

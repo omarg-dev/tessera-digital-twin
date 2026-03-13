@@ -147,7 +147,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 **Completed Features:**
 
 - [x] Digital Twin Command Center UI (4-panel egui layout)
-- [x] Top HUD panel: pause/play, speed controls (1x/10x/Max), FPS counter, layer toggles
+- [x] Top HUD panel: pause/play, speed controls (1x/2x/5x/10x/custom), FPS counter, layer toggles
 - [x] Left Object Manager: tabbed robot/shelf browser with search filter
 - [x] Right Inspector: context-sensitive entity details (battery bar, state, position, actions)
 - [x] Bottom Log Console: scrollable log viewer with auto-scroll and clear
@@ -169,6 +169,8 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] **Task Management UI**: per-task list with Active/Failed/Completed sections, Add Task wizard with two-step minimap location picker, priority selector; Details inspector with ETA, priority editor, and cancel action
 - [x] **TaskCommand protocol**: `cancel` and `set_priority` commands from UI to scheduler over Zenoh
 - [x] **TaskListSnapshot broadcast**: scheduler sends full task list to renderer every 2 seconds on `factory/tasks/list`
+- [x] High-speed simulation stability: firmware waypoint handling prevents oscillation at 5x+ and coordinator position validation scales with time multiplier
+- [x] Real-time mode integration: toggling Real-time now pauses simulation, and toggling back restores prior pause/running state
 
 **Pending Features:**
 
@@ -262,6 +264,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: Time-scale stability and real-time pause wiring (Phase 5)
+
+- `mock_firmware/src/robot.rs`: waypoint arrival now snaps when the robot reaches or passes the target in one large step, preventing high-speed oscillation where robots appeared to move in place at 5x.
+- `coordinator/src/commands.rs` + `coordinator/src/server.rs`: coordinator now stores `time_scale` from `SystemCommand::SetTimeScale` and uses it in `validate_robot_update` movement bounds, preventing false jump faults at higher simulation speeds.
+- `visualizer/src/resources.rs`: added `UiAction::SetRealtime(bool)` and `UiState.paused_before_realtime` to preserve/restore the pre-realtime pause state.
+- `visualizer/src/ui/tabs/control_bar.rs`: real-time toggle now emits a UI action; pause/speed controls are disabled while real-time mode is active to avoid conflicting simulation commands.
+- `visualizer/src/systems/command_bridge.rs`: realtime ON publishes `SystemCommand::Pause`; realtime OFF restores the previous simulation state (resume only when it was running before entering real-time).
 
 ### 2026-03-12: Time scale, robot enable/disable, floor z-fighting (Phase 5)
 

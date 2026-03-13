@@ -107,6 +107,7 @@ pub async fn run(session: Session, map: GridMap) {
     let mut inventory = ShelfInventory::from_map(&map);
     let mut pending_tasks: usize = 0;  // From QueueState broadcasts
     let mut next_cmd_id: u64 = 1;  // Unique ID for command tracking
+    let mut time_scale: f32 = 1.0;
     
     // Channel for stdin commands
     let (tx, mut rx) = mpsc::channel::<StdinCmd>(16);
@@ -131,7 +132,13 @@ pub async fn run(session: Session, map: GridMap) {
         // Handle system commands (from orchestrator via Zenoh)
         while let Ok(Some(sample)) = control_subscriber.try_recv() {
             if let Ok(sys_cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-                commands::handle_system_command(&sys_cmd, &mut paused, &mut verbose, &mut chaos);
+                commands::handle_system_command(
+                    &sys_cmd,
+                    &mut paused,
+                    &mut verbose,
+                    &mut chaos,
+                    &mut time_scale,
+                );
             }
         }
         
@@ -222,6 +229,7 @@ pub async fn run(session: Session, map: GridMap) {
                         &mut robots,
                         update,
                         Some(batch.tick),
+                        time_scale,
                         &cmd_publisher,
                         &status_publisher,
                         &mut next_cmd_id,
@@ -237,6 +245,7 @@ pub async fn run(session: Session, map: GridMap) {
                     &mut robots,
                     update,
                     None,
+                    time_scale,
                     &cmd_publisher,
                     &status_publisher,
                     &mut next_cmd_id,
@@ -532,6 +541,7 @@ async fn handle_robot_update(
     robots: &mut HashMap<u32, TrackedRobot>,
     update: RobotUpdate,
     tick: Option<u64>,
+    time_scale: f32,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
@@ -571,7 +581,7 @@ async fn handle_robot_update(
         robot.skip_next_validation = false;
         Ok(())
     } else {
-        validate_robot_update(map, &prev_update, &update, robot.last_tick, tick)
+        validate_robot_update(map, &prev_update, &update, robot.last_tick, tick, time_scale)
     };
 
     robot.last_update = update;
@@ -622,6 +632,7 @@ fn validate_robot_update(
     update: &RobotUpdate,
     prev_tick: Option<u64>,
     current_tick: Option<u64>,
+    time_scale: f32,
 ) -> Result<(), String> {
     if update.position[0].is_nan() || update.position[2].is_nan() {
         return Err("Invalid position: NaN detected".to_string());
@@ -633,7 +644,9 @@ fn validate_robot_update(
     let dist = (dx * dx + dz * dz).sqrt();
     let max_delta = if let (Some(prev_tick), Some(current_tick)) = (prev_tick, current_tick) {
         let tick_delta = current_tick.saturating_sub(prev_tick).max(1);
-        let dt_secs = tick_delta as f32 * (protocol::config::physics::TICK_INTERVAL_MS as f32 / 1000.0);
+        let dt_secs = tick_delta as f32
+            * (protocol::config::physics::TICK_INTERVAL_MS as f32 / 1000.0)
+            * time_scale.clamp(0.1, 1000.0);
         (coord_config::DEFAULT_SPEED * dt_secs) + sensor_config::MAX_POSITION_DELTA
     } else {
         sensor_config::MAX_POSITION_DELTA

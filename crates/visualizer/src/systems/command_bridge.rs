@@ -8,7 +8,7 @@ use protocol::{RobotControl, SystemCommand, TaskCommand, topics};
 use tokio::sync::mpsc;
 use zenoh::Session;
 
-use crate::resources::{CommandSender, LogBuffer, OutboundCommand, UiAction, ZenohSession};
+use crate::resources::{CommandSender, LogBuffer, OutboundCommand, UiAction, UiState, ZenohSession};
 
 /// Initialize background Zenoh publishers for UI commands
 pub fn setup_publishers(mut commands: Commands, session: Res<ZenohSession>) {
@@ -71,6 +71,7 @@ async fn run_publisher_loop(
 pub fn bridge_ui_commands(
     mut events: MessageReader<UiAction>,
     sender: Option<Res<CommandSender>>,
+    mut ui_state: ResMut<UiState>,
     mut log_buffer: ResMut<LogBuffer>,
 ) {
     let Some(sender) = sender else { return };
@@ -85,6 +86,27 @@ pub fn bridge_ui_commands(
                 OutboundCommand::System(SystemCommand::Resume),
                 "[UI] Resume broadcast".to_string(),
             ),
+            UiAction::SetRealtime(true) => {
+                ui_state.paused_before_realtime = Some(ui_state.is_paused);
+                (
+                    OutboundCommand::System(SystemCommand::Pause),
+                    "[UI] Real-time ON: pausing simulation".to_string(),
+                )
+            }
+            UiAction::SetRealtime(false) => {
+                let was_paused = ui_state.paused_before_realtime.take().unwrap_or(ui_state.is_paused);
+                if was_paused {
+                    (
+                        OutboundCommand::System(SystemCommand::Pause),
+                        "[UI] Real-time OFF: keeping previous paused state".to_string(),
+                    )
+                } else {
+                    (
+                        OutboundCommand::System(SystemCommand::Resume),
+                        "[UI] Real-time OFF: restoring running state".to_string(),
+                    )
+                }
+            }
             UiAction::KillRobot(id) => (
                 OutboundCommand::Robot(RobotControl::Down(*id)),
                 format!("[UI] Kill Robot #{id}"),
