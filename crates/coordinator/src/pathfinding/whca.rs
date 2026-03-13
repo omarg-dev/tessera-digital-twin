@@ -48,6 +48,8 @@ pub struct WHCAPathfinder {
     window_size_ms: u64,
     /// Space-time reservation table: (x, y, time_ms) → robot_id
     reservations: HashMap<(usize, usize, u64), u32>,
+    /// Per-robot reservation index for fast cleanup
+    robot_reservations: HashMap<u32, HashSet<(usize, usize, u64)>>,
     /// Start time for millisecond calculations
     start_time: Instant,
 }
@@ -57,6 +59,7 @@ impl WHCAPathfinder {
         WHCAPathfinder {
             window_size_ms,
             reservations: HashMap::new(),
+            robot_reservations: HashMap::new(),
             start_time: Instant::now(),
         }
     }
@@ -71,6 +74,14 @@ impl WHCAPathfinder {
         self.start_time.elapsed().as_millis() as u64
     }
 
+    fn insert_reservation(&mut self, key: (usize, usize, u64), robot_id: u32) {
+        self.reservations.insert(key, robot_id);
+        self.robot_reservations
+            .entry(robot_id)
+            .or_default()
+            .insert(key);
+    }
+
     fn reserve_cell_with_buffer(&mut self, pos: GridPos, time_ms: u64, robot_id: u32) {
         let radius = COLLISION_BUFFER_TILES as i32;
         for dx in -radius..=radius {
@@ -80,7 +91,7 @@ impl WHCAPathfinder {
                 }
                 let x = (pos.0 as i32 + dx).max(0) as usize;
                 let y = (pos.1 as i32 + dy).max(0) as usize;
-                self.reservations.insert((x, y, time_ms), robot_id);
+                self.insert_reservation((x, y, time_ms), robot_id);
             }
         }
     }
@@ -95,6 +106,17 @@ impl WHCAPathfinder {
         // A reservation at time t is stale if t < now - tolerance
         let cutoff = now_ms.saturating_sub(RESERVATION_TOLERANCE_MS as u64 + MOVE_TIME_MS);
         self.reservations.retain(|&(_, _, t), _| t >= cutoff);
+        self.rebuild_robot_reservation_index();
+    }
+
+    fn rebuild_robot_reservation_index(&mut self) {
+        self.robot_reservations.clear();
+        for (&key, &owner) in &self.reservations {
+            self.robot_reservations
+                .entry(owner)
+                .or_default()
+                .insert(key);
+        }
     }
 
     /// Reserve a path for a robot in the reservation table
@@ -191,7 +213,37 @@ impl WHCAPathfinder {
     ///
     /// Called when a robot's task completes or times out
     pub fn clear_robot_reservations(&mut self, robot_id: u32) {
+        if let Some(keys) = self.robot_reservations.remove(&robot_id) {
+            for key in keys {
+                self.reservations.remove(&key);
+            }
+            return;
+        }
+        // fallback if index is missing (e.g., legacy state)
         self.reservations.retain(|_, &mut id| id != robot_id);
+        self.rebuild_robot_reservation_index();
+    }
+
+    fn robot_ids_in_window(
+        &self,
+        x: usize,
+        y: usize,
+        start_t: u64,
+        end_t: u64,
+        exclude_robot: Option<u32>,
+    ) -> HashSet<u32> {
+        let mut ids = HashSet::new();
+        for t in start_t..=end_t {
+            if let Some(robot_id) = self.reservations.get(&(x, y, t)) {
+                if let Some(exclude) = exclude_robot {
+                    if *robot_id == exclude {
+                        continue;
+                    }
+                }
+                ids.insert(*robot_id);
+            }
+        }
+        ids
     }
 
     /// Check if a cell is reserved at a given time (by another robot)
@@ -231,38 +283,23 @@ impl WHCAPathfinder {
 
     /// Check for edge collision (two robots swapping positions)
     fn has_edge_collision(&self, from: GridPos, to: GridPos, time_ms: u64, exclude_robot: Option<u32>) -> bool {
-        // Check if another robot is moving from 'to' to 'from' across this move step.
         // Our move is from `from@time_ms` to `to@(time_ms + MOVE_TIME_MS)`.
-        // A swap conflict exists if another robot is on `to` now and on `from`
-        // at our arrival time (with tolerance).
-        for offset in 0..=RESERVATION_TOLERANCE_MS {
-            let t_next = time_ms + MOVE_TIME_MS + offset as u64;
-            if let Some(reserved_by) = self.reservations.get(&(from.0, from.1, t_next)) {
-                if let Some(exclude) = exclude_robot {
-                    if *reserved_by == exclude {
-                        continue;
-                    }
-                }
+        // A swap conflict exists if the same robot is on `to` around departure and
+        // on `from` around our arrival.
+        let tolerance = RESERVATION_TOLERANCE_MS as u64;
+        let to_start = time_ms.saturating_sub(tolerance);
+        let to_end = time_ms;
+        let from_center = time_ms + MOVE_TIME_MS;
+        let from_start = from_center.saturating_sub(tolerance);
+        let from_end = from_center + tolerance;
 
-                // check forward swap: reserved robot to -> from
-                if let Some(prev_robot) = self.reservations.get(&(to.0, to.1, time_ms)) {
-                    if *prev_robot == *reserved_by {
-                        return true;
-                    }
-                }
-
-                // check reverse-time entry for same robot near time boundary
-                for reverse_offset in 0..=RESERVATION_TOLERANCE_MS {
-                    let t_prev = time_ms.saturating_sub(reverse_offset as u64);
-                    if let Some(prev_robot) = self.reservations.get(&(to.0, to.1, t_prev)) {
-                        if *prev_robot == *reserved_by {
-                            return true;
-                        }
-                    }
-                }
-            }
+        let to_ids = self.robot_ids_in_window(to.0, to.1, to_start, to_end, exclude_robot);
+        if to_ids.is_empty() {
+            return false;
         }
-        false
+        let from_ids = self.robot_ids_in_window(from.0, from.1, from_start, from_end, exclude_robot);
+
+        to_ids.iter().any(|id| from_ids.contains(id))
     }
 
     /// Core WHCA* algorithm

@@ -179,6 +179,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Orchestrator and firmware publish-path migration to shared protocol JSON helper (removed local serde_json publish duplication)
 - [x] WHCA strict-vs-fallback benchmark test for head-on corridor contention (quantified zero-collision trade-off)
 - [x] WHCA strict trait-path closure (removed trait-level A* fallback bypass) and robot-aware `goto` path routing
+- [x] WHCA reservation hot-path optimization (robot-indexed reservation cleanup and linearized edge-swap conflict checks)
 
 **Pending Features:**
 
@@ -272,6 +273,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: WHCA reservation hot-path optimization pass (Phase 5)
+
+- `coordinator/src/pathfinding/whca.rs`: added per-robot reservation index (`robot_reservations`) and centralized reservation insertion so cleanup can remove only the target robot's keys instead of scanning the full table.
+- `coordinator/src/pathfinding/whca.rs`: updated `tick()` pruning to rebuild the per-robot index from retained active reservations, preserving correctness after stale-reservation eviction.
+- `coordinator/src/pathfinding/whca.rs`: replaced nested edge-swap tolerance scans with windowed robot-id set intersection (`robot_ids_in_window`), reducing edge-conflict check complexity from nested tolerance loops to linear window scans.
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, and `cargo test --workspace` all pass.
+- Observed trade-off update: strict safety semantics remain unchanged while reducing reservation maintenance and swap-check overhead under contention.
 
 ### 2026-03-13: WHCA strict trait closure and robot-aware goto routing (Phase 5)
 
