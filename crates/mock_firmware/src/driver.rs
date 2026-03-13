@@ -115,7 +115,16 @@ async fn publish_batch_update(
         updates: robots.iter().map(|r| r.to_update()).collect(),
         tick,
     };
-    
-    let payload = to_vec(&batch).expect("Failed to serialize RobotUpdateBatch");
+
+    let payload = match to_vec(&batch) {
+        Ok(payload) => payload,
+        Err(e) => {
+            protocol::logs::save_log(
+                "Firmware",
+                &format!("Failed to serialize RobotUpdateBatch at tick {}: {}", tick, e),
+            );
+            return;
+        }
+    };
     publisher.put(payload).await.ok();
 }

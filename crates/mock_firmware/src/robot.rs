@@ -3,12 +3,6 @@
 use std::collections::VecDeque;
 use protocol::{RobotState, RobotUpdate, PathCommand, CommandStatus, GridMap};
 use protocol::config::{battery, physics};
-use rand::Rng;
-
-/// Convert world position to grid coordinates
-fn world_to_grid(pos: [f32; 3]) -> (usize, usize) {
-    (pos[0].round() as usize, pos[2].round() as usize)
-}
 
 
 /// A simulated robot with physics state
@@ -74,7 +68,16 @@ impl SimRobot {
         if self.velocity[0].abs() > 0.01 || self.velocity[2].abs() > 0.01 {
             let next_pos_x = self.position[0] + self.velocity[0] * dt;
             let next_pos_z = self.position[2] + self.velocity[2] * dt;
-            let (grid_x, grid_z) = world_to_grid([next_pos_x, 0.0, next_pos_z]);
+            let Some((grid_x, grid_z)) = protocol::world_to_grid([next_pos_x, 0.0, next_pos_z]) else {
+                self.velocity = [0.0, 0.0, 0.0];
+                self.target = None;
+                self.state = RobotState::Faulted;
+                protocol::logs::save_log(
+                    "Firmware",
+                    &format!("Robot {} faulted due to invalid projected position", self.id),
+                );
+                return;
+            };
             
             if !map.is_walkable(grid_x, grid_z) {
                 // Wall collision detected!
@@ -107,10 +110,7 @@ impl SimRobot {
         // Drain battery while moving
         let speed = (self.velocity[0].powi(2) + self.velocity[2].powi(2)).sqrt();
         if speed > 0.01 {
-            // Add random variation to drain rate (±40% variation)
-            let mut rng = rand::thread_rng();
-            let drain_rate = rng.gen_range(battery::DRAIN_RATE_RANGE.0..=battery::DRAIN_RATE_RANGE.1);
-            self.battery -= drain_rate * dt;
+            self.battery -= battery::DRAIN_RATE_PER_SEC * dt;
             self.battery = self.battery.max(0.0);
             
             // Check for low battery (don't override a robot already returning home)
@@ -232,7 +232,7 @@ impl SimRobot {
         
         match command {
             PathCommand::MoveTo { target, speed } => {
-                if target[0].is_nan() || target[2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(*target) || *speed <= 0.0 {
                     return CommandStatus::Rejected { 
                         reason: "Invalid target".to_string() 
                     };
@@ -247,7 +247,7 @@ impl SimRobot {
                 }
             }
             PathCommand::MoveToPickup { target, speed } => {
-                if target[0].is_nan() || target[2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(*target) || *speed <= 0.0 {
                     return CommandStatus::Rejected { 
                         reason: "Invalid pickup target".to_string() 
                     };
@@ -260,7 +260,7 @@ impl SimRobot {
                 self.state = RobotState::MovingToPickup;
             }
             PathCommand::MoveToDropoff { target, speed } => {
-                if target[0].is_nan() || target[2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(*target) || *speed <= 0.0 {
                     return CommandStatus::Rejected { 
                         reason: "Invalid dropoff target".to_string() 
                     };
@@ -274,7 +274,7 @@ impl SimRobot {
                 if waypoints.is_empty() {
                     return CommandStatus::Accepted;
                 }
-                if waypoints[0][0].is_nan() || waypoints[0][2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(waypoints[0]) || *speed <= 0.0 {
                     return CommandStatus::Rejected {
                         reason: "Invalid FollowPath".to_string(),
                     };
@@ -298,7 +298,7 @@ impl SimRobot {
                 if waypoints.is_empty() {
                     return CommandStatus::Accepted;
                 }
-                if waypoints[0][0].is_nan() || waypoints[0][2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(waypoints[0]) || *speed <= 0.0 {
                     return CommandStatus::Rejected {
                         reason: "Invalid ReturnToStation".to_string(),
                     };

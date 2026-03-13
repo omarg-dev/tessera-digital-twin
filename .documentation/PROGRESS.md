@@ -119,7 +119,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Smart return-to-station (idle robots return when no pending tasks)
 - [x] Low battery detection with automatic return to charging station
 - [x] Battery threshold for task availability (50% minimum)
-- [x] Battery drain noise (realistic variation 0.03-0.07 %/sec)
+- [x] Deterministic battery drain model (fixed 0.05 %/sec)
 - [x] Chaos engineering infrastructure (packet loss, command rejection, position drift)
 - [x] Runtime chaos toggle (`chaos on/off` command)
 - [x] Individual robot control (`enable/disable/restart robot <id>`)
@@ -171,6 +171,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] **TaskListSnapshot broadcast**: scheduler sends full task list to renderer every 2 seconds on `factory/tasks/list`
 - [x] High-speed simulation stability: firmware waypoint handling prevents oscillation at 5x+ and coordinator position validation scales with time multiplier
 - [x] Real-time mode integration: toggling Real-time now pauses simulation, and toggling back restores prior pause/running state
+- [x] Runtime hardening pass for orchestrator/protocol/mock_firmware (panic-safe publish paths, protocol utility extraction, command dedup)
 
 **Pending Features:**
 
@@ -198,7 +199,7 @@ These improvements would increase simulation realism but are not needed for an M
   - Exponential discharge curves (faster drain at low SOC)
   - Temperature-dependent efficiency
   - Load-dependent drain (carrying cargo = higher drain)
-  - **Current**: Linear drain with random variation (0.03-0.07 %/sec)
+  - **Current**: Linear deterministic drain (0.05 %/sec)
   - **Impact**: More realistic battery behavior for logistics planning
 
 - [ ] **WHCA* Pathfinding Optimization** (Medium priority, Phase 5)
@@ -264,6 +265,19 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: Core runtime hardening pass (Phase 5)
+
+- `protocol/src/util.rs` + `protocol/src/lib.rs`: added shared world/grid and distance helpers (`world_to_grid`, `grid_to_world`, `distance_xz`, `distance_sq_xz`, `is_finite_position`) and exported them for cross-crate reuse.
+- `protocol/src/config.rs`: switched battery drain configuration from random range to deterministic `DRAIN_RATE_PER_SEC = 0.05` for replayability.
+- `protocol/src/commands.rs`: added `RobotControl::id()` helper and cleaned command serialization tests to avoid panic-style assertions.
+- `orchestrator/src/main.rs`: replaced duplicated runtime broadcast helpers with a single generic publish path that returns `Result` instead of panicking on serialization or publish failures.
+- `orchestrator/src/cli.rs`: normalized robot command naming (`RobotEnable`/`RobotDisable`) for consistency with CLI vocabulary.
+- `orchestrator/src/processes.rs`: deduplicated output visibility toggles and isolated startup notifier playback behind a panic-safe helper.
+- `mock_firmware/src/commands.rs`: centralized sample parsing with logged error handling, deduplicated robot lookup/control logic, and standardized command response publishing.
+- `mock_firmware/src/driver.rs`: removed runtime serialization panic in update batching and replaced it with graceful log-and-skip behavior.
+- `mock_firmware/src/robot.rs`: removed local conversion duplication in favor of protocol utilities and made battery drain deterministic.
+- `mock_firmware/Cargo.toml`: removed direct `rand` dependency from firmware crate.
 
 ### 2026-03-13: Time-scale stability and real-time pause wiring (Phase 5)
 

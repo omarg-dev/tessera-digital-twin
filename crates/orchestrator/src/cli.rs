@@ -23,8 +23,8 @@ pub enum Command {
     Chaos(bool),
 
     // Robot control (individual robots)
-    RobotUp(u32),
-    RobotDown(u32),
+    RobotEnable(u32),
+    RobotDisable(u32),
     RobotRestart(u32),
 
     // Meta
@@ -69,10 +69,10 @@ impl Command {
             
             // Robot control (use enable/disable to avoid conflict with up/down crate)
             ["enable", "robot", id] | ["robot", "enable", id] => {
-                id.parse().map(Command::RobotUp).unwrap_or(Command::Unknown(input))
+                id.parse().map(Command::RobotEnable).unwrap_or(Command::Unknown(input))
             }
             ["disable", "robot", id] | ["robot", "disable", id] => {
-                id.parse().map(Command::RobotDown).unwrap_or(Command::Unknown(input))
+                id.parse().map(Command::RobotDisable).unwrap_or(Command::Unknown(input))
             }
             ["restart", "robot", id] | ["robot", "restart", id] => {
                 id.parse().map(Command::RobotRestart).unwrap_or(Command::Unknown(input))
@@ -189,10 +189,10 @@ mod tests {
 
     #[test]
     fn test_parse_robot_control() {
-        assert_eq!(Command::parse("enable robot 1"), Command::RobotUp(1));
-        assert_eq!(Command::parse("robot enable 2"), Command::RobotUp(2));
-        assert_eq!(Command::parse("disable robot 3"), Command::RobotDown(3));
-        assert_eq!(Command::parse("robot disable 4"), Command::RobotDown(4));
+        assert_eq!(Command::parse("enable robot 1"), Command::RobotEnable(1));
+        assert_eq!(Command::parse("robot enable 2"), Command::RobotEnable(2));
+        assert_eq!(Command::parse("disable robot 3"), Command::RobotDisable(3));
+        assert_eq!(Command::parse("robot disable 4"), Command::RobotDisable(4));
         assert_eq!(Command::parse("restart robot 5"), Command::RobotRestart(5));
         assert_eq!(Command::parse("robot restart 6"), Command::RobotRestart(6));
     }

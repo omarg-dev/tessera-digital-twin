@@ -8,6 +8,46 @@ use zenoh::sample::Sample;
 
 use crate::robot::SimRobot;
 
+fn publish_response(response_publisher: &Publisher, response: CommandResponse) {
+    if let Ok(payload) = to_vec(&response) {
+        let _ = response_publisher.put(payload);
+    }
+}
+
+fn parse_sample<T: serde::de::DeserializeOwned>(sample: &Sample, kind: &str) -> Option<T> {
+    match from_slice::<T>(&sample.payload().to_bytes()) {
+        Ok(value) => Some(value),
+        Err(e) => {
+            protocol::logs::save_log("Firmware", &format!("Failed to parse {} payload: {}", kind, e));
+            None
+        }
+    }
+}
+
+fn find_robot_mut(robots: &mut [SimRobot], id: u32) -> Option<&mut SimRobot> {
+    robots.iter_mut().find(|r| r.id == id)
+}
+
+fn apply_robot_control(robot: &mut SimRobot, cmd: &RobotControl) {
+    match cmd {
+        RobotControl::Down(id) => {
+            robot.enabled = false;
+            println!("🔻 Robot {} disabled", id);
+            protocol::logs::save_log("Firmware", &format!("Robot {} disabled", id));
+        }
+        RobotControl::Up(id) => {
+            robot.enabled = true;
+            println!("🤖 Robot {} enabled", id);
+            protocol::logs::save_log("Firmware", &format!("Robot {} enabled", id));
+        }
+        RobotControl::Restart(id) => {
+            robot.restart();
+            println!("🔄 Robot {} restarted", id);
+            protocol::logs::save_log("Firmware", &format!("Robot {} restarted", id));
+        }
+    }
+}
+
 /// Process system commands (pause/resume/chaos/time_scale)
 pub fn handle_system_commands(
     subscriber: &Subscriber<FifoChannelHandler<Sample>>,
@@ -16,7 +56,7 @@ pub fn handle_system_commands(
     time_scale: &mut f32,
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
-        if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
+        if let Some(cmd) = parse_sample::<SystemCommand>(&sample, "SystemCommand") {
             let effect = cmd.apply_with_log("Physics", Some(paused), None, Some(chaos));
             if let protocol::SystemCommandEffect::TimeScale(s) = effect {
                 *time_scale = s.clamp(0.1, 1000.0);
@@ -31,35 +71,13 @@ pub fn handle_robot_control(
     robots: &mut [SimRobot],
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
-        if let Ok(cmd) = from_slice::<RobotControl>(&sample.payload().to_bytes()) {
-            match cmd {
-                RobotControl::Down(id) => {
-                    if let Some(robot) = robots.iter_mut().find(|r| r.id == id) {
-                        robot.enabled = false;
-                        println!("🔻 Robot {} disabled", id);
-                        protocol::logs::save_log("Firmware", &format!("Robot {} disabled", id));
-                    } else {
-                        eprintln!("⚠ Cannot disable robot {}: not found", id);
-                    }
-                }
-                RobotControl::Up(id) => {
-                    if let Some(robot) = robots.iter_mut().find(|r| r.id == id) {
-                        robot.enabled = true;
-                        println!("🤖 Robot {} enabled", id);
-                        protocol::logs::save_log("Firmware", &format!("Robot {} enabled", id));
-                    } else {
-                        eprintln!("⚠ Cannot enable robot {}: not found (robots are tied to stations)", id);
-                    }
-                }
-                RobotControl::Restart(id) => {
-                    if let Some(robot) = robots.iter_mut().find(|r| r.id == id) {
-                        robot.restart();
-                        println!("🔄 Robot {} restarted", id);
-                        protocol::logs::save_log("Firmware", &format!("Robot {} restarted", id));
-                    } else {
-                        eprintln!("⚠ Cannot restart robot {}: not found", id);
-                    }
-                }
+        if let Some(cmd) = parse_sample::<RobotControl>(&sample, "RobotControl") {
+            let id = cmd.id();
+            if let Some(robot) = find_robot_mut(robots, id) {
+                apply_robot_control(robot, &cmd);
+            } else {
+                eprintln!("⚠ Cannot apply {:?}: robot {} not found", cmd, id);
+                protocol::logs::save_log("Firmware", &format!("Robot control ignored, robot {} not found", id));
             }
         }
     }
@@ -73,36 +91,27 @@ pub fn handle_path_commands(
     chaos: bool,
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
-        if let Ok(cmd) = from_slice::<PathCmd>(&sample.payload().to_bytes()) {
+        if let Some(cmd) = parse_sample::<PathCmd>(&sample, "PathCmd") {
             // Chaos: occasionally reject commands
             if protocol::chaos::should_reject_command(chaos) {
                 protocol::chaos::log_chaos_event(
                     &format!("Rejected PathCmd for robot {}", cmd.robot_id),
                     "Firmware",
                 );
-                // Send rejection response
-                let response = CommandResponse {
-                    cmd_id: cmd.cmd_id,
-                    robot_id: cmd.robot_id,
-                    status: CommandStatus::Rejected { reason: "Chaos: Random rejection".to_string() },
-                };
-                if let Ok(payload) = to_vec(&response) {
-                    let _ = response_publisher.put(payload);
-                }
+                publish_response(
+                    response_publisher,
+                    CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Chaos: Random rejection"),
+                );
                 continue;
             }
-            
-            if let Some(robot) = robots.iter_mut().find(|r| r.id == cmd.robot_id) {
+
+            if let Some(robot) = find_robot_mut(robots, cmd.robot_id) {
                 if !robot.enabled {
                     // Disabled robots reject commands silently
-                    let response = CommandResponse {
-                        cmd_id: cmd.cmd_id,
-                        robot_id: cmd.robot_id,
-                        status: CommandStatus::Rejected { reason: "Robot disabled".to_string() },
-                    };
-                    if let Ok(payload) = to_vec(&response) {
-                        let _ = response_publisher.put(payload);
-                    }
+                    publish_response(
+                        response_publisher,
+                        CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Robot disabled"),
+                    );
                     continue;
                 }
                 
@@ -122,25 +131,20 @@ pub fn handle_path_commands(
                 }
                 
                 // Send response back to coordinator
-                let response = CommandResponse {
-                    cmd_id: cmd.cmd_id,
-                    robot_id: cmd.robot_id,
-                    status,
-                };
-                if let Ok(payload) = to_vec(&response) {
-                    let _ = response_publisher.put(payload);
-                }
+                publish_response(
+                    response_publisher,
+                    CommandResponse {
+                        cmd_id: cmd.cmd_id,
+                        robot_id: cmd.robot_id,
+                        status,
+                    },
+                );
             } else {
                 eprintln!("⚠ PathCmd for unknown robot {}", cmd.robot_id);
-                // Send rejection for unknown robot
-                let response = CommandResponse {
-                    cmd_id: cmd.cmd_id,
-                    robot_id: cmd.robot_id,
-                    status: CommandStatus::Rejected { reason: "Robot not found".to_string() },
-                };
-                if let Ok(payload) = to_vec(&response) {
-                    let _ = response_publisher.put(payload);
-                }
+                publish_response(
+                    response_publisher,
+                    CommandResponse::rejected(cmd.cmd_id, cmd.robot_id, "Robot not found"),
+                );
             }
         }
     }

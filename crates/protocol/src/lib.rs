@@ -49,6 +49,7 @@ pub mod tasks;
 pub mod topics;
 pub mod logs;
 pub mod chaos;
+pub mod util;
 
 // Re-export for convenience
 pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemCommandEffect, CommandResponse, CommandStatus};
@@ -57,3 +58,4 @@ pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
 pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch};
 pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
 pub use logs::{timestamp, save_log};
+pub use util::{distance_sq_xz, distance_xz, grid_to_world, is_finite_position, world_to_grid};

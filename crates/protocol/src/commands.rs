@@ -46,6 +46,28 @@ pub struct CommandResponse {
     pub status: CommandStatus,
 }
 
+impl CommandResponse {
+    /// Create a successful command response.
+    pub fn accepted(cmd_id: u64, robot_id: u32) -> Self {
+        Self {
+            cmd_id,
+            robot_id,
+            status: CommandStatus::Accepted,
+        }
+    }
+
+    /// Create a rejected command response with a reason.
+    pub fn rejected(cmd_id: u64, robot_id: u32, reason: impl Into<String>) -> Self {
+        Self {
+            cmd_id,
+            robot_id,
+            status: CommandStatus::Rejected {
+                reason: reason.into(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum CommandStatus {
     /// Command accepted and executing
@@ -79,6 +101,15 @@ pub enum RobotControl {
     Restart(u32),
 }
 
+impl RobotControl {
+    /// Return the target robot id for this control command.
+    pub fn id(&self) -> u32 {
+        match self {
+            RobotControl::Down(id) | RobotControl::Up(id) | RobotControl::Restart(id) => *id,
+        }
+    }
+}
+
 /// Result of applying a system command - tells caller what changed
 #[derive(Debug, Clone, PartialEq)]
 pub enum SystemCommandEffect {
@@ -92,6 +123,12 @@ pub enum SystemCommandEffect {
     TimeScale(f32),
     /// No state change needed for this crate
     None,
+}
+impl PathCommand {
+    /// Validate a movement target and speed payload.
+    pub fn is_valid_target(target: [f32; 3], speed: f32) -> bool {
+        target[0].is_finite() && target[2].is_finite() && speed.is_finite() && speed > 0.0
+    }
 }
 
 impl SystemCommand {
@@ -230,16 +267,13 @@ mod tests {
             command: PathCommand::MoveTo { target: [1.0, 0.25, 2.0], speed: 2.0 },
         };
         
-        let json = serde_json::to_string(&cmd).unwrap();
-        let parsed: PathCmd = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&cmd).expect("PathCmd should serialize");
+        let parsed: PathCmd = serde_json::from_str(&json).expect("PathCmd should deserialize");
         
         assert_eq!(parsed.robot_id, 42);
-        match parsed.command {
-            PathCommand::MoveTo { target, speed } => {
-                assert_eq!(target, [1.0, 0.25, 2.0]);
-                assert_eq!(speed, 2.0);
-            }
-            _ => panic!("Wrong command type"),
-        }
+        assert!(matches!(
+            parsed.command,
+            PathCommand::MoveTo { target: [1.0, 0.25, 2.0], speed: 2.0 }
+        ));
     }
 }

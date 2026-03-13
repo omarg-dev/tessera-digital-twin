@@ -29,29 +29,39 @@ impl Processes {
 
     /// Enable windowed output for a crate (takes effect on next spawn)
     pub fn show_output(&mut self, name: &str) {
-        if name == "all" {
-            for &crate_name in CRATE_ORDER {
-                self.show_output.insert(crate_name.to_string());
-            }
-            println!("✓ Output window enabled for all crates (takes effect on next spawn)");
-        } else if CRATE_ORDER.contains(&name) {
-            self.show_output.insert(name.to_string());
-            println!("✓ Output window enabled for {} (takes effect on next spawn)", name);
-        } else {
-            println!("⚠ Unknown crate '{}'. Valid: {:?}", name, CRATE_ORDER);
-        }
+        self.set_output_visibility(name, true);
     }
 
     /// Disable windowed output for a crate (takes effect on next spawn)
     pub fn hide_output(&mut self, name: &str) {
+        self.set_output_visibility(name, false);
+    }
+
+    fn set_output_visibility(&mut self, name: &str, show: bool) {
         if name == "all" {
-            self.show_output.clear();
-            println!("✓ Output window disabled for all crates (takes effect on next spawn)");
-        } else if CRATE_ORDER.contains(&name) {
+            if show {
+                for &crate_name in CRATE_ORDER {
+                    self.show_output.insert(crate_name.to_string());
+                }
+                println!("✓ Output window enabled for all crates (takes effect on next spawn)");
+            } else {
+                self.show_output.clear();
+                println!("✓ Output window disabled for all crates (takes effect on next spawn)");
+            }
+            return;
+        }
+
+        if !CRATE_ORDER.contains(&name) {
+            println!("⚠ Unknown crate '{}'. Valid: {:?}", name, CRATE_ORDER);
+            return;
+        }
+
+        if show {
+            self.show_output.insert(name.to_string());
+            println!("✓ Output window enabled for {} (takes effect on next spawn)", name);
+        } else {
             self.show_output.remove(name);
             println!("✓ Output window disabled for {} (takes effect on next spawn)", name);
-        } else {
-            println!("⚠ Unknown crate '{}'. Valid: {:?}", name, CRATE_ORDER);
         }
     }
 
@@ -117,8 +127,8 @@ impl Processes {
         }
 
         println!("✓ Build complete");
-        // play in background — don't stall the startup sequence
-        thread::spawn(|| notifier::play_default());
+        // play in background without risking startup failure
+        play_startup_sound();
         println!("🚀 Starting all crates in order...");
 
         // 1. Coordinator - must start first, broadcasts map hash
@@ -205,6 +215,15 @@ impl Processes {
     pub fn running(&self) -> &[String] {
         &self.running
     }
+}
+
+fn play_startup_sound() {
+    thread::spawn(|| {
+        let result = std::panic::catch_unwind(notifier::play_default);
+        if result.is_err() {
+            eprintln!("⚠ Startup sound failed");
+        }
+    });
 }
 
 impl Default for Processes {

@@ -41,8 +41,9 @@ pub mod physics {
 
 /// Battery settings
 pub mod battery {
-    /// Battery drain rate: % per second while moving (random in range)
-    pub const DRAIN_RATE_RANGE: (f32, f32) = (0.03, 0.07);
+    /// Battery drain rate: % per second while moving.
+    /// Deterministic by design for replayability and stable testing.
+    pub const DRAIN_RATE_PER_SEC: f32 = 0.05;
     
     /// Low battery warning threshold (percentage)
     pub const LOW_THRESHOLD: f32 = 20.0;
