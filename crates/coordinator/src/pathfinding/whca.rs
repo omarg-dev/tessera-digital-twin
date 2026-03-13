@@ -40,7 +40,47 @@ use protocol::config::coordinator::whca::{
 };
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
+use std::sync::Mutex;
 use std::time::Instant;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WHCAStatsSnapshot {
+    pub searches_total: u64,
+    pub searches_succeeded: u64,
+    pub searches_failed: u64,
+    pub nodes_expanded_total: u64,
+    pub reservation_probe_calls_total: u64,
+    pub edge_collision_checks_total: u64,
+    pub wait_actions_added_total: u64,
+    pub open_set_peak_observed: u64,
+    pub reservation_entries_peak: u64,
+    pub total_search_time_us: u64,
+    pub last_search_time_us: u64,
+}
+
+#[derive(Debug, Default)]
+struct WHCAStats {
+    searches_total: u64,
+    searches_succeeded: u64,
+    searches_failed: u64,
+    nodes_expanded_total: u64,
+    reservation_probe_calls_total: u64,
+    edge_collision_checks_total: u64,
+    wait_actions_added_total: u64,
+    open_set_peak_observed: u64,
+    reservation_entries_peak: u64,
+    total_search_time_us: u64,
+    last_search_time_us: u64,
+}
+
+#[derive(Debug, Default)]
+struct SearchStatsDelta {
+    nodes_expanded: u64,
+    reservation_probe_calls: u64,
+    edge_collision_checks: u64,
+    wait_actions_added: u64,
+    open_set_peak: u64,
+}
 
 /// WHCA* pathfinder with reservation table
 pub struct WHCAPathfinder {
@@ -52,6 +92,8 @@ pub struct WHCAPathfinder {
     robot_reservations: HashMap<u32, HashSet<(usize, usize, u64)>>,
     /// Start time for millisecond calculations
     start_time: Instant,
+    /// Aggregated search/runtime metrics for profiling and benchmark reporting
+    stats: Mutex<WHCAStats>,
 }
 
 impl WHCAPathfinder {
@@ -61,6 +103,7 @@ impl WHCAPathfinder {
             reservations: HashMap::new(),
             robot_reservations: HashMap::new(),
             start_time: Instant::now(),
+            stats: Mutex::new(WHCAStats::default()),
         }
     }
 
@@ -80,6 +123,60 @@ impl WHCAPathfinder {
             .entry(robot_id)
             .or_default()
             .insert(key);
+    }
+
+    fn record_search_result(&self, success: bool, delta: SearchStatsDelta, elapsed_us: u64) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.searches_total += 1;
+            if success {
+                stats.searches_succeeded += 1;
+            } else {
+                stats.searches_failed += 1;
+            }
+            stats.nodes_expanded_total += delta.nodes_expanded;
+            stats.reservation_probe_calls_total += delta.reservation_probe_calls;
+            stats.edge_collision_checks_total += delta.edge_collision_checks;
+            stats.wait_actions_added_total += delta.wait_actions_added;
+            if delta.open_set_peak > stats.open_set_peak_observed {
+                stats.open_set_peak_observed = delta.open_set_peak;
+            }
+            stats.total_search_time_us += elapsed_us;
+            stats.last_search_time_us = elapsed_us;
+        }
+    }
+
+    fn update_reservation_peak_metric(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            let current = self.reservations.len() as u64;
+            if current > stats.reservation_entries_peak {
+                stats.reservation_entries_peak = current;
+            }
+        }
+    }
+
+    pub fn stats_snapshot(&self) -> WHCAStatsSnapshot {
+        match self.stats.lock() {
+            Ok(stats) => WHCAStatsSnapshot {
+                searches_total: stats.searches_total,
+                searches_succeeded: stats.searches_succeeded,
+                searches_failed: stats.searches_failed,
+                nodes_expanded_total: stats.nodes_expanded_total,
+                reservation_probe_calls_total: stats.reservation_probe_calls_total,
+                edge_collision_checks_total: stats.edge_collision_checks_total,
+                wait_actions_added_total: stats.wait_actions_added_total,
+                open_set_peak_observed: stats.open_set_peak_observed,
+                reservation_entries_peak: stats.reservation_entries_peak,
+                total_search_time_us: stats.total_search_time_us,
+                last_search_time_us: stats.last_search_time_us,
+            },
+            Err(_) => WHCAStatsSnapshot::default(),
+        }
+    }
+
+    pub fn reset_stats(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            *stats = WHCAStats::default();
+        }
     }
 
     fn reserve_cell_with_buffer(&mut self, pos: GridPos, time_ms: u64, robot_id: u32) {
@@ -107,6 +204,7 @@ impl WHCAPathfinder {
         let cutoff = now_ms.saturating_sub(RESERVATION_TOLERANCE_MS as u64 + MOVE_TIME_MS);
         self.reservations.retain(|&(_, _, t), _| t >= cutoff);
         self.rebuild_robot_reservation_index();
+        self.update_reservation_peak_metric();
     }
 
     fn rebuild_robot_reservation_index(&mut self) {
@@ -175,6 +273,7 @@ impl WHCAPathfinder {
             println!("[WHCA*] Reserved {} waypoints for robot {} ({}ms window, speed={:.2})", 
                 path.len(), robot_id, time_ms - self.current_time_ms(), speed);
         }
+        self.update_reservation_peak_metric();
     }
 
     /// Reserve a stationary robot's position throughout the planning window
@@ -189,6 +288,7 @@ impl WHCAPathfinder {
             let time = now_ms + offset_ms;
             self.reserve_cell_with_buffer(pos, time, robot_id);
         }
+        self.update_reservation_peak_metric();
         // suppress per-tick stationary log (verbose builds may re-enable)
     }
 
@@ -310,13 +410,17 @@ impl WHCAPathfinder {
         goal: GridPos,
         robot_id: Option<u32>,
     ) -> Option<PathResult> {
+        let search_started = Instant::now();
+        let mut stats_delta = SearchStatsDelta::default();
         // Validate start and goal
         if !map.is_walkable(start.0, start.1) || !map.is_walkable(goal.0, goal.1) {
+            self.record_search_result(false, stats_delta, search_started.elapsed().as_micros() as u64);
             return None;
         }
 
         // Already at goal
         if start == goal {
+            self.record_search_result(true, stats_delta, search_started.elapsed().as_micros() as u64);
             return Some(PathResult {
                 grid_path: vec![start],
                 world_path: grid_to_world_path(&[start]),
@@ -337,6 +441,7 @@ impl WHCAPathfinder {
             g_cost: 0,
             f_cost: heuristic(start.0, start.1, goal.0, goal.1),
         });
+        stats_delta.open_set_peak = 1;
 
         while let Some(current) = open_set.pop() {
             let current_pos = current.pos;
@@ -345,6 +450,7 @@ impl WHCAPathfinder {
             if current_pos.x == goal.0 && current_pos.y == goal.1 {
                 let path = reconstruct_spacetime_path(&came_from, current_pos);
                 let grid_path: Vec<GridPos> = path.iter().map(|n| (n.x, n.y)).collect();
+                self.record_search_result(true, stats_delta, search_started.elapsed().as_micros() as u64);
                 return Some(PathResult {
                     world_path: grid_to_world_path(&grid_path),
                     grid_path,
@@ -361,6 +467,7 @@ impl WHCAPathfinder {
                 continue;
             }
             closed_set.insert(current_pos);
+            stats_delta.nodes_expanded += 1;
 
             let current_g = *g_scores.get(&current_pos).unwrap_or(&u32::MAX);
 
@@ -390,11 +497,13 @@ impl WHCAPathfinder {
                 let next_t = current_pos.t + MOVE_TIME_MS;
 
                 // Check vertex collision
+                stats_delta.reservation_probe_calls += 1;
                 if self.is_reserved(nx, ny, next_t, robot_id) {
                     continue;
                 }
 
                 // Check edge collision (swap)
+                stats_delta.edge_collision_checks += 1;
                 if self.has_edge_collision((current_pos.x, current_pos.y), (nx, ny), current_pos.t, robot_id) {
                     continue;
                 }
@@ -404,11 +513,13 @@ impl WHCAPathfinder {
 
             // Wait action (stay in place)
             let wait_t = current_pos.t + MOVE_TIME_MS;
+            stats_delta.reservation_probe_calls += 1;
             if !self.is_reserved(current_pos.x, current_pos.y, wait_t, robot_id) {
                 // Count consecutive waits to prevent infinite waiting
                 let wait_count = count_waits_in_path(&came_from, current_pos);
                 if wait_count < MAX_WAIT_TIME {
                     successors.push(SpaceTimeNode { x: current_pos.x, y: current_pos.y, t: wait_t });
+                    stats_delta.wait_actions_added += 1;
                 }
             }
 
@@ -429,9 +540,15 @@ impl WHCAPathfinder {
                         g_cost: tentative_g,
                         f_cost: f,
                     });
+                    let open_len = open_set.len() as u64;
+                    if open_len > stats_delta.open_set_peak {
+                        stats_delta.open_set_peak = open_len;
+                    }
                 }
             }
         }
+
+        self.record_search_result(false, stats_delta, search_started.elapsed().as_micros() as u64);
 
         None // No path found
     }
@@ -900,5 +1017,29 @@ mod tests {
 
         assert_eq!(strict_success, 0);
         assert_eq!(trait_success, 0);
+    }
+
+    #[test]
+    fn test_whca_stats_snapshot_and_reset() {
+        let map_str = ". . . . .";
+        let map = GridMap::parse(map_str).unwrap();
+        let pathfinder = WHCAPathfinder::with_defaults();
+
+        pathfinder.reset_stats();
+        let _ = pathfinder.find_path(&map, (0, 0), (4, 0));
+        let _ = pathfinder.find_path(&map, (0, 0), (0, 0));
+        let _ = pathfinder.find_path(&map, (0, 0), (99, 0)); // invalid goal -> failed search
+
+        let stats = pathfinder.stats_snapshot();
+        assert!(stats.searches_total >= 3);
+        assert!(stats.searches_succeeded >= 2);
+        assert!(stats.searches_failed >= 1);
+        assert!(stats.total_search_time_us >= stats.last_search_time_us);
+
+        pathfinder.reset_stats();
+        let reset = pathfinder.stats_snapshot();
+        assert_eq!(reset.searches_total, 0);
+        assert_eq!(reset.nodes_expanded_total, 0);
+        assert_eq!(reset.total_search_time_us, 0);
     }
 }

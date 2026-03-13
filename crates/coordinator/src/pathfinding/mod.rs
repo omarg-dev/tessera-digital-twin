@@ -16,7 +16,7 @@ mod whca;
 mod dispatcher;
 
 pub use astar::AStarPathfinder;
-pub use whca::WHCAPathfinder;
+pub use whca::{WHCAPathfinder, WHCAStatsSnapshot};
 pub use dispatcher::PathfinderInstance;
 
 use protocol::GridMap;

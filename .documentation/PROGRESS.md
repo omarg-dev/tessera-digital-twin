@@ -180,6 +180,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA strict-vs-fallback benchmark test for head-on corridor contention (quantified zero-collision trade-off)
 - [x] WHCA strict trait-path closure (removed trait-level A* fallback bypass) and robot-aware `goto` path routing
 - [x] WHCA reservation hot-path optimization (robot-indexed reservation cleanup and linearized edge-swap conflict checks)
+- [x] WHCA runtime instrumentation (search latency/counter snapshots and periodic coordinator metrics logging)
 
 **Pending Features:**
 
@@ -273,6 +274,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-13: WHCA runtime instrumentation and coordinator metrics logging (Phase 5)
+
+- `coordinator/src/pathfinding/whca.rs`: added WHCA profiling counters and snapshots (`WHCAStatsSnapshot`) for searches, success/failure, node expansions, reservation probes, edge checks, waits, open-set peak, reservation peak, and timing (`total_search_time_us`, `last_search_time_us`).
+- `coordinator/src/pathfinding/whca.rs`: instrumented core search loop (`find_path_whca`) and reservation paths to aggregate measurable metrics without changing strict planning behavior.
+- `coordinator/src/pathfinding/mod.rs` + `coordinator/src/pathfinding/dispatcher.rs`: exported WHCA stats type and added dispatcher accessors (`whca_stats_snapshot`, `reset_whca_stats`) for runtime reporting.
+- `coordinator/src/server.rs`: added periodic 5-second WHCA metrics logging with delta reporting to coordinator logs (and console when verbose), then reset startup baseline via `reset_whca_stats()`.
+- `coordinator/src/pathfinding/whca.rs`: added regression test `test_whca_stats_snapshot_and_reset` to verify counter accumulation and reset semantics.
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, and `cargo test --workspace` all pass.
 
 ### 2026-03-13: WHCA reservation hot-path optimization pass (Phase 5)
 

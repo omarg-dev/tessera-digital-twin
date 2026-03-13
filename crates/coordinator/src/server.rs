@@ -35,6 +35,7 @@ pub async fn run(session: Session, map: GridMap) {
         pathfinder.name(),
         coord_config::PATHFINDING_STRATEGY
     );
+    pathfinder.reset_whca_stats();
     
     // Publishers
     let cmd_publisher = session
@@ -119,6 +120,8 @@ pub async fn run(session: Session, map: GridMap) {
     
     let mut last_tick = std::time::Instant::now();
     let mut last_validation_publish = std::time::Instant::now();
+    let mut last_whca_stats_log = std::time::Instant::now();
+    let mut last_whca_stats_snapshot: Option<pathfinding::WHCAStatsSnapshot> = None;
     let mut chaos = protocol::config::chaos::ENABLED;
     
     loop {
@@ -316,6 +319,61 @@ pub async fn run(session: Session, map: GridMap) {
 
             // Broadcast remaining paths for all robots (visualizer path telemetry)
             broadcast_path_telemetry(&robots, &path_telemetry_publisher).await;
+        }
+
+        if last_whca_stats_log.elapsed() >= std::time::Duration::from_secs(5) {
+            if let Some(current) = pathfinder.whca_stats_snapshot() {
+                let delta = if let Some(previous) = last_whca_stats_snapshot {
+                    pathfinding::WHCAStatsSnapshot {
+                        searches_total: current.searches_total.saturating_sub(previous.searches_total),
+                        searches_succeeded: current.searches_succeeded.saturating_sub(previous.searches_succeeded),
+                        searches_failed: current.searches_failed.saturating_sub(previous.searches_failed),
+                        nodes_expanded_total: current.nodes_expanded_total.saturating_sub(previous.nodes_expanded_total),
+                        reservation_probe_calls_total: current.reservation_probe_calls_total.saturating_sub(previous.reservation_probe_calls_total),
+                        edge_collision_checks_total: current.edge_collision_checks_total.saturating_sub(previous.edge_collision_checks_total),
+                        wait_actions_added_total: current.wait_actions_added_total.saturating_sub(previous.wait_actions_added_total),
+                        open_set_peak_observed: current.open_set_peak_observed,
+                        reservation_entries_peak: current.reservation_entries_peak,
+                        total_search_time_us: current.total_search_time_us.saturating_sub(previous.total_search_time_us),
+                        last_search_time_us: current.last_search_time_us,
+                    }
+                } else {
+                    current
+                };
+
+                let searches = delta.searches_total;
+                let avg_us = if searches > 0 {
+                    delta.total_search_time_us / searches
+                } else {
+                    0
+                };
+                let success_pct = if searches > 0 {
+                    (delta.searches_succeeded as f64 * 100.0) / searches as f64
+                } else {
+                    0.0
+                };
+                let msg = format!(
+                    "WHCA metrics[5s]: searches={} success={:.1}% expanded={} reserve_probes={} edge_checks={} waits={} avg_us={} last_us={} open_peak={} reservations_peak={}",
+                    searches,
+                    success_pct,
+                    delta.nodes_expanded_total,
+                    delta.reservation_probe_calls_total,
+                    delta.edge_collision_checks_total,
+                    delta.wait_actions_added_total,
+                    avg_us,
+                    delta.last_search_time_us,
+                    delta.open_set_peak_observed,
+                    delta.reservation_entries_peak,
+                );
+
+                if verbose {
+                    println!("{}", msg);
+                }
+                logs::save_log("Coordinator", &msg);
+
+                last_whca_stats_snapshot = Some(current);
+            }
+            last_whca_stats_log = std::time::Instant::now();
         }
         
         time::sleep(std::time::Duration::from_millis(coord_config::LOOP_INTERVAL_MS)).await;
