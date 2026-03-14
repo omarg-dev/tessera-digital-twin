@@ -36,7 +36,9 @@ async fn run_task_listener(
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(snapshot) = from_slice::<TaskListSnapshot>(&sample.payload().to_bytes()) {
-            tx.send(snapshot).await.ok();
+            if tx.send(snapshot).await.is_err() {
+                return Err("task list receiver dropped".into());
+            }
         }
     }
 
@@ -76,7 +78,7 @@ pub fn sync_robot_tasks(
             TaskStatus::Assigned { robot_id } | TaskStatus::InProgress { robot_id } => *robot_id,
             _ => continue,
         };
-        if let Some(&entity) = robot_index.by_id.get(&robot_id) {
+        if let Some(entity) = robot_index.get_entity(robot_id) {
             if let Ok(mut robot) = robots.get_mut(entity) {
                 robot.current_task = Some(task.id);
             }

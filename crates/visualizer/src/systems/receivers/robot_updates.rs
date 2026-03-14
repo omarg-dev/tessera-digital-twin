@@ -49,18 +49,18 @@ async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result
     // Try to decode as batch first (new format)
     if let Ok(batch) = from_slice::<RobotUpdateBatch>(&bytes) {
         for update in batch.updates {
-            tx.send(update)
-                .await
-                .map_err(|_| "channel closed while sending update")?;
+            if tx.send(update).await.is_err() {
+                return Err("channel closed while sending update".into());
+            }
         }
         return Ok(());
     }
 
     // Fall back to single update (legacy/compatibility)
     if let Ok(update) = from_slice::<RobotUpdate>(&bytes) {
-        tx.send(update)
-            .await
-            .map_err(|_| "channel closed while sending update")?;
+        if tx.send(update).await.is_err() {
+            return Err("channel closed while sending update".into());
+        }
         return Ok(());
     }
 

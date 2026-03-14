@@ -11,6 +11,14 @@ use crate::components::{Dropoff, Shelf};
 use crate::resources::{UiAction, UiState};
 use crate::ui::widgets::{color_swatch, shelf_fill_color_egui, shelf_minimap_widget};
 
+fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
+    protocol::world_to_grid([
+        transform.translation.x / TILE_SIZE,
+        0.0,
+        transform.translation.z / TILE_SIZE,
+    ])
+}
+
 /// Inspector for a shelf: cargo display and transport task creation.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
@@ -101,23 +109,20 @@ pub fn draw(
                         transforms.get(e).ok().map(|t| (e, t))
                     }),
                 ) {
-                    let pickup = (
-                        from_t.translation.x.round() as usize,
-                        from_t.translation.z.round() as usize,
-                    );
-                    let dropoff = (
-                        drop_t.translation.x.round() as usize,
-                        drop_t.translation.z.round() as usize,
-                    );
-                    actions.push(UiAction::SubmitTransportTask(TaskRequest {
-                        task_type: TaskType::PickAndDeliver {
-                            pickup,
-                            dropoff,
-                            cargo_id: None,
-                        },
-                        priority: Priority::Normal,
-                    }));
-                    ui_state.transport_dropdown_open = false;
+                    if let (Some(pickup), Some(dropoff)) = (
+                        transform_to_grid(from_t),
+                        transform_to_grid(drop_t),
+                    ) {
+                        actions.push(UiAction::SubmitTransportTask(TaskRequest {
+                            task_type: TaskType::PickAndDeliver {
+                                pickup,
+                                dropoff,
+                                cargo_id: None,
+                            },
+                            priority: Priority::Normal,
+                        }));
+                        ui_state.transport_dropdown_open = false;
+                    }
                 }
             }
 
@@ -133,17 +138,13 @@ pub fn draw(
             let mut entity_map: HashMap<(usize, usize), (Entity, u32, u32)> = HashMap::new();
             for (e, dest_shelf) in all_shelves.iter() {
                 if let Ok(t) = transforms.get(e) {
-                    let gx = (t.translation.x / TILE_SIZE).round() as usize;
-                    let gy = (t.translation.z / TILE_SIZE).round() as usize;
-                    entity_map.insert((gx, gy), (e, dest_shelf.cargo, dest_shelf.max_capacity));
+                    if let Some((gx, gy)) = transform_to_grid(t) {
+                        entity_map.insert((gx, gy), (e, dest_shelf.cargo, dest_shelf.max_capacity));
+                    }
                 }
             }
 
-            let source_grid = shelf_pos.map(|t| {
-                let gx = (t.translation.x / TILE_SIZE).round() as usize;
-                let gy = (t.translation.z / TILE_SIZE).round() as usize;
-                (gx, gy)
-            });
+            let source_grid = shelf_pos.and_then(transform_to_grid);
 
             // ── Mini-map ──
             if let Some(grid) = warehouse_map {
@@ -197,18 +198,15 @@ pub fn draw(
                         }
                         if resp.clicked() {
                             if let (Some(from_t), Ok(to_t)) = (shelf_pos, transforms.get(dest_entity)) {
-                                let from = (
-                                    from_t.translation.x.round() as usize,
-                                    from_t.translation.z.round() as usize,
-                                );
-                                let to = (
-                                    to_t.translation.x.round() as usize,
-                                    to_t.translation.z.round() as usize,
-                                );
-                                actions.push(UiAction::SubmitTransportTask(TaskRequest {
-                                    task_type: TaskType::Relocate { from, to },
-                                    priority: Priority::Normal,
-                                }));
+                                if let (Some(from), Some(to)) = (
+                                    transform_to_grid(from_t),
+                                    transform_to_grid(to_t),
+                                ) {
+                                    actions.push(UiAction::SubmitTransportTask(TaskRequest {
+                                        task_type: TaskType::Relocate { from, to },
+                                        priority: Priority::Normal,
+                                    }));
+                                }
                             }
                             ui_state.transport_dropdown_open = false;
                         }

@@ -2,12 +2,21 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
+use protocol::config::visual::TILE_SIZE;
 use protocol::grid_map::{GridMap, TileType};
 use protocol::{Priority, TaskRequest, TaskType};
 use std::collections::{HashMap, HashSet};
 
 use crate::resources::{UiAction, UiState};
 use super::common::{color_swatch, shelf_fill_color_egui};
+
+fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
+    protocol::world_to_grid([
+        transform.translation.x / TILE_SIZE,
+        0.0,
+        transform.translation.z / TILE_SIZE,
+    ])
+}
 
 /// Interactive mini-map used by the task wizard.
 /// Tiles of the permitted type are clickable; returns the clicked grid cell.
@@ -271,18 +280,15 @@ pub fn shelf_minimap_widget(
 
                 if resp.clicked() {
                     if let (Some(from_t), Ok(to_t)) = (shelf_pos, transforms.get(dest_entity)) {
-                        let from = (
-                            from_t.translation.x.round() as usize,
-                            from_t.translation.z.round() as usize,
-                        );
-                        let to = (
-                            to_t.translation.x.round() as usize,
-                            to_t.translation.z.round() as usize,
-                        );
-                        actions.push(UiAction::SubmitTransportTask(TaskRequest {
-                            task_type: TaskType::Relocate { from, to },
-                            priority: Priority::Normal,
-                        }));
+                        if let (Some(from), Some(to)) = (
+                            transform_to_grid(from_t),
+                            transform_to_grid(to_t),
+                        ) {
+                            actions.push(UiAction::SubmitTransportTask(TaskRequest {
+                                task_type: TaskType::Relocate { from, to },
+                                priority: Priority::Normal,
+                            }));
+                        }
                     }
                     ui_state.transport_dropdown_open = false;
                 }

@@ -33,7 +33,9 @@ async fn run_whca_metrics_listener(
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(metrics) = from_slice::<WhcaMetricsTelemetry>(&sample.payload().to_bytes()) {
-            tx.send(metrics).await.ok();
+            if tx.send(metrics).await.is_err() {
+                return Err("WHCA metrics receiver dropped".into());
+            }
         }
     }
 

@@ -276,6 +276,9 @@ pub mod visual {
         /// Radius of the destination circle marker
         pub const DEST_CIRCLE_RADIUS: f32 = 0.25;
 
+        /// Y offset used when rendering path gizmos above the floor.
+        pub const PATH_Y_OFFSET: f32 = 0.05;
+
         /// Gizmo line width for path trails (pixels)
         pub const LINE_WIDTH: f32 = 3.5;
     }

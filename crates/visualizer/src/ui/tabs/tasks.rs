@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
+use protocol::config::visual::TILE_SIZE;
 use protocol::grid_map::GridMap;
 use protocol::{Priority, TaskRequest, TaskStatus, TaskType};
 use std::collections::HashSet;
@@ -192,6 +193,14 @@ fn task_row_label(task: &protocol::Task) -> String {
     format!("#{} {}{} [{:?}]", task.id, locs, robot, task.priority)
 }
 
+fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
+    protocol::world_to_grid([
+        transform.translation.x / TILE_SIZE,
+        0.0,
+        transform.translation.z / TILE_SIZE,
+    ])
+}
+
 /// Inline wizard that replaces the task list when `wizard_active`.
 #[allow(clippy::too_many_arguments)]
 fn wizard_view(
@@ -216,7 +225,7 @@ fn wizard_view(
     let empty_shelves: HashSet<(usize, usize)> = all_shelves.iter()
         .filter(|(_, sh)| sh.cargo == 0)
         .filter_map(|(e, _)| transforms.get(e).ok())
-        .map(|t| (t.translation.x.round() as usize, t.translation.z.round() as usize))
+        .filter_map(transform_to_grid)
         .collect();
 
     // ── Step 1: Pickup ──
@@ -301,14 +310,15 @@ fn wizard_view(
     let add_btn = egui::Button::new(egui::RichText::new("Add Task").strong())
         .min_size(egui::Vec2::new(ui.available_width(), 28.0));
     if ui.add_enabled(can_submit, add_btn).clicked() {
-        let pickup = ui_state.wizard_pickup.unwrap();
-        let dropoff = ui_state.wizard_dropoff.unwrap();
-        actions.push(UiAction::SubmitTransportTask(TaskRequest {
-            task_type: TaskType::PickAndDeliver { pickup, dropoff, cargo_id: None },
-            priority: ui_state.wizard_priority,
-        }));
-        ui_state.task_wizard_active = false;
-        ui_state.wizard_pickup = None;
-        ui_state.wizard_dropoff = None;
+        if let (Some(pickup), Some(dropoff)) = (
+            ui_state.wizard_pickup.take(),
+            ui_state.wizard_dropoff.take(),
+        ) {
+            actions.push(UiAction::SubmitTransportTask(TaskRequest {
+                task_type: TaskType::PickAndDeliver { pickup, dropoff, cargo_id: None },
+                priority: ui_state.wizard_priority,
+            }));
+            ui_state.task_wizard_active = false;
+        }
     }
 }

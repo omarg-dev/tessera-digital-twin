@@ -184,6 +184,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA scenario benchmark runners (deterministic comparison table) and live analytics-tab telemetry integration
 - [x] WHCA analytics tab scrollability and reservation-aware dispatch stabilization (time-aware lookahead blocking + blocked-hold behavior)
 - [x] Return-to-station liveness hardening and disabled-robot assignment policy guardrails (auto-unassign + temporary UI mitigation)
+- [x] Visualizer runtime hardening pass 1 (panic-safe task wizard submit, listener send-failure handling, bounds-safe grid conversion, shared path gizmo Y-offset)
 
 **Pending Features:**
 
@@ -277,6 +278,17 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Visualizer runtime hardening pass 1 and protocol visual dedup (Phase 5)
+
+- `visualizer/src/ui/tabs/tasks.rs`: removed runtime `unwrap()` from task wizard submission by switching to atomic `Option::take()` pattern matching and added finite/bounds-safe transform-to-grid conversion for empty-shelf filtering.
+- `visualizer/src/systems/command_bridge.rs`: hardened outbound publish path by logging serialize/publish failures, replaced silent `try_send(...).ok()` drops with explicit `LogBuffer` diagnostics, and made real-time OFF restoration logic explicit for missing previous-state cases.
+- `visualizer/src/systems/commands.rs` + `visualizer/src/systems/receivers/{queue_state,task_list,path_telemetry,whca_metrics}.rs`: removed silent async channel-send drops; listeners now fail fast with clear error context when their Bevy-side receiver is gone.
+- `visualizer/src/systems/sync_robots.rs` + `visualizer/src/ui/tabs/shelf_inspector.rs` + `visualizer/src/ui/widgets/minimap.rs`: replaced direct float-to-`usize` coordinate casts with `protocol::world_to_grid(...)`-based conversion to avoid negative/invalid coordinate wrap behavior.
+- `protocol/src/config.rs` + `visualizer/src/systems/{draw_paths,receivers/path_telemetry}.rs`: introduced shared `PATH_Y_OFFSET` constant and migrated path rendering/telemetry projection to use it.
+- `visualizer/src/resources.rs` + `visualizer/src/systems/{draw_paths,sync_robots,receivers/task_list}.rs`: added `RobotIndex::get_entity(...)` helper and migrated repeated map lookup sites.
+- `visualizer/src/systems/draw_paths.rs`: removed per-frame temporary `Vec` allocation in path drawing by feeding an iterator chain directly to gizmo linestrip rendering.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-14: Return-to-station recovery + disabled robot policy hardening (Phase 5)
 

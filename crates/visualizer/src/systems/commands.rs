@@ -46,7 +46,9 @@ async fn run_system_listener(session: Session, tx: mpsc::Sender<SystemCommand>) 
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-            tx.send(cmd).await.ok();
+            if tx.send(cmd).await.is_err() {
+                return Err("system command receiver dropped".into());
+            }
         }
     }
 

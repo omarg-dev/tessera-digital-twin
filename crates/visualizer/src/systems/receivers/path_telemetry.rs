@@ -1,6 +1,7 @@
 //! Subscribe to coordinator path telemetry and update ActivePaths resource.
 
 use bevy::prelude::*;
+use protocol::config::visual::path::PATH_Y_OFFSET;
 use protocol::{RobotPathTelemetry, topics};
 use serde_json::from_slice;
 use tokio::sync::mpsc;
@@ -33,7 +34,9 @@ async fn run_path_listener(
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(telemetry) = from_slice::<RobotPathTelemetry>(&sample.payload().to_bytes()) {
-            tx.send(telemetry).await.ok();
+            if tx.send(telemetry).await.is_err() {
+                return Err("path telemetry receiver dropped".into());
+            }
         }
     }
 
@@ -52,11 +55,11 @@ pub fn collect_path_telemetry(
         if telemetry.waypoints.is_empty() {
             active_paths.0.remove(&telemetry.robot_id);
         } else {
-            // convert [x, y, z] network coords to bevy Vec3 with y=0.05 to sit above the floor
+            // convert [x, y, z] network coords to bevy Vec3 above the floor
             let points: Vec<Vec3> = telemetry
                 .waypoints
                 .iter()
-                .map(|&[x, _y, z]| Vec3::new(x, 0.05, z))
+                .map(|&[x, _y, z]| Vec3::new(x, PATH_Y_OFFSET, z))
                 .collect();
             active_paths.0.insert(telemetry.robot_id, points);
         }

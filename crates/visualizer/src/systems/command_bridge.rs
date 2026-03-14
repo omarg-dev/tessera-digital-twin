@@ -48,17 +48,29 @@ async fn run_publisher_loop(
         match cmd {
             OutboundCommand::System(sys) => {
                 if let Ok(payload) = serde_json::to_vec(&sys) {
-                    admin_pub.put(payload).await.ok();
+                    if let Err(e) = admin_pub.put(payload).await {
+                        eprintln!("failed to publish admin command: {}", e);
+                    }
+                } else {
+                    eprintln!("failed to serialize admin command");
                 }
             }
             OutboundCommand::Robot(ctrl) => {
                 if let Ok(payload) = serde_json::to_vec(&ctrl) {
-                    robot_pub.put(payload).await.ok();
+                    if let Err(e) = robot_pub.put(payload).await {
+                        eprintln!("failed to publish robot command: {}", e);
+                    }
+                } else {
+                    eprintln!("failed to serialize robot command");
                 }
             }
             OutboundCommand::Task(cmd) => {
                 if let Ok(payload) = serde_json::to_vec(&cmd) {
-                    task_pub.put(payload).await.ok();
+                    if let Err(e) = task_pub.put(payload).await {
+                        eprintln!("failed to publish task command: {}", e);
+                    }
+                } else {
+                    eprintln!("failed to serialize task command");
                 }
             }
         }
@@ -94,17 +106,23 @@ pub fn bridge_ui_commands(
                 )
             }
             UiAction::SetRealtime(false) => {
-                let was_paused = ui_state.paused_before_realtime.take().unwrap_or(ui_state.is_paused);
-                if was_paused {
-                    (
+                match ui_state.paused_before_realtime.take() {
+                    Some(true) => (
                         OutboundCommand::System(SystemCommand::Pause),
                         "[UI] Real-time OFF: keeping previous paused state".to_string(),
-                    )
-                } else {
-                    (
+                    ),
+                    Some(false) => (
                         OutboundCommand::System(SystemCommand::Resume),
                         "[UI] Real-time OFF: restoring running state".to_string(),
-                    )
+                    ),
+                    None if ui_state.is_paused => (
+                        OutboundCommand::System(SystemCommand::Pause),
+                        "[UI] Real-time OFF: missing previous state, preserving paused".to_string(),
+                    ),
+                    None => (
+                        OutboundCommand::System(SystemCommand::Resume),
+                        "[UI] Real-time OFF: missing previous state, preserving running".to_string(),
+                    ),
                 }
             }
             UiAction::KillRobot(id) => (
@@ -145,6 +163,8 @@ pub fn bridge_ui_commands(
         };
 
         log_buffer.push(msg);
-        sender.0.try_send(cmd).ok();
+        if let Err(e) = sender.0.try_send(cmd) {
+            log_buffer.push(format!("[UI] Command dropped before publish: {}", e));
+        }
     }
 }

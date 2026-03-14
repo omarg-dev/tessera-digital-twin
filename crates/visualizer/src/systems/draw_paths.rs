@@ -9,7 +9,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::components::Robot;
 use crate::resources::{ActivePaths, RobotIndex, UiState};
-use protocol::config::visual::path::{DEST_CIRCLE_RADIUS, GLOBAL_PATH_GLOW, LINE_WIDTH, SELECTED_PATH_GLOW};
+use protocol::config::visual::path::{DEST_CIRCLE_RADIUS, GLOBAL_PATH_GLOW, LINE_WIDTH, PATH_Y_OFFSET, SELECTED_PATH_GLOW};
 
 /// One-shot startup system that sets gizmo line width from config.
 pub fn configure_gizmos(mut store: ResMut<GizmoConfigStore>) {
@@ -39,7 +39,7 @@ pub fn draw_robot_paths(
         }
 
         // look up the Bevy entity for this robot
-        let Some(&entity) = robot_index.by_id.get(&robot_id) else {
+        let Some(entity) = robot_index.get_entity(robot_id) else {
             continue;
         };
 
@@ -63,13 +63,10 @@ pub fn draw_robot_paths(
         // (the dead-reckoned visual position) because ActivePaths waypoints are indexed
         // against the reported position; using the interpolated position would draw a
         // backwards stray line to waypoints the robot has already visually passed.
-        let start = Vec3::new(robot.position.x, 0.05, robot.position.z);
-        let points: Vec<Vec3> = std::iter::once(start)
-            .chain(waypoints.iter().copied())
-            .collect();
+        let start = Vec3::new(robot.position.x, PATH_Y_OFFSET, robot.position.z);
 
-        // draw linestrip
-        gizmos.linestrip(points, color);
+        // draw linestrip without allocating a temporary Vec each frame
+        gizmos.linestrip(std::iter::once(start).chain(waypoints.iter().copied()), color);
 
         // draw a flat floor circle at the destination
         if let Some(&dest) = waypoints.last() {

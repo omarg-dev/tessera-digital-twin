@@ -4,6 +4,10 @@ use crate::components::{Robot, Shelf};
 use protocol::config::visual::{CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
 use protocol::grid_map::TileType;
 
+fn world_to_grid_xy(pos: Vec3) -> Option<(usize, usize)> {
+    protocol::world_to_grid([pos.x / TILE_SIZE, 0.0, pos.z / TILE_SIZE])
+}
+
 /// Applies `RobotUpdate`s to matching robots (by `Robot.id`) in the world.
 /// If a robot ID is not found, spawns a new robot entity.
 /// When a robot picks up or drops cargo, updates the nearest shelf's cargo count
@@ -23,12 +27,13 @@ pub fn sync_robots(
     // Drain all updates collected this frame
     for update in robot_updates.updates.drain(..) {
         // Lookup entity by id
-        if let Some(&entity) = index.by_id.get(&update.id) {
+        if let Some(entity) = index.get_entity(update.id) {
             if let Ok((_, mut robot)) = robots.get_mut(entity) {
                 let old_state = robot.state.clone();
                 let old_carrying = robot.carrying_cargo;
+                let new_state = update.state.clone();
                 robot.id = update.id;
-                robot.state = update.state.clone();
+                robot.state = new_state;
                 robot.battery = update.battery;
                 robot.carrying_cargo = update.carrying_cargo;
                 robot.enabled = update.enabled;
@@ -49,14 +54,14 @@ pub fn sync_robots(
                         // slightly off when the state transition arrives)
                         if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
                             if let Ok((_, mut shelf, shelf_transform)) = shelves.get_mut(shelf_entity) {
-                                let shelf_col = (shelf_transform.translation.x / TILE_SIZE).round() as usize;
-                                let shelf_row = (shelf_transform.translation.z / TILE_SIZE).round() as usize;
-                                let shelf_tile = warehouse_map
-                                    .as_ref()
-                                    .and_then(|m| m.0.get_tile(shelf_col, shelf_row))
-                                    .map(|t| t.tile_type);
-                                if matches!(shelf_tile, Some(TileType::Shelf(_))) {
-                                    shelf.cargo = shelf.cargo.saturating_sub(1);
+                                if let Some((shelf_col, shelf_row)) = world_to_grid_xy(shelf_transform.translation) {
+                                    let shelf_tile = warehouse_map
+                                        .as_ref()
+                                        .and_then(|m| m.0.get_tile(shelf_col, shelf_row))
+                                        .map(|t| t.tile_type);
+                                    if matches!(shelf_tile, Some(TileType::Shelf(_))) {
+                                        shelf.cargo = shelf.cargo.saturating_sub(1);
+                                    }
                                 }
                             }
                         }
@@ -66,14 +71,14 @@ pub fn sync_robots(
                         // grid snapping) and verify the shelf's own tile type
                         if let Some(shelf_entity) = find_nearest_shelf(&shelves, pos) {
                             if let Ok((_, mut shelf, shelf_transform)) = shelves.get_mut(shelf_entity) {
-                                let shelf_col = (shelf_transform.translation.x / TILE_SIZE).round() as usize;
-                                let shelf_row = (shelf_transform.translation.z / TILE_SIZE).round() as usize;
-                                let shelf_tile_type = warehouse_map
-                                    .as_ref()
-                                    .and_then(|m| m.0.get_tile(shelf_col, shelf_row))
-                                    .map(|t| t.tile_type);
-                                if matches!(shelf_tile_type, Some(TileType::Shelf(_))) {
-                                    shelf.cargo = (shelf.cargo + 1).min(shelf.max_capacity);
+                                if let Some((shelf_col, shelf_row)) = world_to_grid_xy(shelf_transform.translation) {
+                                    let shelf_tile_type = warehouse_map
+                                        .as_ref()
+                                        .and_then(|m| m.0.get_tile(shelf_col, shelf_row))
+                                        .map(|t| t.tile_type);
+                                    if matches!(shelf_tile_type, Some(TileType::Shelf(_))) {
+                                        shelf.cargo = (shelf.cargo + 1).min(shelf.max_capacity);
+                                    }
                                 }
                             }
                         }
@@ -81,9 +86,9 @@ pub fn sync_robots(
                     _ => {}
                 }
 
-                if old_state != update.state {
+                if old_state != robot.state {
                     log_buffer.push(
-                        format!("[Robot #{}] {:?} -> {:?}", update.id, old_state, update.state),
+                        format!("[Robot #{}] {:?} -> {:?}", update.id, old_state, robot.state),
                     );
                 }
             }

@@ -53,6 +53,13 @@ pub struct RobotIndex {
     pub by_id: HashMap<u32, Entity>,
 }
 
+impl RobotIndex {
+    /// Return the Bevy entity for a robot ID, if present.
+    pub fn get_entity(&self, robot_id: u32) -> Option<Entity> {
+        self.by_id.get(&robot_id).copied()
+    }
+}
+
 /// Tracks the last seen position and state for each robot (for dedup in zenoh_receiver).
 /// Prevents processing duplicate updates when neither position nor state changed.
 #[derive(Resource, Default)]
@@ -293,7 +300,7 @@ pub struct TaskListData {
 pub struct PathTelemetryReceiver(pub mpsc::Receiver<protocol::RobotPathTelemetry>);
 
 /// Active robot paths for gizmo rendering.
-/// Keys are robot IDs, values are remaining waypoints in Bevy world space (y = 0.05).
+/// Keys are robot IDs, values are remaining waypoints in Bevy world space.
 #[derive(Resource, Default)]
 pub struct ActivePaths(pub HashMap<u32, Vec<bevy::math::Vec3>>);
 

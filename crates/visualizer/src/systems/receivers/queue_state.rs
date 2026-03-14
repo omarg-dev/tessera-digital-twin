@@ -33,7 +33,9 @@ async fn run_queue_listener(
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(state) = from_slice::<QueueState>(&sample.payload().to_bytes()) {
-            tx.send(state).await.ok();
+            if tx.send(state).await.is_err() {
+                return Err("queue state receiver dropped".into());
+            }
         }
     }
 
