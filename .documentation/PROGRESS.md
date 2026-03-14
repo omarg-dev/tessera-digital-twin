@@ -183,6 +183,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA runtime instrumentation (search latency/counter snapshots and periodic coordinator metrics logging)
 - [x] WHCA scenario benchmark runners (deterministic comparison table) and live analytics-tab telemetry integration
 - [x] WHCA analytics tab scrollability and reservation-aware dispatch stabilization (time-aware lookahead blocking + blocked-hold behavior)
+- [x] Return-to-station liveness hardening and disabled-robot assignment policy guardrails (auto-unassign + temporary UI mitigation)
 
 **Pending Features:**
 
@@ -276,6 +277,17 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Return-to-station recovery + disabled robot policy hardening (Phase 5)
+
+- `coordinator/src/task_manager.rs`: added assignment rejection for disabled robots and extended `attempt_replan` to support `TaskStage::ReturningToStation` (no `current_task` required) with `ReturnToStation` command dispatch.
+- `coordinator/src/task_manager.rs`: refactored `handle_returning_to_station` to actively retry station path planning when path is empty/expired, instead of only handling the arrival case.
+- `coordinator/src/task_manager.rs`: fixed post-delivery return behavior to always transition into retry-capable `ReturningToStation` state, including station-occupied/no-path hold-and-retry logging instead of silent idle stranding.
+- `coordinator/src/server.rs`: added auto-unassign handling on robot updates when a robot is disabled mid-task; coordinator now emits task failure (`Robot disabled`) and clears robot task/path reservations so scheduler can requeue.
+- `scheduler/src/allocator/mod.rs` + `scheduler/src/allocator/closest.rs`: added `enabled` to scheduler robot model and allocator filtering so disabled robots are not selected for new assignments.
+- `scheduler/src/server.rs`: wired enabled flag updates from `RobotUpdateBatch` and implemented disabled-failure auto-requeue (`Failed` reason contains `disabled` → task returns to `Pending` and robot assignment is freed).
+- `visualizer/src/ui/tabs/robot_inspector.rs`: disabled Enable/Disable inspector control temporarily while preserving Kill/Restart functionality.
+- Validation: `cargo check --workspace`, `cargo test -p scheduler`, and `cargo test -p coordinator` pass.
 
 ### 2026-03-14: Analytics scroll polish and coordinator reservation-block dispatch tuning (Phase 5)
 

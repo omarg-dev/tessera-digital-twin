@@ -80,15 +80,19 @@ pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
         if ui.button("Restart").clicked() {
             actions.push(UiAction::RestartRobot(robot.id));
         }
-        // contextual enable/disable based on robot state
-        if robot.enabled {
-            if ui.button("Disable").clicked() {
-                actions.push(UiAction::DisableRobot(robot.id));
+
+        // temporary mitigation: keep the control visible but non-interactive until
+        // disabled-robot semantics are fully enforced across scheduler/coordinator.
+        ui.add_enabled_ui(false, |ui| {
+            if robot.enabled {
+                if ui.button("Disable").clicked() {
+                    actions.push(UiAction::DisableRobot(robot.id));
+                }
+            } else {
+                if ui.button("Enable").clicked() {
+                    actions.push(UiAction::EnableRobot(robot.id));
+                }
             }
-        } else {
-            if ui.button("Enable").clicked() {
-                actions.push(UiAction::EnableRobot(robot.id));
-            }
-        }
+        });
     });
 }

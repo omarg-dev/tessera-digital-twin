@@ -32,6 +32,8 @@ pub enum AssignmentResult {
     RobotNotFound,
     /// Robot is faulted or blocked
     RobotFaultedOrBlocked,
+    /// Robot is disabled
+    RobotDisabled,
     /// Robot is busy with another task
     RobotBusy,
     /// Robot returning to station with low battery
@@ -81,6 +83,13 @@ pub async fn handle_task_assignment(
         send_task_failure(status_publisher, task.id, robot_id,
             format!("Robot {:?}", robot.last_update.state)).await;
         return AssignmentResult::RobotFaultedOrBlocked;
+    }
+
+    // Reject assignments for disabled robots.
+    if !robot.last_update.enabled {
+        println!("✗ Task {} rejected: Robot {} is disabled", task.id, robot_id);
+        send_task_failure(status_publisher, task.id, robot_id, "Robot disabled".to_string()).await;
+        return AssignmentResult::RobotDisabled;
     }
     
     // If robot is returning to station due to no pending tasks, interrupt the return
@@ -420,6 +429,7 @@ pub async fn progress_tasks(
             handle_returning_to_station(
                 robot,
                 *robot_id,
+                map,
                 pathfinder,
                 cmd_publisher,
                 next_cmd_id,
@@ -769,15 +779,20 @@ async fn attempt_replan(
     next_cmd_id: &mut u64,
     verbose: bool,
 ) -> bool {
-    let Some(task_id) = robot.current_task else { return false; };
-
-    let target_world = match robot.task_stage {
-        TaskStage::MovingToPickup => robot.pickup_location,
-        TaskStage::MovingToDropoff | TaskStage::Delivering => robot.dropoff_location,
-        _ => None,
+    let (task_id_for_log, target_world, use_return_command) = match robot.task_stage {
+        TaskStage::MovingToPickup => {
+            let Some(task_id) = robot.current_task else { return false; };
+            let Some(target_world) = robot.pickup_location else { return false; };
+            (Some(task_id), target_world, false)
+        }
+        TaskStage::MovingToDropoff | TaskStage::Delivering => {
+            let Some(task_id) = robot.current_task else { return false; };
+            let Some(target_world) = robot.dropoff_location else { return false; };
+            (Some(task_id), target_world, false)
+        }
+        TaskStage::ReturningToStation => (None, robot.last_update.station_position, true),
+        _ => return false,
     };
-
-    let Some(target_world) = target_world else { return false; };
     let start = pathfinding::world_to_grid(robot.last_update.position);
     let goal = pathfinding::world_to_grid(target_world);
 
@@ -791,20 +806,43 @@ async fn attempt_replan(
     robot.mark_progress();
 
     if verbose {
-        println!("[{}ms] 🔁 Robot {} replanned (task {}) - {} waypoints", timestamp(), robot_id, task_id, robot.current_path.len());
+        if let Some(task_id) = task_id_for_log {
+            println!(
+                "[{}ms] 🔁 Robot {} replanned (task {}) - {} waypoints",
+                timestamp(),
+                robot_id,
+                task_id,
+                robot.current_path.len()
+            );
+        } else {
+            println!(
+                "[{}ms] 🔁 Robot {} replanned (return-to-station) - {} waypoints",
+                timestamp(),
+                robot_id,
+                robot.current_path.len()
+            );
+        }
     }
 
     // Send full replanned path immediately so robot corrects course without waiting
     // for the next send_path_commands watchdog tick
     let remaining = robot.current_path[robot.path_index..].to_vec();
     if !remaining.is_empty() {
+        let command = if use_return_command {
+            PathCommand::ReturnToStation {
+                waypoints: remaining,
+                speed: coord_config::DEFAULT_SPEED,
+            }
+        } else {
+            PathCommand::FollowPath {
+                waypoints: remaining,
+                speed: coord_config::DEFAULT_SPEED,
+            }
+        };
         let cmd = PathCmd {
             cmd_id: *next_cmd_id,
             robot_id,
-            command: PathCommand::FollowPath {
-                waypoints: remaining,
-                speed: coord_config::DEFAULT_SPEED,
-            },
+            command,
         };
         *next_cmd_id += 1;
         if protocol::publish_json_logged(
@@ -826,68 +864,137 @@ async fn attempt_replan(
 async fn handle_returning_to_station(
     robot: &mut TrackedRobot,
     robot_id: u32,
+    map: &GridMap,
     pathfinder: &mut PathfinderInstance,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
     verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
-    
-    // Check if robot has completed path to station
-    if robot.path_complete() {
-        let station_pos = robot.last_update.station_position;
-        if is_near(robot_pos, station_pos) {
-            let station_grid = pathfinding::world_to_grid(station_pos);
-            if pathfinder.is_reserved_now(station_grid, Some(robot_id)) {
-                // Station is currently owned by another robot reservation; hold outside.
-                let current_grid = pathfinding::world_to_grid(robot_pos);
-                pathfinder.reserve_stationary(robot_id, current_grid);
-                if verbose {
-                    println!("[{}ms] ⏸ Robot {} waiting: station occupied", timestamp(), robot_id);
-                }
-                logs::save_log("Coordinator", &format!("Robot {} waiting outside occupied station", robot_id));
-                return;
-            }
+    let station_pos = robot.last_update.station_position;
 
+    if is_near(robot_pos, station_pos) {
+        let station_grid = pathfinding::world_to_grid(station_pos);
+        if pathfinder.is_reserved_now(station_grid, Some(robot_id)) {
+            // Station is currently owned by another robot reservation; hold outside.
+            let current_grid = pathfinding::world_to_grid(robot_pos);
+            pathfinder.reserve_stationary(robot_id, current_grid);
             if verbose {
-                println!("[{}ms] 🔋 Robot {} arrived at station, charging", timestamp(), robot_id);
+                println!("[{}ms] ⏸ Robot {} waiting: station occupied", timestamp(), robot_id);
             }
-            
-            let cmd = PathCmd {
-                cmd_id: *next_cmd_id,
-                robot_id,
-                command: PathCommand::ReturnToCharge,
-            };
-            *next_cmd_id += 1;
-            let _ = protocol::publish_json_logged(
-                "Coordinator",
-                "return to charge command",
-                &cmd,
-                |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
-            )
-            .await;
-            
-            robot.current_path.clear();
-            robot.path_index = 0;
+            logs::save_log("Coordinator", &format!("Robot {} waiting outside occupied station", robot_id));
+            return;
+        }
 
-            // Only transition to Idle here — the robot has physically arrived.
-            // Do NOT check battery outside this block; a robot still mid-path
-            // with a full battery (NoPendingTasks reason) must not exit early.
-            let battery = robot.last_update.battery;
-            if battery >= battery_config::MIN_BATTERY_FOR_TASK {
-                if verbose {
-                    println!("[{}ms] ✅ Robot {} charged to {:.1}%, available for tasks",
-                        timestamp(), robot_id, battery);
-                }
-                logs::save_log("Coordinator", &format!(
-                    "Robot {} ready: battery {:.1}%", robot_id, battery
-                ));
-                robot.task_stage = TaskStage::Idle;
-                robot.return_reason = None;
+        if verbose {
+            println!("[{}ms] 🔋 Robot {} arrived at station, charging", timestamp(), robot_id);
+        }
+
+        let cmd = PathCmd {
+            cmd_id: *next_cmd_id,
+            robot_id,
+            command: PathCommand::ReturnToCharge,
+        };
+        *next_cmd_id += 1;
+        let _ = protocol::publish_json_logged(
+            "Coordinator",
+            "return to charge command",
+            &cmd,
+            |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+        )
+        .await;
+
+        robot.current_path.clear();
+        robot.path_index = 0;
+
+        // Only transition to Idle here — the robot has physically arrived.
+        let battery = robot.last_update.battery;
+        if battery >= battery_config::MIN_BATTERY_FOR_TASK {
+            if verbose {
+                println!(
+                    "[{}ms] ✅ Robot {} charged to {:.1}%, available for tasks",
+                    timestamp(),
+                    robot_id,
+                    battery
+                );
             }
-            // If battery is still low the robot stays in ReturningToStation;
-            // on the next tick Charging state + battery drain will eventually
-            // bring it above MIN_BATTERY_FOR_TASK and this block fires again.
+            logs::save_log("Coordinator", &format!("Robot {} ready: battery {:.1}%", robot_id, battery));
+            robot.task_stage = TaskStage::Idle;
+            robot.return_reason = None;
+        }
+        return;
+    }
+
+    // If no active return path, retry path planning to station.
+    if robot.path_complete() {
+        let current_grid = pathfinding::world_to_grid(robot_pos);
+        let station_grid = pathfinding::world_to_grid(station_pos);
+
+        if pathfinder.is_reserved_now(station_grid, Some(robot_id))
+            || pathfinder.is_reserved_soon(
+                station_grid,
+                coord_config::whca::MOVE_TIME_MS,
+                Some(robot_id),
+            )
+        {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            if verbose {
+                println!(
+                    "[{}ms] ⏸ Robot {} waiting for station availability while returning",
+                    timestamp(),
+                    robot_id
+                );
+            }
+            return;
+        }
+
+        if let Some(result) = pathfinder.find_path_for_robot(map, current_grid, station_grid, robot_id) {
+            pathfinder.clear_robot_reservations(robot_id);
+            pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
+            robot.set_path(result.world_path);
+            robot.clear_wait();
+
+            let return_path = robot.current_path[robot.path_index..].to_vec();
+            if !return_path.is_empty() {
+                let cmd = PathCmd {
+                    cmd_id: *next_cmd_id,
+                    robot_id,
+                    command: PathCommand::ReturnToStation {
+                        waypoints: return_path,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
+                };
+                *next_cmd_id += 1;
+                if protocol::publish_json_logged(
+                    "Coordinator",
+                    "retry return-to-station path",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await
+                {
+                    robot.path_sent = true;
+                    if verbose {
+                        println!(
+                            "[{}ms] 🧭 Robot {} retried return path: {} waypoints",
+                            timestamp(),
+                            robot_id,
+                            robot.current_path.len()
+                        );
+                    }
+                }
+            }
+        } else {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} return-to-station path not found yet; holding position",
+                    robot_id
+                ),
+            );
         }
     }
 }
@@ -1223,6 +1330,9 @@ async fn handle_delivering(
             ("no pending tasks".to_string(), ReturnReason::NoPendingTasks)
         };
 
+        robot.task_stage = TaskStage::ReturningToStation;
+        robot.return_reason = Some(return_reason);
+
         let current_grid = pathfinding::world_to_grid(robot.last_update.position);
         let station_grid = pathfinding::world_to_grid(station_pos);
 
@@ -1234,6 +1344,7 @@ async fn handle_delivering(
             )
         {
             pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
             if verbose {
                 println!("[{}ms] ⏸ Robot {} waiting for station occupancy to clear", timestamp(), robot_id);
             }
@@ -1253,8 +1364,7 @@ async fn handle_delivering(
             pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
 
             robot.set_path(result.world_path);
-            robot.task_stage = TaskStage::ReturningToStation;
-            robot.return_reason = Some(return_reason);
+            robot.clear_wait();
 
             let station_path = robot.current_path.clone();
             if !station_path.is_empty() {
@@ -1278,6 +1388,16 @@ async fn handle_delivering(
                     robot.path_sent = true;
                 }
             }
+        } else {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} post-delivery return path unavailable; will retry",
+                    robot_id
+                ),
+            );
         }
     } else {
         // Staying idle at dropoff: reserve the current cell immediately

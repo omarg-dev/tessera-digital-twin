@@ -340,6 +340,7 @@ fn handle_robot_updates(
                 let entry = robots.entry(update.id).or_insert_with(|| RobotInfo::from(update));
                 entry.position = update.position;
                 entry.state = update.state.clone();
+                entry.enabled = update.enabled;
                 entry.battery = update.battery;
                 // NOTE: Do NOT touch assigned_task here!
                 // It's managed by handle_status_updates based on TaskStatusUpdate messages
@@ -370,6 +371,11 @@ fn handle_status_updates(
                 println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
                 logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
 
+                let requeue_disabled_failure = match &update.status {
+                    TaskStatus::Failed { reason } => reason.to_ascii_lowercase().contains("disabled"),
+                    _ => false,
+                };
+
                 // Undo inventory reservations on task failure
                 if matches!(update.status, TaskStatus::Failed { .. }) {
                     if let Some(pickup) = task.pickup_location() {
@@ -381,16 +387,28 @@ fn handle_status_updates(
                     logs::save_log("Scheduler", &format!("Task {} failed: inventory reservations undone", task.id));
                 }
 
-                task.status = update.status.clone();
-
-                // stamp completion time for terminal transitions
-                if matches!(update.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled) {
-                    task.completed_at = Some(
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64
+                if requeue_disabled_failure {
+                    task.status = TaskStatus::Pending;
+                    task.completed_at = None;
+                    logs::save_log(
+                        "Scheduler",
+                        &format!(
+                            "Task {} requeued after disabled robot auto-unassign",
+                            task.id
+                        ),
                     );
+                } else {
+                    task.status = update.status.clone();
+
+                    // stamp completion time for terminal transitions
+                    if matches!(update.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled) {
+                        task.completed_at = Some(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64
+                        );
+                    }
                 }
 
                 // Free robot on completion/failure

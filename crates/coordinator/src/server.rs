@@ -185,6 +185,7 @@ pub async fn run(session: Session, map: GridMap) {
                         }
                         task_manager::AssignmentResult::RobotNotFound => "rejected: robot not found".to_string(),
                         task_manager::AssignmentResult::RobotFaultedOrBlocked => "rejected: robot faulted/blocked".to_string(),
+                        task_manager::AssignmentResult::RobotDisabled => "rejected: robot disabled".to_string(),
                         task_manager::AssignmentResult::RobotBusy => "rejected: robot busy".to_string(),
                         task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
                         task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
@@ -739,6 +740,47 @@ async fn handle_robot_update(
 
     robot.last_update = update;
     robot.last_tick = tick;
+
+    // Auto-unassign policy: if a robot is disabled while carrying an active assignment,
+    // fail that task immediately so scheduler can requeue it.
+    if !robot.last_update.enabled {
+        if let Some(task_id) = robot.current_task {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} disabled with active task {}; auto-unassigning",
+                    robot.last_update.id,
+                    task_id
+                ),
+            );
+
+            task_manager::send_task_failure(
+                status_publisher,
+                task_id,
+                robot.last_update.id,
+                "Robot disabled (auto-unassign)".to_string(),
+            )
+            .await;
+
+            pathfinder.clear_robot_reservations(robot.last_update.id);
+            robot.current_task = None;
+            robot.task_stage = TaskStage::Idle;
+            robot.task_started = None;
+            robot.pickup_location = None;
+            robot.dropoff_location = None;
+            robot.pickup_grid = None;
+            robot.dropoff_grid = None;
+            robot.return_reason = None;
+            robot.current_path.clear();
+            robot.path_index = 0;
+            robot.path_sent = false;
+            robot.replan_attempts = 0;
+            robot.blocked_since = None;
+            robot.clear_wait();
+            robot.mark_progress();
+        }
+    }
+
     let grid_pos = pathfinding::world_to_grid(robot.last_update.position);
     if robot.recent_positions.back().copied() != Some(grid_pos) {
         robot.recent_positions.push_back(grid_pos);

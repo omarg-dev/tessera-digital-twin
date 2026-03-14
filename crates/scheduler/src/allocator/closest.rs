@@ -46,6 +46,7 @@ impl Allocator for ClosestIdleAllocator {
                     | RobotState::MovingToStation
             );
             if !available_state { continue; }
+            if !robot.enabled { continue; }
             if robot.assigned_task.is_some() { continue; }
             if robot.battery < self.min_battery { continue; }
 
@@ -80,6 +81,7 @@ mod tests {
             id,
             position: [x, 0.25, z],
             state: RobotState::Idle,
+            enabled: true,
             battery: 100.0,
             assigned_task: None,
         }
@@ -107,7 +109,7 @@ mod tests {
         // Robot 1 is busy with an assigned task
         robots.insert(1, RobotInfo {
             id: 1, position: [1.0, 0.25, 1.0],
-            state: RobotState::MovingToPickup, battery: 100.0, assigned_task: Some(39),
+            state: RobotState::MovingToPickup, enabled: true, battery: 100.0, assigned_task: Some(39),
         });
         robots.insert(2, make_robot(2, 10.0, 10.0));
 
@@ -125,7 +127,7 @@ mod tests {
         let mut robots = HashMap::new();
         robots.insert(1, RobotInfo {
             id: 1, position: [1.0, 0.25, 1.0],
-            state: RobotState::Idle, battery: 10.0, assigned_task: None,
+            state: RobotState::Idle, enabled: true, battery: 10.0, assigned_task: None,
         });
 
         let task = Task::new(1, TaskType::PickAndDeliver {
@@ -142,7 +144,7 @@ mod tests {
         // Charging robot with sufficient battery should be available
         robots.insert(1, RobotInfo {
             id: 1, position: [1.0, 0.25, 1.0],
-            state: RobotState::Charging, battery: 80.0, assigned_task: None,
+            state: RobotState::Charging, enabled: true, battery: 80.0, assigned_task: None,
         });
 
         let task = Task::new(1, TaskType::PickAndDeliver {
@@ -159,7 +161,7 @@ mod tests {
         // Charging robot with low battery should NOT be available
         robots.insert(1, RobotInfo {
             id: 1, position: [1.0, 0.25, 1.0],
-            state: RobotState::Charging, battery: 30.0, assigned_task: None,
+            state: RobotState::Charging, enabled: true, battery: 30.0, assigned_task: None,
         });
 
         let task = Task::new(1, TaskType::PickAndDeliver {
@@ -168,5 +170,26 @@ mod tests {
 
         // MIN_BATTERY_FOR_TASK is 50%, so 30% is too low
         assert_eq!(allocator.allocate(&task, &robots), None);
+    }
+
+    #[test]
+    fn test_disabled_robot_skipped() {
+        let allocator = ClosestIdleAllocator::new();
+        let mut robots = HashMap::new();
+        robots.insert(1, RobotInfo {
+            id: 1,
+            position: [1.0, 0.25, 1.0],
+            state: RobotState::Idle,
+            enabled: false,
+            battery: 100.0,
+            assigned_task: None,
+        });
+        robots.insert(2, make_robot(2, 6.0, 6.0));
+
+        let task = Task::new(1, TaskType::PickAndDeliver {
+            pickup: (1, 1), dropoff: (5, 5), cargo_id: None,
+        }, Priority::Normal);
+
+        assert_eq!(allocator.allocate(&task, &robots), Some(2));
     }
 }
