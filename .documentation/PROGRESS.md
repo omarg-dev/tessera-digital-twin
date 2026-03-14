@@ -186,6 +186,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Return-to-station liveness hardening and disabled-robot assignment policy guardrails (auto-unassign + temporary UI mitigation)
 - [x] Visualizer runtime hardening pass 1 (panic-safe task wizard submit, listener send-failure handling, bounds-safe grid conversion, shared path gizmo Y-offset)
 - [x] Visualizer UI performance pass 1 (single-pass task categorization and cached object-list sorting)
+- [x] Visualizer camera/labels performance pass 2 (cached task-follow lookup and selected-label suppression)
 
 **Pending Features:**
 
@@ -279,6 +280,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Visualizer camera and label performance pass 2 (Phase 5)
+
+- `visualizer/src/systems/camera.rs`: added cached task index lookup in `camera_follow_task` keyed by selected task and snapshot update timestamp to avoid repeated per-frame linear searches through the task list.
+- `visualizer/src/systems/camera.rs`: migrated task-follow robot entity resolution to `RobotIndex::get_entity(...)` helper for consistency with recent lookup dedup work.
+- `visualizer/src/systems/robot_labels.rs`: added selected-entity label suppression (aligning behavior with inspector focus) and reduced per-robot hidden-label set checks when the hidden set is empty.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-14: Visualizer UI performance pass 1 (Phase 5)
 

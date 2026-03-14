@@ -69,10 +69,17 @@ pub fn draw_robot_labels(
     let (bg_r, bg_g, bg_b, bg_a) = lbl::BG_COLOR;
     let bg = egui::Color32::from_rgba_unmultiplied(bg_r, bg_g, bg_b, bg_a);
     let id_color = egui::Color32::from_rgba_unmultiplied(160, 160, 160, 200);
+    let selected_entity = ui_state.selected_entity;
+    let has_hidden = !ui_state.hidden_labels.is_empty();
 
     for (entity, robot, transform) in &robots {
+        // hide the selected robot label while the inspector is focused on it
+        if selected_entity == Some(entity) {
+            continue;
+        }
+
         // hide label if explicitly hidden by right-click (cleared on deselect)
-        if ui_state.hidden_labels.contains(&entity) {
+        if has_hidden && ui_state.hidden_labels.contains(&entity) {
             continue;
         }
 

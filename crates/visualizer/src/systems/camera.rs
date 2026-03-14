@@ -227,6 +227,8 @@ pub fn camera_follow_task(
     // true while we are actively following this task as a live (non-terminal) task.
     // the camera only lerps back to default when this transitions false -> terminal.
     mut was_live: Local<bool>,
+    mut cached_task_idx: Local<Option<usize>>,
+    mut cached_task_list_updated: Local<f64>,
 ) {
     // entity follow has priority — don't fight camera_follow_selected
     if ui_state.selected_entity.is_some() {
@@ -250,6 +252,7 @@ pub fn camera_follow_task(
             *resetting = true;
         }
         *was_live = false;
+        *cached_task_idx = None;
     }
 
     // smoothly return to default view
@@ -278,9 +281,23 @@ pub fn camera_follow_task(
     let Some(task_id) = ui_state.selected_task_id else {
         return;
     };
-    let Some(task) = task_list.tasks.iter().find(|t| t.id == task_id) else {
+
+    if *cached_task_list_updated != task_list.last_updated_secs {
+        *cached_task_idx = None;
+        *cached_task_list_updated = task_list.last_updated_secs;
+    }
+
+    if cached_task_idx
+        .map(|idx| idx >= task_list.tasks.len() || task_list.tasks[idx].id != task_id)
+        .unwrap_or(true)
+    {
+        *cached_task_idx = task_list.tasks.iter().position(|t| t.id == task_id);
+    }
+
+    let Some(task_idx) = *cached_task_idx else {
         return;
     };
+    let task = &task_list.tasks[task_idx];
 
     let is_terminal = matches!(task.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled);
 
@@ -290,6 +307,7 @@ pub fn camera_follow_task(
         *resetting = false;
         *zooming_in = false;
         *was_live = false;
+        *cached_task_idx = None;
         // only initiate zoom-in for live tasks — terminal tasks are browsed passively
         if !is_terminal && controller.radius > camera::TASK_FOLLOW_ZOOM_RADIUS + 1.0 {
             *zooming_in = true;
@@ -317,8 +335,8 @@ pub fn camera_follow_task(
     // determine follow target
     let target_pos: Option<Vec3> = match &task.status {
         TaskStatus::Assigned { robot_id } | TaskStatus::InProgress { robot_id } => {
-            robot_index.by_id.get(robot_id)
-                .and_then(|entity| target_transforms.get(*entity).ok())
+            robot_index.get_entity(*robot_id)
+                .and_then(|entity| target_transforms.get(entity).ok())
                 .map(|t| t.translation)
         }
         TaskStatus::Pending => {
