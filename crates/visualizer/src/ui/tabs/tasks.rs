@@ -13,6 +13,34 @@ use crate::ui::widgets::wizard_minimap_widget;
 
 pub const LABEL: &str = "Tasks";
 
+struct TaskBuckets<'a> {
+    active: Vec<&'a protocol::Task>,
+    failed: Vec<&'a protocol::Task>,
+    completed: Vec<&'a protocol::Task>,
+}
+
+fn categorize_tasks(tasks: &[protocol::Task]) -> TaskBuckets<'_> {
+    let mut active = Vec::new();
+    let mut failed = Vec::new();
+    let mut completed = Vec::new();
+
+    for task in tasks {
+        match task.status {
+            TaskStatus::Pending | TaskStatus::Assigned { .. } | TaskStatus::InProgress { .. } => {
+                active.push(task)
+            }
+            TaskStatus::Failed { .. } | TaskStatus::Cancelled => failed.push(task),
+            TaskStatus::Completed => completed.push(task),
+        }
+    }
+
+    TaskBuckets {
+        active,
+        failed,
+        completed,
+    }
+}
+
 /// Task queue tab -- stats summary + task list or Add Task wizard.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
@@ -30,15 +58,10 @@ pub fn draw(
     ui.label(egui::RichText::new("Task Queue").strong());
     ui.add_space(4.0);
 
-    let active_count = task_list.tasks.iter()
-        .filter(|t| matches!(t.status, TaskStatus::Pending | TaskStatus::Assigned { .. } | TaskStatus::InProgress { .. }))
-        .count();
-    let failed_count = task_list.tasks.iter()
-        .filter(|t| matches!(t.status, TaskStatus::Failed { .. } | TaskStatus::Cancelled))
-        .count();
-    let completed_count = task_list.tasks.iter()
-        .filter(|t| matches!(t.status, TaskStatus::Completed))
-        .count();
+    let buckets = categorize_tasks(&task_list.tasks);
+    let active_count = buckets.active.len();
+    let failed_count = buckets.failed.len();
+    let completed_count = buckets.completed.len();
 
     egui::Grid::new("queue_stats")
         .num_columns(2)
@@ -83,7 +106,7 @@ pub fn draw(
         }
         ui.add_space(4.0);
 
-        task_list_view(ui, ui_state, &task_list.tasks, actions);
+        task_list_view(ui, ui_state, &buckets, actions);
     }
 }
 
@@ -91,45 +114,35 @@ pub fn draw(
 fn task_list_view(
     ui: &mut egui::Ui,
     ui_state: &mut UiState,
-    tasks: &[protocol::Task],
+    buckets: &TaskBuckets,
     _actions: &mut Vec<UiAction>,
 ) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Active
-            let active: Vec<_> = tasks.iter()
-                .filter(|t| matches!(t.status, TaskStatus::Pending | TaskStatus::Assigned { .. } | TaskStatus::InProgress { .. }))
-                .collect();
-
             let active_id = egui::Id::new("task_list_active");
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), active_id, true)
                 .show_header(ui, |ui| {
-                    ui.label(egui::RichText::new(format!("Active ({})", active.len())).strong());
+                    ui.label(egui::RichText::new(format!("Active ({})", buckets.active.len())).strong());
                 })
                 .body(|ui| {
-                    for task in &active {
+                    for task in &buckets.active {
                         task_row(ui, task, ui_state);
                     }
-                    if active.is_empty() { ui.weak("no active tasks"); }
+                    if buckets.active.is_empty() { ui.weak("no active tasks"); }
                 });
 
             ui.add_space(4.0);
 
-            // Failed
-            let failed: Vec<_> = tasks.iter()
-                .filter(|t| matches!(t.status, TaskStatus::Failed { .. } | TaskStatus::Cancelled))
-                .collect();
-
             let failed_id = egui::Id::new("task_list_failed");
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), failed_id, true)
                 .show_header(ui, |ui| {
-                    ui.label(egui::RichText::new(format!("Failed ({})", failed.len()))
+                    ui.label(egui::RichText::new(format!("Failed ({})", buckets.failed.len()))
                         .strong()
                         .color(egui::Color32::from_rgb(220, 80, 80)));
                 })
                 .body(|ui| {
-                    for task in &failed {
+                    for task in &buckets.failed {
                         let is_selected = ui_state.selected_task_id == Some(task.id);
                         let label = task_row_label(task);
                         if ui.selectable_label(
@@ -141,26 +154,21 @@ fn task_list_view(
                             ui_state.inspector_tab = RightTab::Details;
                         }
                     }
-                    if failed.is_empty() { ui.weak("no failed tasks"); }
+                    if buckets.failed.is_empty() { ui.weak("no failed tasks"); }
                 });
 
             ui.add_space(4.0);
 
-            // Completed
-            let completed: Vec<_> = tasks.iter()
-                .filter(|t| matches!(t.status, TaskStatus::Completed))
-                .collect();
-
             let completed_id = egui::Id::new("task_list_completed");
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), completed_id, false)
                 .show_header(ui, |ui| {
-                    ui.label(egui::RichText::new(format!("Completed ({})", completed.len())).strong());
+                    ui.label(egui::RichText::new(format!("Completed ({})", buckets.completed.len())).strong());
                 })
                 .body(|ui| {
-                    for task in &completed {
+                    for task in &buckets.completed {
                         task_row(ui, task, ui_state);
                     }
-                    if completed.is_empty() { ui.weak("no completed tasks"); }
+                    if buckets.completed.is_empty() { ui.weak("no completed tasks"); }
                 });
         });
 }

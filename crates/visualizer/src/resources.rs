@@ -184,6 +184,14 @@ pub struct UiState {
     pub right_panel_width: f32,
     /// actual height of the bottom panel in egui logical pixels — updated each frame by gui.rs
     pub bottom_panel_height: f32,
+    /// Cached robot count used to invalidate sorted entity cache in Objects tab.
+    pub object_cache_robot_count: usize,
+    /// Cached shelf count used to invalidate sorted entity cache in Objects tab.
+    pub object_cache_shelf_count: usize,
+    /// Sorted robot entity cache for Objects tab rendering.
+    pub object_sorted_robot_entities: Vec<Entity>,
+    /// Sorted shelf entity cache for Objects tab rendering.
+    pub object_sorted_shelf_entities: Vec<Entity>,
 }
 
 impl Default for UiState {
@@ -221,6 +229,10 @@ impl Default for UiState {
             left_panel_width: ui_cfg::SIDE_PANEL_DEFAULT_WIDTH,
             right_panel_width: ui_cfg::SIDE_PANEL_DEFAULT_WIDTH,
             bottom_panel_height: ui_cfg::BOTTOM_PANEL_DEFAULT_HEIGHT,
+            object_cache_robot_count: 0,
+            object_cache_shelf_count: 0,
+            object_sorted_robot_entities: Vec::new(),
+            object_sorted_shelf_entities: Vec::new(),
         }
     }
 }

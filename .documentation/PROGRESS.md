@@ -185,6 +185,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA analytics tab scrollability and reservation-aware dispatch stabilization (time-aware lookahead blocking + blocked-hold behavior)
 - [x] Return-to-station liveness hardening and disabled-robot assignment policy guardrails (auto-unassign + temporary UI mitigation)
 - [x] Visualizer runtime hardening pass 1 (panic-safe task wizard submit, listener send-failure handling, bounds-safe grid conversion, shared path gizmo Y-offset)
+- [x] Visualizer UI performance pass 1 (single-pass task categorization and cached object-list sorting)
 
 **Pending Features:**
 
@@ -278,6 +279,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Visualizer UI performance pass 1 (Phase 5)
+
+- `visualizer/src/ui/tabs/tasks.rs`: replaced repeated task filtering passes with a single categorization pass (`active`, `failed`, `completed`) reused by both header stats and section rendering.
+- `visualizer/src/resources.rs`: added object-tab cache fields in `UiState` for sorted robot/shelf entity lists and invalidation counters.
+- `visualizer/src/ui/tabs/objects.rs`: removed per-frame `sort_unstable_by_key` work by introducing cache refresh-on-change logic and stale-cache invalidation when entities despawn mid-frame.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-14: Visualizer runtime hardening pass 1 and protocol visual dedup (Phase 5)
 
