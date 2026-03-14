@@ -476,11 +476,6 @@ async fn send_path_commands(
             continue;
         }
 
-        // if path is now fully tracked as complete, stop here (progress_tasks handles arrival)
-        if robot.path_complete() {
-            continue;
-        }
-
         // scan the next LOOKAHEAD_BLOCK_SCAN_CELLS waypoints for reservations.
         // checking only next_waypoint() gave the coordinator one tick to react before
         // the firmware crossed into a reserved cell; scanning ahead stops the robot
@@ -500,35 +495,35 @@ async fn send_path_commands(
         let is_blocked = robot.current_path[robot.path_index..]
             .iter()
             .take(coord_config::LOOKAHEAD_BLOCK_SCAN_CELLS)
-            .any(|&wp| {
+            .enumerate()
+            .any(|(step_idx, &wp)| {
                 let g = pathfinding::world_to_grid(wp);
-                pathfinder.is_reserved_soon(g, coord_config::whca::MOVE_TIME_MS, Some(*robot_id))
-                    || pathfinder.is_reserved_now(g, Some(*robot_id))
+                let offset_ms = coord_config::whca::MOVE_TIME_MS
+                    .saturating_mul((step_idx as u64).saturating_add(1));
+                let reserved_future = pathfinder.is_reserved_soon(g, offset_ms, Some(*robot_id));
+                let reserved_now = step_idx == 0 && pathfinder.is_reserved_now(g, Some(*robot_id));
+                reserved_future || reserved_now
             });
 
         if is_blocked {
             robot.set_wait(target_grid);
 
-            // deadlock breaker: if waiting too long, override and resend FollowPath
+            // If blocked for a long time, report it but keep holding position.
+            // forcing a resume into known reservations caused avoidable collisions.
             if let Some(wait_secs) = robot.wait_elapsed_secs() {
                 if wait_secs >= collision_config::RESERVATION_WAIT_OVERRIDE_SECS {
                     logs::save_log(
                         "Coordinator",
                         &format!(
-                            "Robot {} overriding reservation wait after {}s",
+                            "Robot {} still blocked after {}s; maintaining stop until reservation clears",
                             robot_id, wait_secs
                         ),
                     );
-                    robot.clear_wait();
-                    robot.path_sent = false; // fall through to FollowPath send below
                 }
             }
 
             if robot.path_sent {
                 // still blocked and path already sent - stop firmware and wait
-                let current_grid = pathfinding::world_to_grid(robot.last_update.position);
-                pathfinder.reserve_stationary(*robot_id, current_grid);
-                robot.mark_progress();
                 let stop_cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id: *robot_id,
@@ -543,9 +538,12 @@ async fn send_path_commands(
                 )
                 .await;
                 robot.path_sent = false; // will resend FollowPath once unblocked
-                continue;
             }
-            // path_sent is false (override case): fall through to send FollowPath
+
+            let current_grid = pathfinding::world_to_grid(robot.last_update.position);
+            pathfinder.reserve_stationary(*robot_id, current_grid);
+            robot.mark_progress();
+            continue;
         } else {
             robot.clear_wait();
         }

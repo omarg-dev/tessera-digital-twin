@@ -182,6 +182,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] WHCA reservation hot-path optimization (robot-indexed reservation cleanup and linearized edge-swap conflict checks)
 - [x] WHCA runtime instrumentation (search latency/counter snapshots and periodic coordinator metrics logging)
 - [x] WHCA scenario benchmark runners (deterministic comparison table) and live analytics-tab telemetry integration
+- [x] WHCA analytics tab scrollability and reservation-aware dispatch stabilization (time-aware lookahead blocking + blocked-hold behavior)
 
 **Pending Features:**
 
@@ -275,6 +276,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Analytics scroll polish and coordinator reservation-block dispatch tuning (Phase 5)
+
+- `visualizer/src/ui/tabs/analytics.rs`: wrapped the WHCA analytics body in `egui::ScrollArea::vertical().auto_shrink([false, false])` to match other bottom tabs and keep metrics readable on smaller viewport sizes.
+- `coordinator/src/server.rs`: changed reservation lookahead in `send_path_commands` to evaluate each scanned waypoint at its own future offset (`(step + 1) * MOVE_TIME_MS`) instead of a single fixed offset for every cell.
+- `coordinator/src/server.rs`: limited `is_reserved_now` checks to the immediate next waypoint only, reducing false-positive blocks on farther lookahead cells that are not imminent.
+- `coordinator/src/server.rs`: removed forced blocked-wait override fallthrough that re-sent `FollowPath` into known reservations; blocked robots now hold position with stationary reservation until the blocking reservation clears.
+- `coordinator/src/server.rs`: kept long-wait visibility by logging prolonged reservation blocks without sacrificing strict conflict avoidance.
+- Validation: `cargo check --workspace`, `cargo test -p coordinator`, and `cargo test --workspace` all pass.
 
 ### 2026-03-14: WHCA scenario runner benchmarks + visualizer analytics integration (Phase 5)
 
