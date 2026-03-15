@@ -187,6 +187,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visualizer runtime hardening pass 1 (panic-safe task wizard submit, listener send-failure handling, bounds-safe grid conversion, shared path gizmo Y-offset)
 - [x] Visualizer UI performance pass 1 (single-pass task categorization and cached object-list sorting)
 - [x] Visualizer camera/labels performance pass 2 (cached task-follow lookup and selected-label suppression)
+- [x] Visualizer/protocol dedup pass 3 (task-status semantic helper + outline/populate hierarchy walk consolidation)
 
 **Pending Features:**
 
@@ -280,6 +281,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Protocol status-label extraction and hierarchy-walk consolidation (Phase 5)
+
+- `protocol/src/tasks.rs` + `protocol/src/lib.rs`: added and exported `task_status_label(&TaskStatus) -> &'static str` as a shared semantic status helper, with new unit coverage for label mapping.
+- `visualizer/src/ui/tabs/task_inspector.rs`: migrated task status text mapping to `protocol::task_status_label(...)` while keeping renderer-specific failure-reason formatting local.
+- `visualizer/src/systems/outline.rs`: added mesh-descendant caching in `ProgrammaticOutlineState` so repeated sidebar selection/hover transitions reuse cached mesh lists instead of re-walking the entity hierarchy each time.
+- `visualizer/src/systems/populate_scene.rs`: consolidated repeated tile descendant traversal into a shared helper (`propagate_flags_for_roots`) and reused it for floor/wall shadow optimization tagging.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-14: Visualizer camera and label performance pass 2 (Phase 5)
 

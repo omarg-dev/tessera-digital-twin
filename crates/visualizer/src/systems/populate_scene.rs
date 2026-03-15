@@ -9,6 +9,37 @@ use protocol::config::{LAYOUT_FILE_PATH,
 use protocol::config::optimization as opt;
 use protocol::grid_map::{GridMap, TileType};
 
+fn propagate_flags_for_roots(
+    commands: &mut Commands,
+    roots: impl IntoIterator<Item = Entity>,
+    children_q: &Query<&Children>,
+    uncast_meshes: &Query<Entity, (With<Mesh3d>, Without<NotShadowCaster>)>,
+    unrecv_meshes: &Query<Entity, (With<Mesh3d>, Without<NotShadowReceiver>)>,
+    disable_cast: bool,
+    disable_receive: bool,
+) {
+    let mut stack = Vec::new();
+    for root in roots {
+        stack.clear();
+        stack.push(root);
+        while let Some(e) = stack.pop() {
+            if e != root {
+                if disable_cast && uncast_meshes.get(e).is_ok() {
+                    commands.entity(e).insert(NotShadowCaster);
+                }
+                if disable_receive && unrecv_meshes.get(e).is_ok() {
+                    commands.entity(e).insert(NotShadowReceiver);
+                }
+            }
+            if let Ok(children) = children_q.get(e) {
+                for &child in children {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+}
+
 /// Check if environment reload is requested and trigger repopulation
 pub fn check_reload_environment(
     mut commands: Commands,
@@ -178,43 +209,28 @@ pub fn propagate_tile_optimizations(
         return;
     }
 
-    // floors: shadow cast + shadow receive suppression
     if opt::DISABLE_TILE_SHADOW_CAST || opt::DISABLE_FLOOR_SHADOW_RECEIVE {
-        for root in ground_tiles.iter() {
-            let mut stack = vec![root];
-            while let Some(e) = stack.pop() {
-                if e != root {
-                    if opt::DISABLE_TILE_SHADOW_CAST && uncast_meshes.get(e).is_ok() {
-                        commands.entity(e).insert(NotShadowCaster);
-                    }
-                    if opt::DISABLE_FLOOR_SHADOW_RECEIVE && unrecv_meshes.get(e).is_ok() {
-                        commands.entity(e).insert(NotShadowReceiver);
-                    }
-                }
-                if let Ok(children) = children_q.get(e) {
-                    for &child in children {
-                        stack.push(child);
-                    }
-                }
-            }
-        }
+        propagate_flags_for_roots(
+            &mut commands,
+            ground_tiles.iter(),
+            &children_q,
+            &uncast_meshes,
+            &unrecv_meshes,
+            opt::DISABLE_TILE_SHADOW_CAST,
+            opt::DISABLE_FLOOR_SHADOW_RECEIVE,
+        );
     }
 
-    // walls: shadow cast suppression only
     if opt::DISABLE_TILE_SHADOW_CAST {
-        for root in wall_tiles.iter() {
-            let mut stack = vec![root];
-            while let Some(e) = stack.pop() {
-                if e != root && uncast_meshes.get(e).is_ok() {
-                    commands.entity(e).insert(NotShadowCaster);
-                }
-                if let Ok(children) = children_q.get(e) {
-                    for &child in children {
-                        stack.push(child);
-                    }
-                }
-            }
-        }
+        propagate_flags_for_roots(
+            &mut commands,
+            wall_tiles.iter(),
+            &children_q,
+            &uncast_meshes,
+            &unrecv_meshes,
+            true,
+            false,
+        );
     }
 }
 

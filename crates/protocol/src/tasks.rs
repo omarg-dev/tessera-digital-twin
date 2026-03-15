@@ -41,6 +41,21 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+/// Stable semantic label for a task status.
+///
+/// Keeps status wording consistent across crates while leaving renderer-specific
+/// formatting (colors, extra details) to consumers.
+pub fn task_status_label(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Pending => "Pending",
+        TaskStatus::Assigned { .. } => "Assigned",
+        TaskStatus::InProgress { .. } => "In Progress",
+        TaskStatus::Completed => "Completed",
+        TaskStatus::Failed { .. } => "Failed",
+        TaskStatus::Cancelled => "Cancelled",
+    }
+}
+
 /// The type of work to perform
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskType {
@@ -266,5 +281,15 @@ mod tests {
             let parsed: TaskStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, status);
         }
+    }
+
+    #[test]
+    fn test_task_status_label_mapping() {
+        assert_eq!(task_status_label(&TaskStatus::Pending), "Pending");
+        assert_eq!(task_status_label(&TaskStatus::Assigned { robot_id: 1 }), "Assigned");
+        assert_eq!(task_status_label(&TaskStatus::InProgress { robot_id: 1 }), "In Progress");
+        assert_eq!(task_status_label(&TaskStatus::Completed), "Completed");
+        assert_eq!(task_status_label(&TaskStatus::Failed { reason: "x".to_string() }), "Failed");
+        assert_eq!(task_status_label(&TaskStatus::Cancelled), "Cancelled");
     }
 }

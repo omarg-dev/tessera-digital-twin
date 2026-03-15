@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::picking::pointer::PointerButton;
 use bevy_mod_outline::{OutlineVolume, OutlineStencil};
 use protocol::config::visual::outline as cfg;
+use std::collections::HashMap;
 
 use crate::components::{Robot, Shelf, Station, Dropoff, Selected, SidebarHovered};
 use crate::resources::UiState;
@@ -211,6 +212,8 @@ pub struct ProgrammaticOutlineState {
     selected_meshes: Vec<Entity>,
     /// mesh-level children that currently carry SidebarHovered + OutlineVolume from this system
     hovered_meshes: Vec<Entity>,
+    /// cached mesh descendants for logical entities used by sidebar-driven outlines
+    mesh_cache: HashMap<Entity, Vec<Entity>>,
 }
 
 /// Walk the entity hierarchy and collect all Mesh3d descendants.
@@ -232,6 +235,21 @@ fn collect_mesh_descendants(
         }
     }
     result
+}
+
+fn cached_mesh_descendants(
+    root: Entity,
+    state: &mut ProgrammaticOutlineState,
+    children_q: &Query<&Children>,
+    meshes_q: &Query<(), With<Mesh3d>>,
+) -> Vec<Entity> {
+    if let Some(cached) = state.mesh_cache.get(&root) {
+        return cached.clone();
+    }
+
+    let meshes = collect_mesh_descendants(root, children_q, meshes_q);
+    state.mesh_cache.insert(root, meshes.clone());
+    meshes
 }
 
 /// System: syncs 3D outlines for sidebar selection and sidebar hover.
@@ -265,7 +283,7 @@ pub fn sync_programmatic_outlines(
         state.selected_meshes.clear();
 
         if let Some(logical) = ui_state.selected_entity {
-            let meshes = collect_mesh_descendants(logical, &children_q, &meshes_q);
+            let meshes = cached_mesh_descendants(logical, &mut state, &children_q, &meshes_q);
             for &mesh_e in &meshes {
                 commands.entity(mesh_e).insert((
                     Selected,
@@ -296,7 +314,7 @@ pub fn sync_programmatic_outlines(
             // don't add hover outline if this entity is already selected
             let is_selected = ui_state.selected_entity == Some(logical);
             if !is_selected {
-                let meshes = collect_mesh_descendants(logical, &children_q, &meshes_q);
+                let meshes = cached_mesh_descendants(logical, &mut state, &children_q, &meshes_q);
                 for &mesh_e in &meshes {
                     commands.entity(mesh_e).insert((
                         SidebarHovered,

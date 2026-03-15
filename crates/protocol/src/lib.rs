@@ -57,7 +57,7 @@ pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemComm
 pub use config::LAYOUT_FILE_PATH;
 pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
 pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch, WhcaMetricsTelemetry};
-pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
+pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType, task_status_label};
 pub use logs::{timestamp, save_log};
 pub use publish::{publish_json_logged, publish_json_logged_sync};
 pub use util::{

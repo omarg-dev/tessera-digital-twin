@@ -86,12 +86,8 @@ pub fn draw(
     ui.horizontal(|ui| {
         ui.label("Status:");
         let s = match &task.status {
-            TaskStatus::Pending => "Pending".to_string(),
-            TaskStatus::Assigned { .. } => "Assigned".to_string(),
-            TaskStatus::InProgress { .. } => "In Progress".to_string(),
-            TaskStatus::Completed => "Completed".to_string(),
-            TaskStatus::Failed { reason } => format!("Failed: {reason}"),
-            TaskStatus::Cancelled => "Cancelled".to_string(),
+            TaskStatus::Failed { reason } => format!("{}: {reason}", protocol::task_status_label(&task.status)),
+            _ => protocol::task_status_label(&task.status).to_string(),
         };
         ui.label(s);
     });
