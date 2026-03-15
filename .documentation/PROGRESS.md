@@ -191,6 +191,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visualizer compliance pass 4 (decode-mode logging + file-by-file checklist artifact)
 - [x] Phase 7 validation gate A/B automation (workspace checks/tests/build + orchestrator run/status/quit smoke evidence)
 - [x] Visual foundation pass 1: semantic color remap, luminance hierarchy, bloom runtime A/B controls, and path hierarchy animation/fade
+- [x] Label readability + state encoding pass 2: LOD tiers, per-frame budget, cluster badges, pulse-based state cues, and task/details hierarchy polish
 
 **Pending Features:**
 
@@ -284,6 +285,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-15: Label Readability + Inspector Hierarchy Pass (Phase 5)
+
+- Implemented label LOD policy in visualizer with full/compact/hidden distance tiers, deterministic per-frame label budget, and forced full labels for selected/hovered robots.
+- Added optional far-zoom cluster badges for hidden labels and top-bar toggles for compact label mode and cluster visualization.
+- Introduced state-aware label encoding with color + pulse profiles for idle, executing, blocked, charging, fault, and low-battery/offline precedence.
+- Polished details inspector hierarchy for tasks and robots by emphasizing primary fields (state, status, ETA, type, battery) and de-emphasizing metadata/timestamps.
+- Why: preserve clarity in dense scenes while improving operator scan speed without changing panel layout or adding expensive rendering passes.
 
 ### 2026-03-15: Visual Foundation Pass 1 (Phase 5)
 

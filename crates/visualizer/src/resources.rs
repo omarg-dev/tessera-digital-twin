@@ -146,6 +146,10 @@ pub struct UiState {
     pub show_debug_grid: bool,
     /// Layer toggle: show robot ID labels
     pub show_ids: bool,
+    /// Label density mode: use compact labels outside near tier.
+    pub compact_labels: bool,
+    /// Show cluster count badges for hidden far/budget-limited labels.
+    pub cluster_badges: bool,
     /// Layer toggle: enable bloom post-process
     pub bloom_enabled: bool,
     /// Runtime bloom intensity
@@ -227,6 +231,8 @@ impl Default for UiState {
             show_heatmap: false,
             show_debug_grid: false,
             show_ids: true,
+            compact_labels: true,
+            cluster_badges: false,
             bloom_enabled: bloom_cfg::ENABLED_BY_DEFAULT,
             bloom_intensity: bloom_cfg::DEFAULT_INTENSITY,
             animate_paths: true,

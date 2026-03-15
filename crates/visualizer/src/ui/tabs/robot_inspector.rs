@@ -6,6 +6,32 @@ use protocol::config::battery;
 use crate::components::Robot;
 use crate::resources::UiAction;
 
+fn state_color(state: &protocol::RobotState) -> egui::Color32 {
+    match state {
+        protocol::RobotState::Faulted => egui::Color32::from_rgb(225, 72, 72),
+        protocol::RobotState::Blocked => egui::Color32::from_rgb(95, 145, 255),
+        protocol::RobotState::Charging => egui::Color32::from_rgb(70, 210, 120),
+        protocol::RobotState::LowBattery => egui::Color32::from_rgb(245, 170, 55),
+        protocol::RobotState::Picking
+        | protocol::RobotState::MovingToPickup
+        | protocol::RobotState::MovingToDrop
+        | protocol::RobotState::MovingToStation => egui::Color32::from_rgb(120, 205, 255),
+        protocol::RobotState::Idle => egui::Color32::from_rgb(205, 205, 205),
+    }
+}
+
+fn detail_row(ui: &mut egui::Ui, label: &str, value: impl Into<String>, primary: bool) {
+    ui.horizontal(|ui| {
+        if primary {
+            ui.label(egui::RichText::new(label).strong());
+            ui.label(egui::RichText::new(value.into()).strong());
+        } else {
+            ui.weak(label);
+            ui.label(egui::RichText::new(value.into()).color(egui::Color32::from_gray(190)));
+        }
+    });
+}
+
 /// Inspector for a single robot with functional action buttons.
 pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
     ui.label(
@@ -16,24 +42,20 @@ pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
 
     ui.add_space(8.0);
 
-    // State
-    ui.horizontal(|ui| {
-        ui.label("State:");
-        ui.label(egui::RichText::new(format!("{:?}", robot.state)).strong());
-    });
+    detail_row(ui, "State:", format!("{:?}", robot.state), true);
+    ui.colored_label(state_color(&robot.state), "● live state");
 
     // Position
-    ui.horizontal(|ui| {
-        ui.label("Position:");
-        ui.label(format!(
-            "[{:.1}, {:.1}, {:.1}]",
-            robot.position.x, robot.position.y, robot.position.z
-        ));
-    });
+    detail_row(
+        ui,
+        "Position:",
+        format!("[{:.1}, {:.1}, {:.1}]", robot.position.x, robot.position.y, robot.position.z),
+        false,
+    );
 
     // Battery
-    ui.add_space(4.0);
-    ui.label("Battery:");
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new("Battery").strong());
     let battery_frac = robot.battery / 100.0;
     let bar = egui::ProgressBar::new(battery_frac)
         .text(format!("{:.1}%", robot.battery))
@@ -47,23 +69,27 @@ pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
     ui.add(bar);
 
     // Cargo
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label("Cargo:");
+    ui.add_space(8.0);
+    detail_row(
+        ui,
+        "Cargo:",
         match robot.carrying_cargo {
-            Some(id) => ui.label(format!("#{id}")),
-            None => ui.label("None"),
-        };
-    });
+            Some(id) => format!("#{id}"),
+            None => "None".to_string(),
+        },
+        false,
+    );
 
     // Task
-    ui.horizontal(|ui| {
-        ui.label("Task:");
+    detail_row(
+        ui,
+        "Task:",
         match robot.current_task {
-            Some(id) => ui.label(format!("#{id}")),
-            None => ui.label("None"),
-        };
-    });
+            Some(id) => format!("#{id}"),
+            None => "None".to_string(),
+        },
+        false,
+    );
 
     ui.add_space(12.0);
     ui.separator();

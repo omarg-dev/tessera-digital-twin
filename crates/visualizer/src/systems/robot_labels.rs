@@ -15,10 +15,184 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts};
 use protocol::RobotState;
 use protocol::config::visual::{ROBOT_SIZE, labels as lbl, ui as ui_cfg, camera as cam_cfg};
+use std::collections::HashMap;
 
 use crate::components::Robot;
 use crate::resources::UiState;
 use crate::systems::camera::CameraController;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LabelTier {
+    Full,
+    Compact,
+    Hidden,
+}
+
+#[derive(Clone, Copy)]
+struct LabelVisual {
+    color: (u8, u8, u8),
+    status_full: &'static str,
+    status_compact: &'static str,
+    has_cargo: bool,
+    pulse_hz: f32,
+    pulse_amplitude: f32,
+}
+
+struct LabelCandidate {
+    robot_id: u32,
+    anchor: egui::Pos2,
+    distance: f32,
+    tier: LabelTier,
+    force_full: bool,
+    visual: LabelVisual,
+}
+
+fn pulse_rgb(color: (u8, u8, u8), now: f32, hz: f32, amplitude: f32) -> (u8, u8, u8) {
+    if hz <= 0.0 || amplitude <= 0.0 {
+        return color;
+    }
+
+    let pulse = (now * hz * std::f32::consts::TAU).sin().abs() * amplitude;
+    let scale = (1.0 + pulse).clamp(0.0, 1.5);
+
+    let channel = |v: u8| -> u8 { (v as f32 * scale).clamp(0.0, 255.0) as u8 };
+    (channel(color.0), channel(color.1), channel(color.2))
+}
+
+fn resolve_label_tier(distance: f32, compact_enabled: bool) -> LabelTier {
+    if distance <= lbl::FULL_TIER_MAX_DISTANCE {
+        return LabelTier::Full;
+    }
+    if distance <= lbl::COMPACT_TIER_MAX_DISTANCE {
+        if compact_enabled {
+            return LabelTier::Compact;
+        }
+        return LabelTier::Full;
+    }
+    LabelTier::Hidden
+}
+
+fn draw_label(
+    ctx: &egui::Context,
+    robot_id: u32,
+    anchor: egui::Pos2,
+    tier: LabelTier,
+    zoom_scale: f32,
+    status_rgb: (u8, u8, u8),
+    visual: LabelVisual,
+    bg: egui::Color32,
+    id_color: egui::Color32,
+) {
+    let status_color = egui::Color32::from_rgb(status_rgb.0, status_rgb.1, status_rgb.2);
+    let stroke = egui::Stroke::new(lbl::STROKE_WIDTH * zoom_scale.max(0.65), status_color);
+
+    egui::Area::new(egui::Id::new(("rl", robot_id)))
+        .fixed_pos(anchor)
+        .pivot(egui::Align2::CENTER_BOTTOM)
+        .order(egui::Order::Background)
+        .interactable(false)
+        .show(ctx, |ui| {
+            let mut frame = egui::Frame::new()
+                .fill(bg)
+                .stroke(stroke)
+                .inner_margin(egui::Margin::symmetric(lbl::PADDING_H as i8, lbl::PADDING_V as i8));
+
+            frame = match tier {
+                LabelTier::Full => frame.corner_radius(lbl::CORNER_RADIUS as u8),
+                LabelTier::Compact => frame.corner_radius(lbl::COMPACT_CORNER_RADIUS as u8),
+                LabelTier::Hidden => frame,
+            };
+
+            frame.show(ui, |ui| match tier {
+                LabelTier::Full => {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.label(
+                            egui::RichText::new(format!("#{}", robot_id))
+                                .color(id_color)
+                                .size(lbl::FONT_SIZE * zoom_scale),
+                        );
+
+                        let label_text = if visual.has_cargo {
+                            format!("{} PKG", visual.status_full)
+                        } else {
+                            visual.status_full.to_owned()
+                        };
+                        ui.label(
+                            egui::RichText::new(label_text)
+                                .color(status_color)
+                                .size(lbl::ICON_SIZE * zoom_scale)
+                                .strong(),
+                        );
+                    });
+                }
+                LabelTier::Compact => {
+                    let mut compact = format!("#{} {}", robot_id, visual.status_compact);
+                    if visual.has_cargo {
+                        compact.push_str(" +PKG");
+                    }
+                    ui.label(
+                        egui::RichText::new(compact)
+                            .color(status_color)
+                            .size(lbl::COMPACT_FONT_SIZE * zoom_scale.max(0.8))
+                            .strong(),
+                    );
+                }
+                LabelTier::Hidden => {}
+            });
+        });
+}
+
+fn draw_cluster_badges(
+    ctx: &egui::Context,
+    anchors: &[egui::Pos2],
+    viewport: egui::Rect,
+) {
+    if anchors.is_empty() {
+        return;
+    }
+
+    let mut buckets: HashMap<(i32, i32), (usize, f32, f32)> = HashMap::new();
+    for anchor in anchors {
+        if !viewport.contains(*anchor) {
+            continue;
+        }
+        let bx = (anchor.x / lbl::CLUSTER_BUCKET_PX).floor() as i32;
+        let by = (anchor.y / lbl::CLUSTER_BUCKET_PX).floor() as i32;
+        let entry = buckets.entry((bx, by)).or_insert((0, 0.0, 0.0));
+        entry.0 += 1;
+        entry.1 += anchor.x;
+        entry.2 += anchor.y;
+    }
+
+    for ((bx, by), (count, sx, sy)) in buckets {
+        if count < lbl::CLUSTER_MIN_COUNT {
+            continue;
+        }
+
+        let pos = egui::pos2(sx / count as f32, sy / count as f32);
+        egui::Area::new(egui::Id::new(("rl_cluster", bx, by)))
+            .fixed_pos(pos)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .order(egui::Order::Background)
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(25, 30, 35, 224))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(130, 160, 175)))
+                    .corner_radius(4)
+                    .inner_margin(egui::Margin::symmetric(6, 3))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{} robots", count))
+                                .size(lbl::COMPACT_FONT_SIZE)
+                                .color(egui::Color32::from_rgb(195, 215, 230))
+                                .strong(),
+                        );
+                    });
+            });
+    }
+}
 
 /// Render overhead floating labels for every visible robot.
 pub fn draw_robot_labels(
@@ -70,16 +244,15 @@ pub fn draw_robot_labels(
     let bg = egui::Color32::from_rgba_unmultiplied(bg_r, bg_g, bg_b, bg_a);
     let id_color = egui::Color32::from_rgba_unmultiplied(160, 160, 160, 200);
     let selected_entity = ui_state.selected_entity;
+    let hovered_entity = ui_state.hovered_entity;
     let has_hidden = !ui_state.hidden_labels.is_empty();
+    let mut candidates = Vec::new();
 
     for (entity, robot, transform) in &robots {
-        // hide the selected robot label while the inspector is focused on it
-        if selected_entity == Some(entity) {
-            continue;
-        }
+        let force_full = selected_entity == Some(entity) || hovered_entity == Some(entity);
 
         // hide label if explicitly hidden by right-click (cleared on deselect)
-        if has_hidden && ui_state.hidden_labels.contains(&entity) {
+        if !force_full && has_hidden && ui_state.hidden_labels.contains(&entity) {
             continue;
         }
 
@@ -96,46 +269,71 @@ pub fn draw_robot_labels(
             continue;
         }
 
-        let (color, status, has_cargo) = label_content(robot, now);
-        let status_color = egui::Color32::from_rgb(color.0, color.1, color.2);
-        let stroke = egui::Stroke::new(lbl::STROKE_WIDTH * zoom_scale.max(0.7), status_color);
+        let distance = cam_gt.translation().distance(transform.translation);
+        let tier = if force_full {
+            LabelTier::Full
+        } else {
+            resolve_label_tier(distance, ui_state.compact_labels)
+        };
 
-        // Order::Background keeps labels behind egui panels
-        egui::Area::new(egui::Id::new(("rl", robot.id)))
-            .fixed_pos(sp)
-            .pivot(egui::Align2::CENTER_BOTTOM)
-            .order(egui::Order::Background)
-            .interactable(false)
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(bg)
-                    .stroke(stroke)
-                    .corner_radius(lbl::CORNER_RADIUS as u8)
-                    .inner_margin(egui::Margin::symmetric(lbl::PADDING_H as i8, lbl::PADDING_V as i8))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            // small dim robot ID
-                            ui.label(
-                                egui::RichText::new(format!("#{}", robot.id))
-                                    .color(id_color)
-                                    .size(lbl::FONT_SIZE * zoom_scale),
-                            );
-                            // large bold status word in state color
-                            let label_text = if has_cargo {
-                                format!("{} PKG", status)
-                            } else {
-                                status.to_owned()
-                            };
-                            ui.label(
-                                egui::RichText::new(label_text)
-                                    .color(status_color)
-                                    .size(lbl::ICON_SIZE * zoom_scale)
-                                    .strong(),
-                            );
-                        });
-                    });
-            });
+        candidates.push(LabelCandidate {
+            robot_id: robot.id,
+            anchor: sp,
+            distance,
+            tier,
+            force_full,
+            visual: label_content(robot, now),
+        });
+    }
+
+    // deterministic render priority: forced full labels first, then nearest robots, then id.
+    candidates.sort_by(|a, b| {
+        b.force_full
+            .cmp(&a.force_full)
+            .then_with(|| a.distance.total_cmp(&b.distance))
+            .then_with(|| a.robot_id.cmp(&b.robot_id))
+    });
+
+    let mut budget_used = 0usize;
+    let mut hidden_for_clusters = Vec::new();
+
+    for candidate in candidates {
+        if candidate.tier == LabelTier::Hidden {
+            hidden_for_clusters.push(candidate.anchor);
+            continue;
+        }
+
+        if !candidate.force_full && budget_used >= lbl::MAX_LABELS_PER_FRAME {
+            hidden_for_clusters.push(candidate.anchor);
+            continue;
+        }
+
+        let pulse_rgb = pulse_rgb(
+            candidate.visual.color,
+            now,
+            candidate.visual.pulse_hz,
+            candidate.visual.pulse_amplitude,
+        );
+
+        draw_label(
+            ctx,
+            candidate.robot_id,
+            candidate.anchor,
+            candidate.tier,
+            zoom_scale,
+            pulse_rgb,
+            candidate.visual,
+            bg,
+            id_color,
+        );
+
+        if !candidate.force_full {
+            budget_used += 1;
+        }
+    }
+
+    if ui_state.cluster_badges {
+        draw_cluster_badges(ctx, &hidden_for_clusters, vp);
     }
 
     Ok(())
@@ -145,24 +343,71 @@ pub fn draw_robot_labels(
 ///
 /// Status labels use plain ASCII so they render reliably in egui's default font.
 /// Priority: offline > faulted > low_battery > blocked > charging > picking > normal.
-fn label_content(robot: &Robot, now: f32) -> ((u8, u8, u8), &'static str, bool) {
+fn label_content(robot: &Robot, now: f32) -> LabelVisual {
     let cargo = robot.carrying_cargo.is_some();
 
     if now - robot.last_update_secs > lbl::OFFLINE_TIMEOUT_SECS {
-        return (lbl::COLOR_OFFLINE, "OFFLINE", cargo);
+        return LabelVisual {
+            color: lbl::COLOR_OFFLINE,
+            status_full: "OFFLINE",
+            status_compact: "OFF",
+            has_cargo: cargo,
+            pulse_hz: lbl::PULSE_NORMAL_HZ,
+            pulse_amplitude: lbl::PULSE_NORMAL_AMPLITUDE,
+        };
     }
 
-    let (color, status) = match robot.state {
-        RobotState::Faulted         => (lbl::COLOR_FAULTED,  "FAULT"),
-        RobotState::LowBattery      => (lbl::COLOR_LOW_BATT, "LOW BATT"),
-        RobotState::Blocked         => (lbl::COLOR_BLOCKED,  "REROUTING"),
-        RobotState::Charging        => (lbl::COLOR_CHARGING, "CHARGING"),
-        RobotState::Picking         => (lbl::COLOR_PICKING,  "PICKING"),
-        RobotState::MovingToPickup  => (lbl::COLOR_NORMAL,   "-> PICKUP"),
-        RobotState::MovingToDrop    => (lbl::COLOR_NORMAL,   "-> DROP"),
-        RobotState::MovingToStation => (lbl::COLOR_NORMAL,   "-> CHARGER"),
-        RobotState::Idle            => (lbl::COLOR_NORMAL,   "IDLE"),
+    let (color, status_full, status_compact, pulse_hz, pulse_amplitude) = match robot.state {
+        RobotState::Faulted => (
+            lbl::COLOR_FAULTED,
+            "FAULT",
+            "FLT",
+            lbl::PULSE_FAULT_HZ,
+            lbl::PULSE_FAULT_AMPLITUDE,
+        ),
+        RobotState::LowBattery => (
+            lbl::COLOR_LOW_BATT,
+            "LOW BATT",
+            "LOW",
+            lbl::PULSE_LOW_BATT_HZ,
+            lbl::PULSE_LOW_BATT_AMPLITUDE,
+        ),
+        RobotState::Blocked => (
+            lbl::COLOR_BLOCKED,
+            "BLOCKED",
+            "BLK",
+            lbl::PULSE_BLOCKED_HZ,
+            lbl::PULSE_BLOCKED_AMPLITUDE,
+        ),
+        RobotState::Charging => (
+            lbl::COLOR_CHARGING,
+            "CHARGING",
+            "CHG",
+            lbl::PULSE_CHARGING_HZ,
+            lbl::PULSE_CHARGING_AMPLITUDE,
+        ),
+        RobotState::Picking | RobotState::MovingToPickup | RobotState::MovingToDrop | RobotState::MovingToStation => (
+            lbl::COLOR_EXECUTING,
+            "EXECUTING",
+            "RUN",
+            lbl::PULSE_NORMAL_HZ,
+            lbl::PULSE_NORMAL_AMPLITUDE,
+        ),
+        RobotState::Idle => (
+            lbl::COLOR_NORMAL,
+            "IDLE",
+            "IDL",
+            lbl::PULSE_NORMAL_HZ,
+            lbl::PULSE_NORMAL_AMPLITUDE,
+        ),
     };
 
-    (color, status, cargo)
+    LabelVisual {
+        color,
+        status_full,
+        status_compact,
+        has_cargo: cargo,
+        pulse_hz,
+        pulse_amplitude,
+    }
 }

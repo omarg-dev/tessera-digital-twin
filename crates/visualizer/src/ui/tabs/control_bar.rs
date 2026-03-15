@@ -77,6 +77,11 @@ pub fn draw(
             actions.push(UiAction::SetPathAnimation(ui_state.animate_paths));
         }
 
+        ui.add_enabled_ui(ui_state.show_ids, |ui| {
+            ui.checkbox(&mut ui_state.compact_labels, "Compact");
+            ui.checkbox(&mut ui_state.cluster_badges, "Clusters");
+        });
+
         ui.checkbox(&mut ui_state.show_ids, "Labels");
         ui.checkbox(&mut ui_state.show_heatmap, "Heatmap");
         ui.checkbox(&mut ui_state.show_paths, "Paths");

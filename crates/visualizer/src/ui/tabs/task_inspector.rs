@@ -7,6 +7,31 @@ use protocol::{Priority, TaskStatus, TaskType};
 use crate::resources::{ActivePaths, UiAction, UiState};
 use crate::ui::widgets::task_detail_minimap;
 
+fn primary_row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).strong());
+        ui.label(egui::RichText::new(value.into()).strong());
+    });
+}
+
+fn secondary_row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) {
+    ui.horizontal(|ui| {
+        ui.weak(label);
+        ui.label(egui::RichText::new(value.into()).color(egui::Color32::from_gray(185)));
+    });
+}
+
+fn status_color(status: &TaskStatus) -> egui::Color32 {
+    match status {
+        TaskStatus::Failed { .. } => egui::Color32::from_rgb(225, 75, 75),
+        TaskStatus::Cancelled => egui::Color32::from_rgb(165, 165, 165),
+        TaskStatus::Completed => egui::Color32::from_rgb(80, 210, 120),
+        TaskStatus::InProgress { .. } => egui::Color32::from_rgb(120, 205, 255),
+        TaskStatus::Assigned { .. } => egui::Color32::from_rgb(145, 210, 255),
+        TaskStatus::Pending => egui::Color32::from_rgb(225, 190, 80),
+    }
+}
+
 /// Format a Unix-millis timestamp as `HH:MM:SS GMT+3`.
 fn fmt_time_gmt3(ms: u64) -> String {
     const OFFSET: u64 = 3 * 3600;
@@ -29,86 +54,72 @@ pub fn draw(
     );
 
     ui.label(egui::RichText::new(format!("Task #{}", task.id)).heading().strong());
-    ui.add_space(8.0);
+    ui.add_space(10.0);
 
     // type
-    ui.horizontal(|ui| {
-        ui.label("Type:");
-        let kind = match &task.task_type {
-            TaskType::PickAndDeliver { .. } => "Pick & Deliver",
-            TaskType::Relocate { .. } => "Relocate",
-            TaskType::ReturnToStation { .. } => "Return to Station",
-        };
-        ui.label(kind);
-    });
+    let kind = match &task.task_type {
+        TaskType::PickAndDeliver { .. } => "Pick & Deliver",
+        TaskType::Relocate { .. } => "Relocate",
+        TaskType::ReturnToStation { .. } => "Return to Station",
+    };
+    primary_row(ui, "Type:", kind);
 
     // locations + minimap
     let pickup = task.pickup_location();
     let dropoff = task.target_location();
     if let Some((px, py)) = pickup {
-        ui.horizontal(|ui| {
-            ui.label("Pickup:");
-            ui.label(format!("({px},{py})"));
-        });
+        secondary_row(ui, "Pickup:", format!("({px},{py})"));
     }
     if let Some((dx, dy)) = dropoff {
-        ui.horizontal(|ui| {
-            ui.label("Drop-off:");
-            ui.label(format!("({dx},{dy})"));
-        });
+        secondary_row(ui, "Drop-off:", format!("({dx},{dy})"));
     }
     if pickup.is_some() || dropoff.is_some() {
         if let Some(grid) = warehouse_map {
-            ui.add_space(4.0);
+            ui.add_space(6.0);
             task_detail_minimap(ui, grid, pickup, dropoff);
         }
     }
 
-    ui.add_space(4.0);
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(6.0);
 
     // assignment — N/A for terminal tasks, Pending otherwise
-    ui.horizontal(|ui| {
-        ui.label("Robot:");
+    primary_row(
+        ui,
+        "Robot:",
         match &task.status {
             TaskStatus::Assigned { robot_id } | TaskStatus::InProgress { robot_id } => {
-                ui.label(format!("#{robot_id}"));
+                format!("#{robot_id}")
             }
             TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled => {
-                ui.weak("N/A");
+                "N/A".to_string()
             }
-            TaskStatus::Pending => {
-                ui.weak("Pending");
-            }
-        }
-    });
+            TaskStatus::Pending => "Pending".to_string(),
+        },
+    );
 
     // status
+    let status_text = match &task.status {
+        TaskStatus::Failed { reason } => format!("{}: {reason}", protocol::task_status_label(&task.status)),
+        _ => protocol::task_status_label(&task.status).to_string(),
+    };
     ui.horizontal(|ui| {
-        ui.label("Status:");
-        let s = match &task.status {
-            TaskStatus::Failed { reason } => format!("{}: {reason}", protocol::task_status_label(&task.status)),
-            _ => protocol::task_status_label(&task.status).to_string(),
-        };
-        ui.label(s);
+        ui.label(egui::RichText::new("Status:").strong());
+        ui.label(egui::RichText::new(status_text).color(status_color(&task.status)).strong());
     });
 
     // created timestamp
-    ui.horizontal(|ui| {
-        ui.label("Created:");
-        ui.label(fmt_time_gmt3(task.created_at));
-    });
+    secondary_row(ui, "Created:", fmt_time_gmt3(task.created_at));
 
     // completed/failed/cancelled timestamp (shown only when available)
     if let Some(completed_ms) = task.completed_at {
-        ui.horizontal(|ui| {
-            let label = match &task.status {
-                TaskStatus::Failed { .. } => "Failed:",
-                TaskStatus::Cancelled => "Cancelled:",
-                _ => "Completed:",
-            };
-            ui.label(label);
-            ui.label(fmt_time_gmt3(completed_ms));
-        });
+        let label = match &task.status {
+            TaskStatus::Failed { .. } => "Failed:",
+            TaskStatus::Cancelled => "Cancelled:",
+            _ => "Completed:",
+        };
+        secondary_row(ui, label, fmt_time_gmt3(completed_ms));
     }
 
     // ETA (only when a robot is actively working on it)
@@ -128,18 +139,18 @@ pub fn draw(
             "N/A".to_string()
         };
         ui.horizontal(|ui| {
-            ui.label("ETA:");
-            ui.label(eta_str);
+            ui.label(egui::RichText::new("ETA:").strong());
+            ui.label(egui::RichText::new(eta_str).strong());
         });
     }
 
     // actions hidden for terminal tasks (task cannot be mutated once done)
     if !is_terminal {
-        ui.add_space(4.0);
+        ui.add_space(10.0);
 
         // priority (editable)
         ui.horizontal(|ui| {
-            ui.label("Priority:");
+            ui.label(egui::RichText::new("Priority:").strong());
             let mut current = task.priority;
             let old = current;
             egui::ComboBox::from_id_salt(format!("task_prio_{}", task.id))

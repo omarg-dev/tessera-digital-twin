@@ -447,6 +447,25 @@ pub mod visual {
         /// tune this value to adjust default label size
         pub const ICON_SIZE: f32 = 11.0;
 
+        /// Compact-tier font size used at medium/far zoom.
+        pub const COMPACT_FONT_SIZE: f32 = 9.0;
+
+        /// Maximum world-space distance for full label tier.
+        pub const FULL_TIER_MAX_DISTANCE: f32 = 16.0;
+
+        /// Maximum world-space distance for compact label tier.
+        /// Robots farther than this are hidden unless selected/hovered.
+        pub const COMPACT_TIER_MAX_DISTANCE: f32 = 34.0;
+
+        /// Maximum number of non-forced labels rendered each frame.
+        pub const MAX_LABELS_PER_FRAME: usize = 42;
+
+        /// Screen-space bucket size in logical pixels for cluster badges.
+        pub const CLUSTER_BUCKET_PX: f32 = 110.0;
+
+        /// Minimum hidden robot count before a cluster badge is drawn.
+        pub const CLUSTER_MIN_COUNT: usize = 3;
+
         /// Label background color (fully opaque dark)
         pub const BG_COLOR: (u8, u8, u8, u8) = (18, 18, 18, 245);
 
@@ -455,6 +474,9 @@ pub mod visual {
 
         /// Label frame corner radius
         pub const CORNER_RADIUS: f32 = 4.0;
+
+        /// Label frame corner radius for compact label chips.
+        pub const COMPACT_CORNER_RADIUS: f32 = 3.0;
 
         /// Horizontal inner padding (logical pixels)
         pub const PADDING_H: f32 = 5.0;
@@ -477,6 +499,34 @@ pub mod visual {
         pub const COLOR_PICKING: (u8, u8, u8) = (255, 210, 60);
         /// Normal operation (moving, idle)
         pub const COLOR_NORMAL: (u8, u8, u8) = (200, 200, 200);
+
+        /// Executing movement/delivery state.
+        pub const COLOR_EXECUTING: (u8, u8, u8) = (120, 205, 255);
+
+        /// Label pulse frequency for faulted state.
+        pub const PULSE_FAULT_HZ: f32 = 2.2;
+        /// Label pulse amplitude for faulted state.
+        pub const PULSE_FAULT_AMPLITUDE: f32 = 0.36;
+
+        /// Label pulse frequency for blocked state.
+        pub const PULSE_BLOCKED_HZ: f32 = 1.7;
+        /// Label pulse amplitude for blocked state.
+        pub const PULSE_BLOCKED_AMPLITUDE: f32 = 0.24;
+
+        /// Label pulse frequency for charging state.
+        pub const PULSE_CHARGING_HZ: f32 = 0.85;
+        /// Label pulse amplitude for charging state.
+        pub const PULSE_CHARGING_AMPLITUDE: f32 = 0.12;
+
+        /// Label pulse frequency for low battery warning state.
+        pub const PULSE_LOW_BATT_HZ: f32 = 1.1;
+        /// Label pulse amplitude for low battery warning state.
+        pub const PULSE_LOW_BATT_AMPLITUDE: f32 = 0.16;
+
+        /// Label pulse frequency for normal/idle state.
+        pub const PULSE_NORMAL_HZ: f32 = 0.0;
+        /// Label pulse amplitude for normal/idle state.
+        pub const PULSE_NORMAL_AMPLITUDE: f32 = 0.0;
     }
 }
 
@@ -552,7 +602,7 @@ pub mod optimization {
     /// This is the single largest GPU cost in the warehouse scene — the shadow map
     /// must re-render every tile on every frame. The top-down camera angle makes
     /// cast shadows barely visible, so this is safe to leave off by default.
-    pub const DISABLE_DIRECTIONAL_SHADOWS: bool = true;
+    pub const DISABLE_DIRECTIONAL_SHADOWS: bool = false;
 
     /// Mark floor and wall SceneRoot entities with `Pickable::IGNORE` so the
     /// picking backend skips event dispatch over non-interactive tiles.
@@ -564,10 +614,10 @@ pub mod optimization {
     /// Mark floor and wall child meshes as `NotShadowCaster`.
     /// Requires a SceneInstanceReady propagation system to reach child meshes.
     /// TODO: implement propagation system; for now use DISABLE_DIRECTIONAL_SHADOWS.
-    pub const DISABLE_TILE_SHADOW_CAST: bool = true;
+    pub const DISABLE_TILE_SHADOW_CAST: bool = false;
 
     /// Mark floor tile child meshes as `NotShadowReceiver`.
     /// Requires a SceneInstanceReady propagation system to reach child meshes.
     /// TODO: implement propagation system.
-    pub const DISABLE_FLOOR_SHADOW_RECEIVE: bool = true;
+    pub const DISABLE_FLOOR_SHADOW_RECEIVE: bool = false;
 }
