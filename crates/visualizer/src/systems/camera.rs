@@ -3,11 +3,11 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseSc
 use bevy::post_process::bloom::Bloom;
 use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
+use protocol::config::visual::bloom as bloom_cfg;
 use protocol::config::visual::camera;
-use protocol::config::visual::outline as outline_cfg;
 use protocol::TaskStatus;
 
-use crate::resources::{RobotIndex, TaskListData, UiState};
+use crate::resources::{RobotIndex, TaskListData, UiState, VisualTuning};
 
 /// Marker component for the main warehouse camera
 #[derive(Component)]
@@ -44,12 +44,34 @@ pub fn spawn_camera(mut commands: Commands) {
         transform,
         Hdr,
         Bloom {
-            intensity: outline_cfg::BLOOM_INTENSITY,
+            intensity: bloom_cfg::DEFAULT_INTENSITY,
             ..default()
         },
         Camera,
         controller,
     ));
+}
+
+/// Apply runtime bloom settings from UI controls.
+pub fn update_bloom_settings(
+    mut camera_query: Query<&mut Bloom, With<Camera>>,
+    visual_tuning: Res<VisualTuning>,
+) {
+    if !visual_tuning.is_changed() {
+        return;
+    }
+
+    let Ok(mut bloom) = camera_query.single_mut() else {
+        return;
+    };
+
+    bloom.intensity = if visual_tuning.bloom_enabled {
+        visual_tuning
+            .bloom_intensity
+            .clamp(bloom_cfg::MIN_INTENSITY, bloom_cfg::MAX_INTENSITY)
+    } else {
+        0.0
+    };
 }
 
 /// System to handle camera pan and zoom.

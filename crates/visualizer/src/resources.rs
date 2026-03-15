@@ -5,7 +5,7 @@
 //! Publishes control commands (pause/resume, robot control) from the UI.
 
 use bevy::prelude::*;
-use protocol::config::visual::ui as ui_cfg;
+use protocol::config::visual::{bloom as bloom_cfg, ui as ui_cfg};
 use protocol::grid_map::GridMap;
 use protocol::{Priority, QueueState, RobotControl, RobotUpdate, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest, WhcaMetricsTelemetry};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -85,6 +85,24 @@ pub struct PlaceholderMeshes {
     pub robot_material: Handle<StandardMaterial>,
 }
 
+/// Runtime visual tuning state shared across camera and render systems.
+#[derive(Resource)]
+pub struct VisualTuning {
+    pub bloom_enabled: bool,
+    pub bloom_intensity: f32,
+    pub path_animation_enabled: bool,
+}
+
+impl Default for VisualTuning {
+    fn default() -> Self {
+        Self {
+            bloom_enabled: bloom_cfg::ENABLED_BY_DEFAULT,
+            bloom_intensity: bloom_cfg::DEFAULT_INTENSITY,
+            path_animation_enabled: true,
+        }
+    }
+}
+
 // ── UI State ──────────────────────────────────────────────────────
 
 /// Active tab in the left Object Manager panel
@@ -128,6 +146,12 @@ pub struct UiState {
     pub show_debug_grid: bool,
     /// Layer toggle: show robot ID labels
     pub show_ids: bool,
+    /// Layer toggle: enable bloom post-process
+    pub bloom_enabled: bool,
+    /// Runtime bloom intensity
+    pub bloom_intensity: f32,
+    /// Layer toggle: animate selected active path
+    pub animate_paths: bool,
     /// Simulation speed multiplier (1.0 = real-time)
     pub sim_speed: f32,
     /// Custom speed text field is being edited
@@ -203,6 +227,9 @@ impl Default for UiState {
             show_heatmap: false,
             show_debug_grid: false,
             show_ids: true,
+            bloom_enabled: bloom_cfg::ENABLED_BY_DEFAULT,
+            bloom_intensity: bloom_cfg::DEFAULT_INTENSITY,
+            animate_paths: true,
             sim_speed: 1.0,
             custom_speed_editing: false,
             custom_speed_text: String::new(),
@@ -354,4 +381,11 @@ pub enum UiAction {
     CancelTask(u64),
     /// Change task priority
     ChangePriority(u64, Priority),
+    /// Toggle bloom and set intensity for runtime A/B checks
+    SetBloom {
+        enabled: bool,
+        intensity: f32,
+    },
+    /// Toggle selected-path animation
+    SetPathAnimation(bool),
 }

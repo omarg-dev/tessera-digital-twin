@@ -265,16 +265,31 @@ pub mod visual {
     }
 
     pub mod path {
-        /// HDR glow color for path lines and destination markers.
-        /// Values > 1.0 trigger the camera's Bloom post-process.
-
-        /// Glow color used when all paths are shown globally (subtle, non-dominant)
-        pub const GLOBAL_PATH_GLOW: (f32, f32, f32) = (0.0, 1.2, 1.2);
-        /// Glow color for the currently selected robot's path (bright, prominent)
-        pub const SELECTED_PATH_GLOW: (f32, f32, f32) = (0.0, 3.5, 3.5);
+        /// Path color for global active routes (subtle, non-dominant)
+        pub const ACTIVE_OTHER_COLOR: (f32, f32, f32) = (0.18, 0.50, 0.58);
+        /// Path color for recently completed routes during fade-out
+        pub const COMPLETED_COLOR: (f32, f32, f32) = (0.16, 0.30, 0.34);
+        /// Path color for the selected robot's active route (bright cyan)
+        /// values > 1.0 trigger the camera Bloom post-process
+        pub const SELECTED_ACTIVE_COLOR: (f32, f32, f32) = super::semantic::FLOW_ACTIVE;
 
         /// Radius of the destination circle marker
         pub const DEST_CIRCLE_RADIUS: f32 = 0.25;
+
+        /// Radius multiplier for selected path destination marker pulse
+        pub const SELECTED_DEST_RADIUS_MULTIPLIER: f32 = 1.2;
+
+        /// Radius multiplier for non-selected destination markers
+        pub const OTHER_DEST_RADIUS_MULTIPLIER: f32 = 0.9;
+
+        /// How long recently completed paths remain visible (seconds)
+        pub const COMPLETED_FADE_SECS: f32 = 0.8;
+
+        /// Pulse speed for selected path destination marker (radians / second)
+        pub const SELECTED_PULSE_SPEED: f32 = 5.5;
+
+        /// Pulse amplitude for selected path destination marker
+        pub const SELECTED_PULSE_AMPLITUDE: f32 = 0.22;
 
         /// Y offset used when rendering path gizmos above the floor.
         pub const PATH_Y_OFFSET: f32 = 0.05;
@@ -295,26 +310,67 @@ pub mod visual {
         pub const DROPOFF: (f32, f32, f32) = (0.0, 1.0, 0.4);
         /// Shelf color (brown)
         pub const SHELF: (f32, f32, f32) = (0.6, 0.4, 0.2);
-        /// Robot color (cyan)
-        pub const ROBOT: (f32, f32, f32) = (0.2, 0.7, 0.9);
+        /// Robot color (muted steel-blue)
+        pub const ROBOT: (f32, f32, f32) = (0.42, 0.56, 0.66);
+    }
+
+    /// Semantic visual tokens used by both 3D scene and UI accents.
+    pub mod semantic {
+        /// Neutral base color used for large static surfaces.
+        pub const NEUTRAL_BASE: (f32, f32, f32) = (0.84, 0.86, 0.89);
+        /// Muted steel-blue for robot body color.
+        pub const ROBOT_BODY: (f32, f32, f32) = (0.42, 0.56, 0.66);
+        /// Bright cyan reserved for active selected path only.
+        pub const FLOW_ACTIVE: (f32, f32, f32) = (0.0, 2.8, 3.1);
+        /// Accent for selected entities and key interactive states.
+        pub const SELECTION: (f32, f32, f32) = (3.8, 2.4, 0.45);
+        /// Alert accent for fault or critical warnings.
+        pub const ALERT: (f32, f32, f32) = (2.6, 0.25, 0.25);
     }
 
     /// Outline highlighting settings (hover and selection glow)
     pub mod outline {
         /// HDR hover outline color (bright white, values > 1.0 for bloom glow)
         pub const HOVER_COLOR: (f32, f32, f32) = (5.0, 5.0, 5.0);
-        /// HDR select outline color (cyan/blue glow)
-        pub const SELECT_COLOR: (f32, f32, f32) = (0.0, 2.5, 5.0);
+        /// HDR select outline color (amber accent, distinct from path cyan)
+        pub const SELECT_COLOR: (f32, f32, f32) = super::semantic::SELECTION;
         /// outline width in logical pixels
         pub const WIDTH: f32 = 3.0;
-        /// bloom post-processing intensity (low to avoid blinding)
-        pub const BLOOM_INTENSITY: f32 = 0.15;
+    }
+
+    /// Bloom post-process defaults and runtime control bounds.
+    pub mod bloom {
+        /// Whether bloom is enabled by default.
+        pub const ENABLED_BY_DEFAULT: bool = true;
+        /// Default bloom intensity when enabled.
+        pub const DEFAULT_INTENSITY: f32 = 0.10;
+        /// Minimum runtime bloom intensity.
+        pub const MIN_INTENSITY: f32 = 0.0;
+        /// Maximum runtime bloom intensity.
+        pub const MAX_INTENSITY: f32 = 0.35;
+    }
+
+    /// Luminance and saturation controls to separate floor, walls, and shelves.
+    pub mod luminance {
+        /// Floor brightness multiplier.
+        pub const FLOOR_BRIGHTNESS: f32 = 1.06;
+        /// Wall brightness multiplier.
+        pub const WALL_BRIGHTNESS: f32 = 0.74;
+        /// Shelf brightness multiplier.
+        pub const SHELF_BRIGHTNESS: f32 = 0.88;
+
+        /// Floor saturation multiplier.
+        pub const FLOOR_SATURATION: f32 = 0.60;
+        /// Wall saturation multiplier.
+        pub const WALL_SATURATION: f32 = 0.45;
+        /// Shelf saturation multiplier.
+        pub const SHELF_SATURATION: f32 = 0.55;
     }
 
     /// Lighting settings
     pub mod lighting {
-        pub const DIRECTIONAL_ILLUMINANCE: f32 = 15_000.0;
-        pub const AMBIENT_BRIGHTNESS: f32 = 500.0;
+        pub const DIRECTIONAL_ILLUMINANCE: f32 = 12_500.0;
+        pub const AMBIENT_BRIGHTNESS: f32 = 360.0;
     }
 
     /// Camera defaults

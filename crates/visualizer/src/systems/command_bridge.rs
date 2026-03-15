@@ -8,7 +8,7 @@ use protocol::{RobotControl, SystemCommand, TaskCommand, topics};
 use tokio::sync::mpsc;
 use zenoh::Session;
 
-use crate::resources::{CommandSender, LogBuffer, OutboundCommand, UiAction, UiState, ZenohSession};
+use crate::resources::{CommandSender, LogBuffer, OutboundCommand, UiAction, UiState, VisualTuning, ZenohSession};
 
 /// Initialize background Zenoh publishers for UI commands
 pub fn setup_publishers(mut commands: Commands, session: Res<ZenohSession>) {
@@ -84,6 +84,7 @@ pub fn bridge_ui_commands(
     mut events: MessageReader<UiAction>,
     sender: Option<Res<CommandSender>>,
     mut ui_state: ResMut<UiState>,
+    mut visual_tuning: ResMut<VisualTuning>,
     mut log_buffer: ResMut<LogBuffer>,
 ) {
     let Some(sender) = sender else { return };
@@ -91,80 +92,100 @@ pub fn bridge_ui_commands(
     for action in events.read() {
         let (cmd, msg) = match action {
             UiAction::SetPaused(true) => (
-                OutboundCommand::System(SystemCommand::Pause),
+                Some(OutboundCommand::System(SystemCommand::Pause)),
                 "[UI] Pause broadcast".to_string(),
             ),
             UiAction::SetPaused(false) => (
-                OutboundCommand::System(SystemCommand::Resume),
+                Some(OutboundCommand::System(SystemCommand::Resume)),
                 "[UI] Resume broadcast".to_string(),
             ),
             UiAction::SetRealtime(true) => {
                 ui_state.paused_before_realtime = Some(ui_state.is_paused);
                 (
-                    OutboundCommand::System(SystemCommand::Pause),
+                    Some(OutboundCommand::System(SystemCommand::Pause)),
                     "[UI] Real-time ON: pausing simulation".to_string(),
                 )
             }
             UiAction::SetRealtime(false) => {
                 match ui_state.paused_before_realtime.take() {
                     Some(true) => (
-                        OutboundCommand::System(SystemCommand::Pause),
+                        Some(OutboundCommand::System(SystemCommand::Pause)),
                         "[UI] Real-time OFF: keeping previous paused state".to_string(),
                     ),
                     Some(false) => (
-                        OutboundCommand::System(SystemCommand::Resume),
+                        Some(OutboundCommand::System(SystemCommand::Resume)),
                         "[UI] Real-time OFF: restoring running state".to_string(),
                     ),
                     None if ui_state.is_paused => (
-                        OutboundCommand::System(SystemCommand::Pause),
+                        Some(OutboundCommand::System(SystemCommand::Pause)),
                         "[UI] Real-time OFF: missing previous state, preserving paused".to_string(),
                     ),
                     None => (
-                        OutboundCommand::System(SystemCommand::Resume),
+                        Some(OutboundCommand::System(SystemCommand::Resume)),
                         "[UI] Real-time OFF: missing previous state, preserving running".to_string(),
                     ),
                 }
             }
             UiAction::KillRobot(id) => (
-                OutboundCommand::Robot(RobotControl::Down(*id)),
+                Some(OutboundCommand::Robot(RobotControl::Down(*id))),
                 format!("[UI] Kill Robot #{id}"),
             ),
             UiAction::RestartRobot(id) => (
-                OutboundCommand::Robot(RobotControl::Restart(*id)),
+                Some(OutboundCommand::Robot(RobotControl::Restart(*id))),
                 format!("[UI] Restart Robot #{id}"),
             ),
             UiAction::EnableRobot(id) => (
-                OutboundCommand::Robot(RobotControl::Up(*id)),
+                Some(OutboundCommand::Robot(RobotControl::Up(*id))),
                 format!("[UI] Enable Robot #{id}"),
             ),
             UiAction::DisableRobot(id) => (
-                OutboundCommand::Robot(RobotControl::Down(*id)),
+                Some(OutboundCommand::Robot(RobotControl::Down(*id))),
                 format!("[UI] Disable Robot #{id}"),
             ),
             UiAction::SetTimeScale(scale) => (
-                OutboundCommand::System(SystemCommand::SetTimeScale(*scale)),
+                Some(OutboundCommand::System(SystemCommand::SetTimeScale(*scale))),
                 format!("[UI] Speed: {scale:.1}x"),
             ),
             UiAction::SubmitTransportTask(req) => (
-                OutboundCommand::Task(TaskCommand::New {
+                Some(OutboundCommand::Task(TaskCommand::New {
                     task_type: req.task_type.clone(),
                     priority: req.priority,
-                }),
+                })),
                 format!("[UI] Transport task: {:?}", req.task_type),
             ),
             UiAction::CancelTask(id) => (
-                OutboundCommand::Task(TaskCommand::Cancel(*id)),
+                Some(OutboundCommand::Task(TaskCommand::Cancel(*id))),
                 format!("[UI] Cancel task #{id}"),
             ),
             UiAction::ChangePriority(id, priority) => (
-                OutboundCommand::Task(TaskCommand::SetPriority(*id, *priority)),
+                Some(OutboundCommand::Task(TaskCommand::SetPriority(*id, *priority))),
                 format!("[UI] Set task #{id} priority: {:?}", priority),
             ),
+            UiAction::SetBloom { enabled, intensity } => {
+                visual_tuning.bloom_enabled = *enabled;
+                visual_tuning.bloom_intensity = *intensity;
+                ui_state.bloom_enabled = *enabled;
+                ui_state.bloom_intensity = *intensity;
+                (
+                    None,
+                    format!("[UI] Bloom: {} ({:.2})", if *enabled { "on" } else { "off" }, intensity),
+                )
+            }
+            UiAction::SetPathAnimation(enabled) => {
+                visual_tuning.path_animation_enabled = *enabled;
+                ui_state.animate_paths = *enabled;
+                (
+                    None,
+                    format!("[UI] Path animation: {}", if *enabled { "on" } else { "off" }),
+                )
+            }
         };
 
         log_buffer.push(msg);
-        if let Err(e) = sender.0.try_send(cmd) {
-            log_buffer.push(format!("[UI] Command dropped before publish: {}", e));
+        if let Some(cmd) = cmd {
+            if let Err(e) = sender.0.try_send(cmd) {
+                log_buffer.push(format!("[UI] Command dropped before publish: {}", e));
+            }
         }
     }
 }

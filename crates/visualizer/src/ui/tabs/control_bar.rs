@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
+use protocol::config::visual::bloom as bloom_cfg;
 
 use crate::resources::{QueueStateData, RobotIndex, UiAction, UiState};
 
@@ -53,6 +54,29 @@ pub fn draw(
 
     // ── Layer toggles (right-aligned) ──
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let mut bloom_changed = false;
+        bloom_changed |= ui.checkbox(&mut ui_state.bloom_enabled, "Bloom").changed();
+
+        let slider = egui::Slider::new(
+            &mut ui_state.bloom_intensity,
+            bloom_cfg::MIN_INTENSITY..=bloom_cfg::MAX_INTENSITY,
+        )
+        .text("Glow")
+        .show_value(false)
+        .step_by(0.01);
+        bloom_changed |= ui.add_enabled(ui_state.bloom_enabled, slider).changed();
+
+        if bloom_changed {
+            actions.push(UiAction::SetBloom {
+                enabled: ui_state.bloom_enabled,
+                intensity: ui_state.bloom_intensity,
+            });
+        }
+
+        if ui.checkbox(&mut ui_state.animate_paths, "Flow").changed() {
+            actions.push(UiAction::SetPathAnimation(ui_state.animate_paths));
+        }
+
         ui.checkbox(&mut ui_state.show_ids, "Labels");
         ui.checkbox(&mut ui_state.show_heatmap, "Heatmap");
         ui.checkbox(&mut ui_state.show_paths, "Paths");

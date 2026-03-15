@@ -4,7 +4,7 @@ use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
 use protocol::config::{LAYOUT_FILE_PATH,
-    visual::{TILE_SIZE, shelf, lighting, colors, ROBOT_SIZE},
+    visual::{TILE_SIZE, shelf, lighting, colors, semantic, ROBOT_SIZE},
     warehouse};
 use protocol::config::optimization as opt;
 use protocol::grid_map::{GridMap, TileType};
@@ -98,7 +98,9 @@ pub fn populate_environment(
         }),
         robot_mesh: meshes.add(Cuboid::new(ROBOT_SIZE, ROBOT_SIZE, ROBOT_SIZE)),
         robot_material: materials.add(StandardMaterial {
-            base_color: Color::srgb(colors::ROBOT.0, colors::ROBOT.1, colors::ROBOT.2),
+            base_color: Color::srgb(semantic::ROBOT_BODY.0, semantic::ROBOT_BODY.1, semantic::ROBOT_BODY.2),
+            perceptual_roughness: 0.72,
+            metallic: 0.12,
             ..default()
         }),
     };

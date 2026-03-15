@@ -190,6 +190,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visualizer/protocol dedup pass 3 (task-status semantic helper + outline/populate hierarchy walk consolidation)
 - [x] Visualizer compliance pass 4 (decode-mode logging + file-by-file checklist artifact)
 - [x] Phase 7 validation gate A/B automation (workspace checks/tests/build + orchestrator run/status/quit smoke evidence)
+- [x] Visual foundation pass 1: semantic color remap, luminance hierarchy, bloom runtime A/B controls, and path hierarchy animation/fade
 
 **Pending Features:**
 
@@ -284,7 +285,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
-### 2026-03-15: Phase 7 validation and packaging pass 1 (Phase 5)
+### 2026-03-15: Visual Foundation Pass 1 (Phase 5)
+
+- Implemented semantic visual token baseline for industrial styling and reduced color-role collisions (bright cyan reserved for selected active paths, robot body moved to muted steel-blue).
+- Added luminance hierarchy system for floor/wall/shelf material descendants loaded from GLB scenes, including brightness and saturation controls from protocol config.
+- Added runtime bloom discipline controls (top-bar toggle + intensity slider) and camera bloom sync system for quick A/B readability checks.
+- Upgraded path visualization hierarchy with selected-route pulse animation, active-other route de-emphasis, and aggressive fade-out for recently completed paths.
+- Why: improve scene depth readability and path/state clarity without adding heavy rendering cost, while keeping controls operator-friendly in existing UI.
+
+### 2026-03-15: validation and packaging pass 1 (Phase 5)
 
 - Validation gates executed:
   - `cargo check --workspace` passed.

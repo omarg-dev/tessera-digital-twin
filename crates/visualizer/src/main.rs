@@ -37,7 +37,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
 use systems::{
-    camera::{spawn_camera, camera_controls, camera_follow_selected, camera_follow_task},
+    camera::{spawn_camera, camera_controls, camera_follow_selected, camera_follow_task, update_bloom_settings},
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes, propagate_tile_optimizations},
     receivers::{
         robot_updates::{setup_zenoh_receiver, collect_robot_updates},
@@ -52,6 +52,7 @@ use systems::{
     command_bridge::{setup_publishers, bridge_ui_commands},
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
     draw_paths::{configure_gizmos, draw_robot_paths},
+    luminance_hierarchy::{apply_luminance_hierarchy, LuminanceMaterialState},
     robot_labels::draw_robot_labels,
 };
 
@@ -94,11 +95,13 @@ fn main() {
         .init_resource::<resources::RobotIndex>()
         .init_resource::<resources::RobotLastPositions>()
         .init_resource::<resources::UiState>()
+        .init_resource::<resources::VisualTuning>()
         .init_resource::<resources::LogBuffer>()
         .init_resource::<resources::QueueStateData>()
         .init_resource::<resources::TaskListData>()
         .init_resource::<resources::ActivePaths>()
         .init_resource::<resources::WhcaMetricsData>()
+        .init_resource::<LuminanceMaterialState>()
         // Events
         .add_message::<resources::UiAction>()
         // Startup: scene, camera, Zenoh subscribers & publishers
@@ -127,6 +130,7 @@ fn main() {
             collect_whca_metrics,
             handle_system_commands,
             bridge_ui_commands,
+            update_bloom_settings.after(bridge_ui_commands),
             camera_follow_selected,
             camera_follow_task.after(camera_follow_selected),
             camera_controls,
@@ -141,6 +145,7 @@ fn main() {
             sync_shelf_boxes,
             sync_programmatic_outlines,
             propagate_tile_optimizations,
+            apply_luminance_hierarchy,
         ))
         .run();
 }

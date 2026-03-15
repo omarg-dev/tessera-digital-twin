@@ -5,11 +5,16 @@
 
 use bevy::prelude::*;
 use bevy::gizmos::config::{DefaultGizmoConfigGroup, GizmoConfigStore};
+use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
 use crate::components::Robot;
-use crate::resources::{ActivePaths, RobotIndex, UiState};
-use protocol::config::visual::path::{DEST_CIRCLE_RADIUS, GLOBAL_PATH_GLOW, LINE_WIDTH, PATH_Y_OFFSET, SELECTED_PATH_GLOW};
+use crate::resources::{ActivePaths, RobotIndex, UiState, VisualTuning};
+use protocol::config::visual::path::{
+    ACTIVE_OTHER_COLOR, COMPLETED_COLOR, COMPLETED_FADE_SECS, DEST_CIRCLE_RADIUS, LINE_WIDTH,
+    OTHER_DEST_RADIUS_MULTIPLIER, PATH_Y_OFFSET, SELECTED_ACTIVE_COLOR, SELECTED_DEST_RADIUS_MULTIPLIER,
+    SELECTED_PULSE_AMPLITUDE, SELECTED_PULSE_SPEED,
+};
 
 /// One-shot startup system that sets gizmo line width from config.
 pub fn configure_gizmos(mut store: ResMut<GizmoConfigStore>) {
@@ -28,15 +33,61 @@ pub fn draw_robot_paths(
     mut gizmos: Gizmos,
     active_paths: Res<ActivePaths>,
     ui_state: Res<UiState>,
+    visual_tuning: Res<VisualTuning>,
     robot_index: Res<RobotIndex>,
     robot_query: Query<(Entity, &Robot, &Transform)>,
+    time: Res<Time>,
+    mut last_paths: Local<HashMap<u32, Vec<Vec3>>>,
+    mut completed_paths: Local<HashMap<u32, (Vec<Vec3>, f32)>>,
 ) {
     let global_show = ui_state.show_paths;
+    let now = time.elapsed_secs();
+
+    let mut removed_ids = Vec::new();
+    for &robot_id in last_paths.keys() {
+        if !active_paths.0.contains_key(&robot_id) {
+            removed_ids.push(robot_id);
+        }
+    }
+    for robot_id in removed_ids {
+        if let Some(points) = last_paths.remove(&robot_id) {
+            if points.len() > 1 {
+                completed_paths.insert(robot_id, (points, now));
+            }
+        }
+    }
+
+    if global_show {
+        completed_paths.retain(|_, (points, finished_at)| {
+            let age = now - *finished_at;
+            if age > COMPLETED_FADE_SECS {
+                return false;
+            }
+
+            let alpha = 1.0 - (age / COMPLETED_FADE_SECS);
+            let color = Color::linear_rgba(
+                COMPLETED_COLOR.0,
+                COMPLETED_COLOR.1,
+                COMPLETED_COLOR.2,
+                alpha.clamp(0.0, 1.0),
+            );
+
+            gizmos.linestrip(points.iter().copied(), color);
+            if let Some(&dest) = points.last() {
+                let iso = Isometry3d::new(dest, Quat::from_rotation_x(-FRAC_PI_2));
+                gizmos.circle(iso, DEST_CIRCLE_RADIUS * 0.75, color);
+            }
+
+            true
+        });
+    }
 
     for (&robot_id, waypoints) in active_paths.0.iter() {
         if waypoints.is_empty() {
             continue;
         }
+
+        last_paths.insert(robot_id, waypoints.clone());
 
         // look up the Bevy entity for this robot
         let Some(entity) = robot_index.get_entity(robot_id) else {
@@ -49,9 +100,33 @@ pub fn draw_robot_paths(
             continue;
         }
 
-        // selected robot gets the bright prominent color; others get the subtle global color
-        let (r, g, b) = if selected { SELECTED_PATH_GLOW } else { GLOBAL_PATH_GLOW };
-        let color = Color::linear_rgb(r, g, b);
+        let mut color = if selected {
+            let pulse = if visual_tuning.path_animation_enabled && ui_state.animate_paths {
+                (now * SELECTED_PULSE_SPEED).sin().abs() * SELECTED_PULSE_AMPLITUDE
+            } else {
+                0.0
+            };
+            Color::linear_rgb(
+                SELECTED_ACTIVE_COLOR.0 * (1.0 + pulse),
+                SELECTED_ACTIVE_COLOR.1 * (1.0 + pulse),
+                SELECTED_ACTIVE_COLOR.2 * (1.0 + pulse),
+            )
+        } else {
+            Color::linear_rgba(
+                ACTIVE_OTHER_COLOR.0,
+                ACTIVE_OTHER_COLOR.1,
+                ACTIVE_OTHER_COLOR.2,
+                0.78,
+            )
+        };
+
+        if !global_show && selected {
+            color = Color::linear_rgb(
+                SELECTED_ACTIVE_COLOR.0,
+                SELECTED_ACTIVE_COLOR.1,
+                SELECTED_ACTIVE_COLOR.2,
+            );
+        }
 
         // get current robot transform to start the line from the live position
         let Ok((_e, robot, _transform)) = robot_query.get(entity) else {
@@ -71,7 +146,18 @@ pub fn draw_robot_paths(
         // draw a flat floor circle at the destination
         if let Some(&dest) = waypoints.last() {
             let iso = Isometry3d::new(dest, Quat::from_rotation_x(-FRAC_PI_2));
-            gizmos.circle(iso, DEST_CIRCLE_RADIUS, color);
+            let pulse = if selected && visual_tuning.path_animation_enabled && ui_state.animate_paths {
+                (now * SELECTED_PULSE_SPEED).sin().abs() * SELECTED_PULSE_AMPLITUDE
+            } else {
+                0.0
+            };
+
+            let radius = if selected {
+                DEST_CIRCLE_RADIUS * SELECTED_DEST_RADIUS_MULTIPLIER * (1.0 + pulse)
+            } else {
+                DEST_CIRCLE_RADIUS * OTHER_DEST_RADIUS_MULTIPLIER
+            };
+            gizmos.circle(iso, radius, color);
         }
     }
 }
