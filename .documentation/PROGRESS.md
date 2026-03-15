@@ -188,6 +188,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visualizer UI performance pass 1 (single-pass task categorization and cached object-list sorting)
 - [x] Visualizer camera/labels performance pass 2 (cached task-follow lookup and selected-label suppression)
 - [x] Visualizer/protocol dedup pass 3 (task-status semantic helper + outline/populate hierarchy walk consolidation)
+- [x] Visualizer compliance pass 4 (decode-mode logging + file-by-file checklist artifact)
 
 **Pending Features:**
 
@@ -281,6 +282,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-14: Visualizer compliance pass 4 (decode policy + checklist closure artifact) (Phase 5)
+
+- `visualizer/src/systems/receivers/robot_updates.rs`: made decode branch handling explicit by returning decode mode (`RobotUpdateBatch` vs `RobotUpdate`) from sample parsing and logging mode transitions for deterministic runtime diagnostics while keeping malformed payloads non-fatal.
+- `.documentation/VISUALIZER_FILE_CHECKLIST.md`: added a file-by-file Phase 6 checklist artifact covering all visualizer source files plus protocol touchpoints used by visualizer, including PASS/FOLLOW-UP status and residual risk notes.
+- Policy verification: no direct `round() as usize` casts found in `crates/visualizer/src/**` via workspace PowerShell scan; runtime unwrap/expect occurrences remain limited to startup or test-only paths.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-14: Protocol status-label extraction and hierarchy-walk consolidation (Phase 5)
 

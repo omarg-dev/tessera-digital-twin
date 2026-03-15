@@ -8,6 +8,12 @@ use zenoh::sample::Sample;
 use zenoh::Session;
 use crate::resources::{RobotUpdates, ZenohReceiver, RobotLastPositions, ZenohSession};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DecodeFormat {
+    Batch,
+    Single,
+}
+
 /// Initializes Zenoh subscriber and creates a receiver channel
 pub fn setup_zenoh_receiver(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<RobotUpdate>(256);
@@ -31,11 +37,24 @@ async fn run_zenoh_listener(session: Session, tx: mpsc::Sender<RobotUpdate>) -> 
         .map_err(|e| format!("declare subscriber: {}", e))?;
 
     // subscriber ready (logged to UI via LogBuffer at startup)
+    let mut last_decode_format: Option<DecodeFormat> = None;
 
     // Pump samples into the channel until the subscriber closes
     while let Ok(sample) = subscriber.recv_async().await {
-        if let Err(e) = handle_sample(&tx, sample).await {
+        match handle_sample(&tx, sample).await {
+            Ok(format) => {
+                if last_decode_format != Some(format) {
+                    let mode = match format {
+                        DecodeFormat::Batch => "RobotUpdateBatch",
+                        DecodeFormat::Single => "RobotUpdate",
+                    };
+                    eprintln!("Robot update decode mode: {}", mode);
+                    last_decode_format = Some(format);
+                }
+            }
+            Err(e) => {
             eprintln!("Sample handling error: {}", e);
+            }
         }
     }
 
@@ -43,7 +62,7 @@ async fn run_zenoh_listener(session: Session, tx: mpsc::Sender<RobotUpdate>) -> 
 }
 
 /// Handles an incoming Zenoh sample - now expects RobotUpdateBatch
-async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result<(), String> {
+async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result<DecodeFormat, String> {
     let bytes = sample.payload().to_bytes();
 
     // Try to decode as batch first (new format)
@@ -53,7 +72,7 @@ async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result
                 return Err("channel closed while sending update".into());
             }
         }
-        return Ok(());
+        return Ok(DecodeFormat::Batch);
     }
 
     // Fall back to single update (legacy/compatibility)
@@ -61,7 +80,7 @@ async fn handle_sample(tx: &mpsc::Sender<RobotUpdate>, sample: Sample) -> Result
         if tx.send(update).await.is_err() {
             return Err("channel closed while sending update".into());
         }
-        return Ok(());
+        return Ok(DecodeFormat::Single);
     }
 
     Err("failed to decode as RobotUpdateBatch or RobotUpdate".into())
