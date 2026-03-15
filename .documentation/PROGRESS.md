@@ -189,6 +189,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visualizer camera/labels performance pass 2 (cached task-follow lookup and selected-label suppression)
 - [x] Visualizer/protocol dedup pass 3 (task-status semantic helper + outline/populate hierarchy walk consolidation)
 - [x] Visualizer compliance pass 4 (decode-mode logging + file-by-file checklist artifact)
+- [x] Phase 7 validation gate A/B automation (workspace checks/tests/build + orchestrator run/status/quit smoke evidence)
 
 **Pending Features:**
 
@@ -282,6 +283,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-15: Phase 7 validation and packaging pass 1 (Phase 5)
+
+- Validation gates executed:
+  - `cargo check --workspace` passed.
+  - `cargo test --workspace` passed.
+  - Visualizer-focused build task (`build visualizer`) passed.
+- Runtime smoke evidence captured via orchestrator scripted session (`run -> status -> quit`): all managed crates (`coordinator`, `mock_firmware`, `scheduler`, `visualizer`) started and were terminated cleanly, with merged logs emitted on shutdown.
+- Policy gate re-check completed: no active silent send-drop patterns, no unsafe `round() as usize` casts in `crates/visualizer/src/**`, and only startup/test-only unwrap/expect sites remain.
+- Documentation packaging:
+  - `\.documentation/VISUALIZER_FILE_CHECKLIST.md` updated with a dedicated Phase 7 evidence section.
+  - residual note added that full pointer/click UI behavior validation requires human-driven visualizer interaction and is tracked as follow-up verification.
 
 ### 2026-03-14: Visualizer compliance pass 4 (decode policy + checklist closure artifact) (Phase 5)
 

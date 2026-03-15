@@ -1,6 +1,6 @@
 # Visualizer File-by-File Compliance Checklist
 
-Date: 2026-03-14
+Date: 2026-03-15
 Scope: crates/visualizer/src/** and protocol touchpoints used by visualizer.
 Legend: PASS = compliant for current scope, FOLLOW-UP = valid but has deferred/non-blocking work, TEST-ONLY = non-runtime risk.
 
@@ -67,3 +67,20 @@ Legend: PASS = compliant for current scope, FOLLOW-UP = valid but has deferred/n
 - Consider replacing test-only unwrap/panic idioms in models diagnostics with Result-returning helpers for style consistency.
 - Consider adding UI-log sink integration for background listener errors (currently eprintln fallback remains for async task context).
 - Placeholder tabs (analytics/network) remain intentionally minimal outside current hardening scope.
+
+## Phase 7 Validation Evidence (2026-03-15)
+
+- Deterministic gate: PASS
+	- `cargo check --workspace` succeeded.
+	- `cargo test --workspace` succeeded.
+	- Visualizer-focused build task (`build visualizer`) succeeded.
+- Policy gate: PASS
+	- unwrap/expect scan confirms remaining occurrences are startup/test-only (`resources.rs`, `models.rs`).
+	- `.ok();` scan found no silent loss patterns in active send/publish paths.
+	- float-to-index cast scan found no `round() as usize` matches in `crates/visualizer/src/**`.
+- Runtime smoke (non-interactive CLI evidence): PASS (partial)
+	- Orchestrator startup succeeded and reported Zenoh session establishment.
+	- Scripted `run -> status -> quit` flow started all managed crates (`coordinator`, `mock_firmware`, `scheduler`, `visualizer`) and shut them down cleanly.
+	- Log merge completed on orchestrator shutdown.
+- Runtime smoke (interactive GUI behavior): FOLLOW-UP
+	- UI click/gesture-driven checks (button click path, wizard interactions, pointer outlines) require a human-in-the-loop visualizer session and are not fully assertable via terminal-only automation.
