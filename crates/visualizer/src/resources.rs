@@ -85,6 +85,87 @@ pub struct PlaceholderMeshes {
     pub robot_material: Handle<StandardMaterial>,
 }
 
+/// Fixed camera viewpoints for visual regression snapshots.
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum CameraPreset {
+    #[default]
+    Idle,
+    Congestion,
+    Routing,
+    Shelf,
+}
+
+impl CameraPreset {
+    pub fn label(self) -> &'static str {
+        match self {
+            CameraPreset::Idle => "Idle",
+            CameraPreset::Congestion => "Congestion",
+            CameraPreset::Routing => "Routing",
+            CameraPreset::Shelf => "Shelf",
+        }
+    }
+}
+
+/// Per-frame render counters used for analytics and budget tracking.
+#[derive(Resource, Default, Clone)]
+pub struct RenderPerfCounters {
+    pub labels_drawn: usize,
+    pub labels_hidden_tier: usize,
+    pub labels_hidden_budget: usize,
+    pub path_segments_drawn: usize,
+    pub paths_faded_drawn: usize,
+    pub overlay_tiles_drawn: usize,
+    pub overlay_halos_drawn: usize,
+    pub overlay_updates: u64,
+}
+
+/// UI-facing snapshot of render counters and screenshot markers.
+#[derive(Resource, Default, Clone)]
+pub struct UiAnalyticsView {
+    pub perf: RenderPerfCounters,
+    pub snapshot_markers: VecDeque<String>,
+}
+
+/// Per-frame UI input snapshot to keep egui system params compact.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct UiFrameInputs {
+    pub delta_secs: f32,
+    pub left_click_just_pressed: bool,
+}
+
+/// Congestion heat state updated at a throttled cadence.
+#[derive(Resource, Default)]
+pub struct CongestionOverlayData {
+    pub tile_occupancy: HashMap<(usize, usize), f32>,
+    pub update_accum_secs: f32,
+    pub total_updates: u64,
+}
+
+/// Lightweight snapshot log for visual regression captures.
+#[derive(Resource)]
+pub struct ScreenshotHarness {
+    pub records: VecDeque<String>,
+    pub max_records: usize,
+}
+
+impl Default for ScreenshotHarness {
+    fn default() -> Self {
+        Self {
+            records: VecDeque::with_capacity(32),
+            max_records: 32,
+        }
+    }
+}
+
+impl ScreenshotHarness {
+    pub fn push(&mut self, line: String) {
+        if self.records.len() >= self.max_records {
+            self.records.pop_front();
+        }
+        self.records.push_back(line);
+    }
+}
+
 /// Runtime visual tuning state shared across camera and render systems.
 #[derive(Resource)]
 pub struct VisualTuning {
@@ -156,6 +237,14 @@ pub struct UiState {
     pub bloom_intensity: f32,
     /// Layer toggle: animate selected active path
     pub animate_paths: bool,
+    /// selected camera preset for regression screenshot harness.
+    pub camera_preset: CameraPreset,
+    /// set when UI requests camera to snap to selected preset.
+    pub camera_preset_dirty: bool,
+    /// mark baseline capture for current preset.
+    pub snapshot_mark_baseline: bool,
+    /// mark after/variant capture for current preset.
+    pub snapshot_mark_after: bool,
     /// Simulation speed multiplier (1.0 = real-time)
     pub sim_speed: f32,
     /// Custom speed text field is being edited
@@ -236,6 +325,10 @@ impl Default for UiState {
             bloom_enabled: bloom_cfg::ENABLED_BY_DEFAULT,
             bloom_intensity: bloom_cfg::DEFAULT_INTENSITY,
             animate_paths: true,
+            camera_preset: CameraPreset::default(),
+            camera_preset_dirty: false,
+            snapshot_mark_baseline: false,
+            snapshot_mark_after: false,
             sim_speed: 1.0,
             custom_speed_editing: false,
             custom_speed_text: String::new(),

@@ -8,7 +8,7 @@ use protocol::{Priority, TaskRequest, TaskType};
 use std::collections::{HashMap, HashSet};
 
 use crate::resources::{UiAction, UiState};
-use super::common::{color_swatch, shelf_fill_color_egui};
+use super::common::{color_swatch, shelf_fill_band_label, shelf_fill_color_egui};
 
 fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
     protocol::world_to_grid([
@@ -266,7 +266,10 @@ pub fn shelf_minimap_widget(
                 );
                 let cell_id = egui::Id::new(("minimap", col, row));
                 let resp = ui.interact(cell_rect, cell_id, egui::Sense::click())
-                    .on_hover_text(format!("({col},{row})  {cargo}/{max}"));
+                    .on_hover_text(format!(
+                        "({col},{row})  {cargo}/{max} ({})",
+                        shelf_fill_band_label(cargo, max)
+                    ));
 
                 if resp.hovered() {
                     painter.rect_stroke(

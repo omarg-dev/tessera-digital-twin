@@ -11,7 +11,7 @@ use protocol::grid_map::GridMap;
 use crate::components::{Dropoff, Robot, Shelf};
 use crate::resources::{
     ActivePaths, BottomTab, LeftTab, LogBuffer, QueueStateData, RightTab, RobotIndex,
-    TaskListData, UiAction, UiState, WhcaMetricsData,
+    TaskListData, UiAction, UiAnalyticsView, UiState, WhcaMetricsData,
 };
 use super::tabs;
 
@@ -23,14 +23,14 @@ pub fn control_bar(
     ui_state: &mut UiState,
     robot_index: &RobotIndex,
     queue_state: &QueueStateData,
-    time: &Time,
+    delta_secs: f32,
     actions: &mut Vec<UiAction>,
 ) {
     egui::TopBottomPanel::top("top_panel")
         .exact_height(ui_cfg::TOP_PANEL_HEIGHT)
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                tabs::control_bar::draw(ui, ui_state, robot_index, queue_state, time, actions);
+                tabs::control_bar::draw(ui, ui_state, robot_index, queue_state, delta_secs, actions);
             });
         });
 }
@@ -120,6 +120,7 @@ pub fn log_console(
     ui_state: &mut UiState,
     log_buffer: &mut LogBuffer,
     whca_metrics: &WhcaMetricsData,
+    analytics_view: &UiAnalyticsView,
 ) {
     let panel_resp = egui::TopBottomPanel::bottom("bottom_panel")
         .default_height(ui_cfg::BOTTOM_PANEL_DEFAULT_HEIGHT)
@@ -135,7 +136,7 @@ pub fn log_console(
 
             match ui_state.bottom_tab {
                 BottomTab::Logs => tabs::logs::draw(ui, log_buffer),
-                BottomTab::Analytics => tabs::analytics::draw(ui, whca_metrics),
+                BottomTab::Analytics => tabs::analytics::draw(ui, whca_metrics, analytics_view),
             }
         });
     ui_state.bottom_panel_height = panel_resp.response.rect.height();

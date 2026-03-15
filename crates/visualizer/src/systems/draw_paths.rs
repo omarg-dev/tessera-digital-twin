@@ -9,9 +9,10 @@ use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
 use crate::components::Robot;
-use crate::resources::{ActivePaths, RobotIndex, UiState, VisualTuning};
+use crate::resources::{ActivePaths, RenderPerfCounters, RobotIndex, UiState, VisualTuning};
 use protocol::config::visual::path::{
     ACTIVE_OTHER_COLOR, COMPLETED_COLOR, COMPLETED_FADE_SECS, DEST_CIRCLE_RADIUS, LINE_WIDTH,
+    MAX_FADE_SEGMENTS_PER_FRAME, MAX_SEGMENTS_PER_FRAME,
     OTHER_DEST_RADIUS_MULTIPLIER, PATH_Y_OFFSET, SELECTED_ACTIVE_COLOR, SELECTED_DEST_RADIUS_MULTIPLIER,
     SELECTED_PULSE_AMPLITUDE, SELECTED_PULSE_SPEED,
 };
@@ -39,9 +40,12 @@ pub fn draw_robot_paths(
     time: Res<Time>,
     mut last_paths: Local<HashMap<u32, Vec<Vec3>>>,
     mut completed_paths: Local<HashMap<u32, (Vec<Vec3>, f32)>>,
+    mut counters: ResMut<RenderPerfCounters>,
 ) {
     let global_show = ui_state.show_paths;
     let now = time.elapsed_secs();
+    let mut path_segment_budget = MAX_SEGMENTS_PER_FRAME;
+    let mut fade_segment_budget = MAX_FADE_SEGMENTS_PER_FRAME;
 
     let mut removed_ids = Vec::new();
     for &robot_id in last_paths.keys() {
@@ -64,6 +68,12 @@ pub fn draw_robot_paths(
                 return false;
             }
 
+            let needed = points.len().saturating_add(1);
+            if needed > fade_segment_budget {
+                return true;
+            }
+            fade_segment_budget = fade_segment_budget.saturating_sub(needed);
+
             let alpha = 1.0 - (age / COMPLETED_FADE_SECS);
             let color = Color::linear_rgba(
                 COMPLETED_COLOR.0,
@@ -73,9 +83,11 @@ pub fn draw_robot_paths(
             );
 
             gizmos.linestrip(points.iter().copied(), color);
+            counters.paths_faded_drawn += points.len();
             if let Some(&dest) = points.last() {
                 let iso = Isometry3d::new(dest, Quat::from_rotation_x(-FRAC_PI_2));
                 gizmos.circle(iso, DEST_CIRCLE_RADIUS * 0.75, color);
+                counters.paths_faded_drawn += 1;
             }
 
             true
@@ -99,6 +111,12 @@ pub fn draw_robot_paths(
         if !global_show && !selected {
             continue;
         }
+
+        let needed = waypoints.len().saturating_add(2);
+        if needed > path_segment_budget {
+            continue;
+        }
+        path_segment_budget = path_segment_budget.saturating_sub(needed);
 
         let mut color = if selected {
             let pulse = if visual_tuning.path_animation_enabled && ui_state.animate_paths {
@@ -142,6 +160,7 @@ pub fn draw_robot_paths(
 
         // draw linestrip without allocating a temporary Vec each frame
         gizmos.linestrip(std::iter::once(start).chain(waypoints.iter().copied()), color);
+        counters.path_segments_drawn += waypoints.len().saturating_add(1);
 
         // draw a flat floor circle at the destination
         if let Some(&dest) = waypoints.last() {
@@ -158,6 +177,7 @@ pub fn draw_robot_paths(
                 DEST_CIRCLE_RADIUS * OTHER_DEST_RADIUS_MULTIPLIER
             };
             gizmos.circle(iso, radius, color);
+            counters.path_segments_drawn += 1;
         }
     }
 }

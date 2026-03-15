@@ -5,9 +5,10 @@ use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
 use protocol::config::visual::bloom as bloom_cfg;
 use protocol::config::visual::camera;
+use protocol::config::visual::regression as reg_cfg;
 use protocol::TaskStatus;
 
-use crate::resources::{RobotIndex, TaskListData, UiState, VisualTuning};
+use crate::resources::{CameraPreset, LogBuffer, RobotIndex, ScreenshotHarness, TaskListData, UiState, VisualTuning};
 
 /// Marker component for the main warehouse camera
 #[derive(Component)]
@@ -72,6 +73,65 @@ pub fn update_bloom_settings(
     } else {
         0.0
     };
+}
+
+/// Apply fixed camera presets requested from the UI.
+pub fn apply_camera_preset(
+    mut ui_state: ResMut<UiState>,
+    mut camera_query: Query<(&mut CameraController, &mut Transform), With<Camera>>,
+) {
+    if !ui_state.camera_preset_dirty {
+        return;
+    }
+
+    let Ok((mut controller, mut transform)) = camera_query.single_mut() else {
+        return;
+    };
+
+    let (focus, radius, pitch, yaw) = match ui_state.camera_preset {
+        CameraPreset::Idle => reg_cfg::PRESET_IDLE,
+        CameraPreset::Congestion => reg_cfg::PRESET_CONGESTION,
+        CameraPreset::Routing => reg_cfg::PRESET_ROUTING,
+        CameraPreset::Shelf => reg_cfg::PRESET_SHELF,
+    };
+
+    controller.focus = Vec3::new(focus.0, focus.1, focus.2);
+    controller.radius = radius;
+    controller.pitch = pitch.clamp(camera::PITCH_MIN, camera::PITCH_MAX);
+    controller.yaw = yaw;
+    *transform = calculate_camera_transform(&controller);
+
+    ui_state.camera_following = false;
+    ui_state.camera_preset_dirty = false;
+}
+
+/// Record baseline/after markers for manual screenshot regression capture.
+pub fn record_snapshot_markers(
+    mut ui_state: ResMut<UiState>,
+    mut harness: ResMut<ScreenshotHarness>,
+    mut log_buffer: ResMut<LogBuffer>,
+    time: Res<Time>,
+) {
+    if !ui_state.snapshot_mark_baseline && !ui_state.snapshot_mark_after {
+        return;
+    }
+
+    let preset = ui_state.camera_preset.label();
+    let t = time.elapsed_secs();
+
+    if ui_state.snapshot_mark_baseline {
+        let line = format!("baseline | preset={} | t={:.1}s", preset, t);
+        harness.push(line.clone());
+        log_buffer.push(format!("[Screenshot] {}", line));
+        ui_state.snapshot_mark_baseline = false;
+    }
+
+    if ui_state.snapshot_mark_after {
+        let line = format!("after | preset={} | t={:.1}s", preset, t);
+        harness.push(line.clone());
+        log_buffer.push(format!("[Screenshot] {}", line));
+        ui_state.snapshot_mark_after = false;
+    }
 }
 
 /// System to handle camera pan and zoom.

@@ -4,12 +4,16 @@
 
 use bevy_egui::egui;
 
-use crate::resources::WhcaMetricsData;
+use crate::resources::{UiAnalyticsView, WhcaMetricsData};
 
 pub const LABEL: &str = "Analytics";
 
 /// WHCA analytics dashboard.
-pub fn draw(ui: &mut egui::Ui, whca_metrics: &WhcaMetricsData) {
+pub fn draw(
+    ui: &mut egui::Ui,
+    whca_metrics: &WhcaMetricsData,
+    analytics_view: &UiAnalyticsView,
+) {
     ui.heading("WHCA Runtime Analytics");
 
     let Some(metrics) = &whca_metrics.latest else {
@@ -82,6 +86,52 @@ pub fn draw(ui: &mut egui::Ui, whca_metrics: &WhcaMetricsData) {
                     ui.label("Reservation Peak");
                     ui.monospace(format!("{}", metrics.reservation_entries_peak));
                     ui.end_row();
+
+                    ui.label("Labels Drawn");
+                    ui.monospace(format!("{}", analytics_view.perf.labels_drawn));
+                    ui.end_row();
+
+                    ui.label("Labels Hidden (tier)");
+                    ui.monospace(format!("{}", analytics_view.perf.labels_hidden_tier));
+                    ui.end_row();
+
+                    ui.label("Labels Hidden (budget)");
+                    ui.monospace(format!("{}", analytics_view.perf.labels_hidden_budget));
+                    ui.end_row();
+
+                    ui.label("Path Segments Drawn");
+                    ui.monospace(format!("{}", analytics_view.perf.path_segments_drawn));
+                    ui.end_row();
+
+                    ui.label("Path Fade Segments");
+                    ui.monospace(format!("{}", analytics_view.perf.paths_faded_drawn));
+                    ui.end_row();
+
+                    ui.label("Overlay Tiles");
+                    ui.monospace(format!("{}", analytics_view.perf.overlay_tiles_drawn));
+                    ui.end_row();
+
+                    ui.label("Overlay Halos");
+                    ui.monospace(format!("{}", analytics_view.perf.overlay_halos_drawn));
+                    ui.end_row();
+
+                    ui.label("Overlay Update Ticks");
+                    ui.monospace(format!("{}", analytics_view.perf.overlay_updates));
+                    ui.end_row();
                 });
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Screenshot Regression Notes").strong());
+            ui.weak("Use top-bar View/Baseline/After controls, then capture matching screenshots externally.");
+
+            if analytics_view.snapshot_markers.is_empty() {
+                ui.weak("No snapshot markers yet.");
+            } else {
+                for line in analytics_view.snapshot_markers.iter().rev().take(8) {
+                    ui.monospace(line);
+                }
+            }
         });
 }

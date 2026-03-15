@@ -37,7 +37,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
 use systems::{
-    camera::{spawn_camera, camera_controls, camera_follow_selected, camera_follow_task, update_bloom_settings},
+    camera::{spawn_camera, camera_controls, camera_follow_selected, camera_follow_task, update_bloom_settings, apply_camera_preset, record_snapshot_markers},
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes, propagate_tile_optimizations},
     receivers::{
         robot_updates::{setup_zenoh_receiver, collect_robot_updates},
@@ -53,6 +53,7 @@ use systems::{
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
     draw_paths::{configure_gizmos, draw_robot_paths},
     luminance_hierarchy::{apply_luminance_hierarchy, LuminanceMaterialState},
+    congestion_overlays::{reset_render_perf_counters, update_congestion_overlay_data, draw_congestion_overlays},
     robot_labels::draw_robot_labels,
 };
 
@@ -101,6 +102,11 @@ fn main() {
         .init_resource::<resources::TaskListData>()
         .init_resource::<resources::ActivePaths>()
         .init_resource::<resources::WhcaMetricsData>()
+        .init_resource::<resources::RenderPerfCounters>()
+        .init_resource::<resources::UiAnalyticsView>()
+        .init_resource::<resources::UiFrameInputs>()
+        .init_resource::<resources::CongestionOverlayData>()
+        .init_resource::<resources::ScreenshotHarness>()
         .init_resource::<LuminanceMaterialState>()
         // Events
         .add_message::<resources::UiAction>()
@@ -120,6 +126,7 @@ fn main() {
         ))
         // Update: poll Zenoh channels, sync state, bridge UI commands
         .add_systems(Update, (
+            reset_render_perf_counters,
             collect_robot_updates,
             sync_robots,
             interpolate_robots.after(sync_robots),
@@ -127,18 +134,27 @@ fn main() {
             collect_task_list,
             sync_robot_tasks.after(collect_task_list),
             collect_path_telemetry,
+            update_congestion_overlay_data,
             collect_whca_metrics,
             handle_system_commands,
             bridge_ui_commands,
             update_bloom_settings.after(bridge_ui_commands),
+            apply_camera_preset.after(camera_controls),
+            record_snapshot_markers,
             camera_follow_selected,
             camera_follow_task.after(camera_follow_selected),
             camera_controls,
             draw_robot_paths,
+            draw_congestion_overlays.after(draw_robot_paths),
+        ))
+        .add_systems(Update, (
+            ui::sync_ui_frame_inputs,
+            ui::sync_ui_analytics_view,
         ))
         // UI runs inside the egui context pass (after Update, before rendering)
         // labels use Order::Background so they render behind panels
-        .add_systems(EguiPrimaryContextPass, (draw_robot_labels, ui::draw_ui).chain())
+        .add_systems(EguiPrimaryContextPass, draw_robot_labels)
+        .add_systems(EguiPrimaryContextPass, ui::draw_ui)
         // PostUpdate: runs after EguiPrimaryContextPass so outline sync sees hovered_entity from draw_ui
         .add_systems(PostUpdate, (
             check_reload_environment.run_if(resource_exists::<systems::commands::ReloadEnvironment>),

@@ -296,6 +296,12 @@ pub mod visual {
 
         /// Gizmo line width for path trails (pixels)
         pub const LINE_WIDTH: f32 = 3.5;
+
+        /// max active path segments rendered each frame.
+        pub const MAX_SEGMENTS_PER_FRAME: usize = 2600;
+
+        /// max completed fade segments rendered each frame.
+        pub const MAX_FADE_SEGMENTS_PER_FRAME: usize = 700;
     }
 
     /// Colors (RGB 0.0-1.0)
@@ -371,6 +377,42 @@ pub mod visual {
     pub mod lighting {
         pub const DIRECTIONAL_ILLUMINANCE: f32 = 12_500.0;
         pub const AMBIENT_BRIGHTNESS: f32 = 360.0;
+    }
+
+    /// Congestion overlay cadence and render budgets.
+    pub mod overlays {
+        /// seconds between overlay metric updates.
+        pub const UPDATE_INTERVAL_SECS: f32 = 0.20;
+        /// occupancy decay applied per update tick.
+        pub const OCCUPANCY_DECAY: f32 = 0.86;
+        /// occupancy increment added per robot per tick.
+        pub const ROBOT_OCCUPANCY_WEIGHT: f32 = 1.0;
+        /// minimum retained occupancy score.
+        pub const MIN_OCCUPANCY_KEEP: f32 = 0.10;
+
+        /// max heat tiles rendered each frame.
+        pub const MAX_HEAT_TILES_PER_FRAME: usize = 140;
+        /// max station/dropoff halos rendered each frame.
+        pub const MAX_HALOS_PER_FRAME: usize = 20;
+
+        /// y offset for heat/halo gizmos above floor.
+        pub const OVERLAY_Y_OFFSET: f32 = 0.03;
+        /// base radius for station/dropoff pressure halos.
+        pub const HALO_BASE_RADIUS: f32 = 0.45;
+        /// max additional halo radius from pressure.
+        pub const HALO_RADIUS_GAIN: f32 = 0.55;
+    }
+
+    /// Fixed camera presets for visual regression captures.
+    pub mod regression {
+        /// idle baseline scenario camera (focus xyz, radius, pitch, yaw).
+        pub const PRESET_IDLE: ((f32, f32, f32), f32, f32, f32) = ((12.0, 0.0, 6.0), 27.0, 0.82, 0.0);
+        /// congestion scenario camera (focus xyz, radius, pitch, yaw).
+        pub const PRESET_CONGESTION: ((f32, f32, f32), f32, f32, f32) = ((24.0, 0.0, 8.0), 20.0, 0.90, -0.52);
+        /// active routing scenario camera (focus xyz, radius, pitch, yaw).
+        pub const PRESET_ROUTING: ((f32, f32, f32), f32, f32, f32) = ((15.0, 0.0, 9.0), 19.0, 0.88, 0.34);
+        /// shelf inspection scenario camera (focus xyz, radius, pitch, yaw).
+        pub const PRESET_SHELF: ((f32, f32, f32), f32, f32, f32) = ((13.0, 0.0, 9.0), 12.0, 1.02, 0.18);
     }
 
     /// Camera defaults

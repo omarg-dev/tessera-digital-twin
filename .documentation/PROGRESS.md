@@ -192,10 +192,12 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Phase 7 validation gate A/B automation (workspace checks/tests/build + orchestrator run/status/quit smoke evidence)
 - [x] Visual foundation pass 1: semantic color remap, luminance hierarchy, bloom runtime A/B controls, and path hierarchy animation/fade
 - [x] Label readability + state encoding pass 2: LOD tiers, per-frame budget, cluster badges, pulse-based state cues, and task/details hierarchy polish
+- [x] Third polish pass 3: shelf occupancy readability bins, congestion overlays, render counters, and screenshot regression harness controls
 
 **Pending Features:**
 
-- [ ] 3D gizmos: traffic heatmap overlay, debug grid
+- [x] 3D gizmos: traffic heatmap overlay
+- [ ] 3D gizmos: debug grid
 - [ ] Robot ID labels rendered in 3D viewport
 - [ ] Analytics dashboard (throughput graphs, battery histograms)
 - [ ] Cargo/package entity tracking (visual cargo on robots)
@@ -285,6 +287,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-15: Third polish pass 3 (shelves, congestion, and regression harness) (Phase 5)
+
+- Added shelf occupancy readability refinements across minimap + shelf inspector with rebinned capacity bands and exact-count hover details for dense lists.
+- Added congestion overlay systems with throttled tile occupancy heat + queue pressure halos, plus per-frame render counters for labels, path segments, and overlays.
+- Added camera regression presets and baseline/after marker controls in the top bar, with snapshot notes surfaced in analytics for reproducible screenshot comparisons.
+- Refactored UI data flow with compact `UiFrameInputs` and `UiAnalyticsView` resources to keep egui system arity stable while exposing new analytics signals.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
+- Why: improve high-density operational readability and provide repeatable visual regression evidence without introducing expensive render passes.
 
 ### 2026-03-15: Label Readability + Inspector Hierarchy Pass (Phase 5)
 

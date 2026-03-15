@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::components::{Dropoff, Shelf};
 use crate::resources::{UiAction, UiState};
-use crate::ui::widgets::{color_swatch, shelf_fill_color_egui, shelf_minimap_widget};
+use crate::ui::widgets::{color_swatch, shelf_fill_band_label, shelf_fill_color_egui, shelf_minimap_widget};
 
 fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
     protocol::world_to_grid([
@@ -159,8 +159,10 @@ pub fn draw(
             ui.horizontal(|ui| {
                 color_swatch(ui, egui::Color32::from_rgb(30, 160, 50));
                 ui.label(egui::RichText::new("empty").small());
-                color_swatch(ui, egui::Color32::from_rgb(200, 160, 30));
-                ui.label(egui::RichText::new("half").small());
+                color_swatch(ui, egui::Color32::from_rgb(220, 185, 40));
+                ui.label(egui::RichText::new("low").small());
+                color_swatch(ui, egui::Color32::from_rgb(128, 180, 52));
+                ui.label(egui::RichText::new("ok").small());
                 color_swatch(ui, egui::Color32::from_rgb(210, 50, 30));
                 ui.label(egui::RichText::new("full").small());
                 color_swatch(ui, egui::Color32::from_gray(90));
@@ -192,7 +194,12 @@ pub fn draw(
                         .fill(cell_color)
                         .min_size(egui::Vec2::new(ui.available_width(), 0.0));
 
-                        let resp = ui.add(btn);
+                        let resp = ui.add(btn).on_hover_text(format!(
+                            "cargo: {}/{} ({})",
+                            cargo,
+                            max,
+                            shelf_fill_band_label(cargo, max)
+                        ));
                         if resp.hovered() {
                             ui_state.hovered_entity = Some(dest_entity);
                         }

@@ -18,7 +18,7 @@ use protocol::config::visual::{ROBOT_SIZE, labels as lbl, ui as ui_cfg, camera a
 use std::collections::HashMap;
 
 use crate::components::Robot;
-use crate::resources::UiState;
+use crate::resources::{RenderPerfCounters, UiState};
 use crate::systems::camera::CameraController;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -203,6 +203,7 @@ pub fn draw_robot_labels(
     camera_ctrl: Query<&CameraController>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
+    mut counters: ResMut<RenderPerfCounters>,
 ) -> Result {
     if !ui_state.show_ids {
         return Ok(());
@@ -300,11 +301,13 @@ pub fn draw_robot_labels(
     for candidate in candidates {
         if candidate.tier == LabelTier::Hidden {
             hidden_for_clusters.push(candidate.anchor);
+            counters.labels_hidden_tier += 1;
             continue;
         }
 
         if !candidate.force_full && budget_used >= lbl::MAX_LABELS_PER_FRAME {
             hidden_for_clusters.push(candidate.anchor);
+            counters.labels_hidden_budget += 1;
             continue;
         }
 
@@ -330,6 +333,7 @@ pub fn draw_robot_labels(
         if !candidate.force_full {
             budget_used += 1;
         }
+        counters.labels_drawn += 1;
     }
 
     if ui_state.cluster_badges {
