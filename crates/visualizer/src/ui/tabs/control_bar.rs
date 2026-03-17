@@ -72,10 +72,6 @@ pub fn draw(
             });
         }
 
-        if ui.checkbox(&mut ui_state.animate_paths, "Flow").changed() {
-            actions.push(UiAction::SetPathAnimation(ui_state.animate_paths));
-        }
-
         ui.add_enabled_ui(ui_state.show_ids, |ui| {
             ui.checkbox(&mut ui_state.compact_labels, "Compact");
             ui.checkbox(&mut ui_state.cluster_badges, "Clusters");
@@ -104,7 +100,8 @@ pub fn draw(
         }
 
         ui.checkbox(&mut ui_state.show_ids, "Labels");
-        ui.checkbox(&mut ui_state.show_heatmap, "Heatmap");
+        ui.add_enabled(false, egui::Checkbox::new(&mut ui_state.show_heatmap, "Heatmap"))
+            .on_hover_text("heatmap visuals are temporarily disabled pending revamp");
         ui.checkbox(&mut ui_state.show_paths, "Paths");
     });
 }

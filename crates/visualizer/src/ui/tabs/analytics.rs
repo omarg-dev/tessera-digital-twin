@@ -124,7 +124,7 @@ pub fn draw(
             ui.separator();
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Screenshot Regression Notes").strong());
-            ui.weak("Use top-bar View/Baseline/After controls, then capture matching screenshots externally.");
+            ui.weak("Use top-bar View/Baseline/After controls to save screenshots into logs/screenshots.");
 
             if analytics_view.snapshot_markers.is_empty() {
                 ui.weak("No snapshot markers yet.");

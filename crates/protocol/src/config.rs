@@ -405,6 +405,10 @@ pub mod visual {
 
     /// Fixed camera presets for visual regression captures.
     pub mod regression {
+        /// output directory for visual regression screenshots.
+        pub const SCREENSHOT_OUTPUT_DIR: &str = "logs/screenshots";
+        /// file extension for saved screenshots.
+        pub const SCREENSHOT_FILE_EXTENSION: &str = "png";
         /// idle baseline scenario camera (focus xyz, radius, pitch, yaw).
         pub const PRESET_IDLE: ((f32, f32, f32), f32, f32, f32) = ((12.0, 0.0, 6.0), 27.0, 0.82, 0.0);
         /// congestion scenario camera (focus xyz, radius, pitch, yaw).

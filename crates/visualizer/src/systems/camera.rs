@@ -2,11 +2,14 @@ use bevy::prelude::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::post_process::bloom::Bloom;
 use bevy::render::view::Hdr;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy_egui::EguiContexts;
 use protocol::config::visual::bloom as bloom_cfg;
 use protocol::config::visual::camera;
 use protocol::config::visual::regression as reg_cfg;
 use protocol::TaskStatus;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::resources::{CameraPreset, LogBuffer, RobotIndex, ScreenshotHarness, TaskListData, UiState, VisualTuning};
 
@@ -107,6 +110,7 @@ pub fn apply_camera_preset(
 
 /// Record baseline/after markers for manual screenshot regression capture.
 pub fn record_snapshot_markers(
+    mut commands: Commands,
     mut ui_state: ResMut<UiState>,
     mut harness: ResMut<ScreenshotHarness>,
     mut log_buffer: ResMut<LogBuffer>,
@@ -120,18 +124,55 @@ pub fn record_snapshot_markers(
     let t = time.elapsed_secs();
 
     if ui_state.snapshot_mark_baseline {
-        let line = format!("baseline | preset={} | t={:.1}s", preset, t);
+        let path = build_screenshot_path("baseline", preset);
+        spawn_screenshot_capture(&mut commands, &path);
+        let line = format!("baseline | preset={} | t={:.1}s | path={}", preset, t, path.display());
         harness.push(line.clone());
+        harness.push_path(path.display().to_string());
         log_buffer.push(format!("[Screenshot] {}", line));
         ui_state.snapshot_mark_baseline = false;
     }
 
     if ui_state.snapshot_mark_after {
-        let line = format!("after | preset={} | t={:.1}s", preset, t);
+        let path = build_screenshot_path("after", preset);
+        spawn_screenshot_capture(&mut commands, &path);
+        let line = format!("after | preset={} | t={:.1}s | path={}", preset, t, path.display());
         harness.push(line.clone());
+        harness.push_path(path.display().to_string());
         log_buffer.push(format!("[Screenshot] {}", line));
         ui_state.snapshot_mark_after = false;
     }
+}
+
+fn spawn_screenshot_capture(commands: &mut Commands, path: &Path) {
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            error!("failed to create screenshot directory {}: {}", parent.display(), e);
+        }
+    }
+
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(path.to_path_buf()));
+}
+
+fn build_screenshot_path(kind: &str, preset: &str) -> PathBuf {
+    let safe_preset = preset.to_ascii_lowercase();
+    let safe_preset = safe_preset.replace(' ', "_");
+    let unix_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let file_name = format!(
+        "{}_{}_{}.{}",
+        safe_preset,
+        kind,
+        unix_secs,
+        reg_cfg::SCREENSHOT_FILE_EXTENSION
+    );
+
+    Path::new(reg_cfg::SCREENSHOT_OUTPUT_DIR).join(file_name)
 }
 
 /// System to handle camera pan and zoom.

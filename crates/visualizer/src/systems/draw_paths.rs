@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
 use crate::components::Robot;
-use crate::resources::{ActivePaths, RenderPerfCounters, RobotIndex, UiState, VisualTuning};
+use crate::resources::{ActivePaths, RenderPerfCounters, RobotIndex, UiState};
 use protocol::config::visual::path::{
     ACTIVE_OTHER_COLOR, COMPLETED_COLOR, COMPLETED_FADE_SECS, DEST_CIRCLE_RADIUS, LINE_WIDTH,
     MAX_FADE_SEGMENTS_PER_FRAME, MAX_SEGMENTS_PER_FRAME,
@@ -34,7 +34,6 @@ pub fn draw_robot_paths(
     mut gizmos: Gizmos,
     active_paths: Res<ActivePaths>,
     ui_state: Res<UiState>,
-    visual_tuning: Res<VisualTuning>,
     robot_index: Res<RobotIndex>,
     robot_query: Query<(Entity, &Robot, &Transform)>,
     time: Res<Time>,
@@ -119,11 +118,7 @@ pub fn draw_robot_paths(
         path_segment_budget = path_segment_budget.saturating_sub(needed);
 
         let mut color = if selected {
-            let pulse = if visual_tuning.path_animation_enabled && ui_state.animate_paths {
-                (now * SELECTED_PULSE_SPEED).sin().abs() * SELECTED_PULSE_AMPLITUDE
-            } else {
-                0.0
-            };
+            let pulse = (now * SELECTED_PULSE_SPEED).sin().abs() * SELECTED_PULSE_AMPLITUDE;
             Color::linear_rgb(
                 SELECTED_ACTIVE_COLOR.0 * (1.0 + pulse),
                 SELECTED_ACTIVE_COLOR.1 * (1.0 + pulse),
@@ -165,7 +160,7 @@ pub fn draw_robot_paths(
         // draw a flat floor circle at the destination
         if let Some(&dest) = waypoints.last() {
             let iso = Isometry3d::new(dest, Quat::from_rotation_x(-FRAC_PI_2));
-            let pulse = if selected && visual_tuning.path_animation_enabled && ui_state.animate_paths {
+            let pulse = if selected {
                 (now * SELECTED_PULSE_SPEED).sin().abs() * SELECTED_PULSE_AMPLITUDE
             } else {
                 0.0

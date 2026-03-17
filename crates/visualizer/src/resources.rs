@@ -145,6 +145,7 @@ pub struct CongestionOverlayData {
 #[derive(Resource)]
 pub struct ScreenshotHarness {
     pub records: VecDeque<String>,
+    pub paths: VecDeque<String>,
     pub max_records: usize,
 }
 
@@ -152,6 +153,7 @@ impl Default for ScreenshotHarness {
     fn default() -> Self {
         Self {
             records: VecDeque::with_capacity(32),
+            paths: VecDeque::with_capacity(32),
             max_records: 32,
         }
     }
@@ -164,6 +166,13 @@ impl ScreenshotHarness {
         }
         self.records.push_back(line);
     }
+
+    pub fn push_path(&mut self, line: String) {
+        if self.paths.len() >= self.max_records {
+            self.paths.pop_front();
+        }
+        self.paths.push_back(line);
+    }
 }
 
 /// Runtime visual tuning state shared across camera and render systems.
@@ -171,7 +180,6 @@ impl ScreenshotHarness {
 pub struct VisualTuning {
     pub bloom_enabled: bool,
     pub bloom_intensity: f32,
-    pub path_animation_enabled: bool,
 }
 
 impl Default for VisualTuning {
@@ -179,7 +187,6 @@ impl Default for VisualTuning {
         Self {
             bloom_enabled: bloom_cfg::ENABLED_BY_DEFAULT,
             bloom_intensity: bloom_cfg::DEFAULT_INTENSITY,
-            path_animation_enabled: true,
         }
     }
 }
@@ -235,8 +242,6 @@ pub struct UiState {
     pub bloom_enabled: bool,
     /// Runtime bloom intensity
     pub bloom_intensity: f32,
-    /// Layer toggle: animate selected active path
-    pub animate_paths: bool,
     /// selected camera preset for regression screenshot harness.
     pub camera_preset: CameraPreset,
     /// set when UI requests camera to snap to selected preset.
@@ -324,7 +329,6 @@ impl Default for UiState {
             cluster_badges: false,
             bloom_enabled: bloom_cfg::ENABLED_BY_DEFAULT,
             bloom_intensity: bloom_cfg::DEFAULT_INTENSITY,
-            animate_paths: true,
             camera_preset: CameraPreset::default(),
             camera_preset_dirty: false,
             snapshot_mark_baseline: false,
@@ -485,6 +489,4 @@ pub enum UiAction {
         enabled: bool,
         intensity: f32,
     },
-    /// Toggle selected-path animation
-    SetPathAnimation(bool),
 }

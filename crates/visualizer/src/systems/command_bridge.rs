@@ -171,14 +171,6 @@ pub fn bridge_ui_commands(
                     format!("[UI] Bloom: {} ({:.2})", if *enabled { "on" } else { "off" }, intensity),
                 )
             }
-            UiAction::SetPathAnimation(enabled) => {
-                visual_tuning.path_animation_enabled = *enabled;
-                ui_state.animate_paths = *enabled;
-                (
-                    None,
-                    format!("[UI] Path animation: {}", if *enabled { "on" } else { "off" }),
-                )
-            }
         };
 
         log_buffer.push(msg);

@@ -193,6 +193,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visual foundation pass 1: semantic color remap, luminance hierarchy, bloom runtime A/B controls, and path hierarchy animation/fade
 - [x] Label readability + state encoding pass 2: LOD tiers, per-frame budget, cluster badges, pulse-based state cues, and task/details hierarchy polish
 - [x] Third polish pass 3: shelf occupancy readability bins, congestion overlays, render counters, and screenshot regression harness controls
+- [x] Screenshot capture pass 4: built-in baseline/after file saves, always-on path flow animation, and temporary heatmap control lock
 
 **Pending Features:**
 
@@ -265,6 +266,9 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - [ ] Benchamark with Gazebo or Isaac Sim for performance validation
 - [ ] Benchmark with Aziz supercomputer for large-scale simulation
 - [ ] CLI tab completion for orchestrator commands (`rustyline` — completes command names and crate names on Tab)
+- [ ] Dynamic screenshot preset management (runtime editable presets + file persistence)
+- [ ] Screenshot regression pipeline controls (output path settings + batch baseline/after capture)
+- [ ] Top navigation/preferences bar for global app controls and layout presets
 
 **Architecture Impact:**
 
@@ -287,6 +291,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-17: Screenshot capture and control-bar simplification pass (Phase 5)
+
+- Implemented built-in screenshot file capture for baseline/after actions using Bevy screenshot saves and configured output path constants under `protocol::config::visual::regression`.
+- Updated screenshot logs/analytics to include saved file paths instead of marker-only notes.
+- Removed the Flow toggle and related action plumbing; selected path pulse animation is now always enabled.
+- Kept heatmap systems in code but disabled the Heatmap control in the top bar with an explicit revamp hint.
+- Added Phase 6 planned items for dynamic screenshot presets with persistence and a top navigation/preferences bar.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
+- Why: reduce UX ambiguity, make regression captures reproducible, and keep deferred heatmap redesign visible but intentionally locked.
 
 ### 2026-03-15: Third polish pass 3 (shelves, congestion, and regression harness) (Phase 5)
 
