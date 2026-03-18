@@ -36,7 +36,7 @@ fn apply_brightness_saturation(color: Color, brightness: f32, saturation: f32) -
 
     let adjust = |channel: f32| -> f32 {
         let saturated = luma + (channel - luma) * saturation;
-        (saturated * brightness).clamp(0.0, 1.0)
+        (saturated * brightness).clamp(luminance::ALBEDO_MIN, luminance::ALBEDO_MAX)
     };
 
     Color::srgba(

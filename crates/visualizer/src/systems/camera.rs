@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::post_process::bloom::Bloom;
 use bevy::render::view::Hdr;
@@ -47,8 +48,13 @@ pub fn spawn_camera(mut commands: Commands) {
         Camera3d::default(),
         transform,
         Hdr,
+        Tonemapping::AcesFitted,
         Bloom {
             intensity: bloom_cfg::DEFAULT_INTENSITY,
+            prefilter: bevy::post_process::bloom::BloomPrefilter {
+                threshold: bloom_cfg::PREFILTER_THRESHOLD,
+                threshold_softness: bloom_cfg::PREFILTER_THRESHOLD_SOFTNESS,
+            },
             ..default()
         },
         Camera,
@@ -76,6 +82,8 @@ pub fn update_bloom_settings(
     } else {
         0.0
     };
+    bloom.prefilter.threshold = bloom_cfg::PREFILTER_THRESHOLD;
+    bloom.prefilter.threshold_softness = bloom_cfg::PREFILTER_THRESHOLD_SOFTNESS;
 }
 
 /// Apply fixed camera presets requested from the UI.

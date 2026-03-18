@@ -354,16 +354,25 @@ pub mod visual {
         pub const MIN_INTENSITY: f32 = 0.0;
         /// Maximum runtime bloom intensity.
         pub const MAX_INTENSITY: f32 = 0.35;
+        /// bloom prefilter threshold; values below this do not contribute to bloom.
+        pub const PREFILTER_THRESHOLD: f32 = 1.0;
+        /// bloom threshold softness in [0,1].
+        pub const PREFILTER_THRESHOLD_SOFTNESS: f32 = 0.0;
     }
 
     /// Luminance and saturation controls to separate floor, walls, and shelves.
     pub mod luminance {
+        /// lower albedo clamp for large static surfaces (20-80 rule).
+        pub const ALBEDO_MIN: f32 = 0.15;
+        /// upper albedo clamp for large static surfaces (20-80 rule).
+        pub const ALBEDO_MAX: f32 = 0.80;
+
         /// Floor brightness multiplier.
-        pub const FLOOR_BRIGHTNESS: f32 = 1.06;
+        pub const FLOOR_BRIGHTNESS: f32 = 0.94;
         /// Wall brightness multiplier.
-        pub const WALL_BRIGHTNESS: f32 = 0.74;
+        pub const WALL_BRIGHTNESS: f32 = 0.82;
         /// Shelf brightness multiplier.
-        pub const SHELF_BRIGHTNESS: f32 = 0.88;
+        pub const SHELF_BRIGHTNESS: f32 = 0.86;
 
         /// Floor saturation multiplier.
         pub const FLOOR_SATURATION: f32 = 0.60;
@@ -375,8 +384,21 @@ pub mod visual {
 
     /// Lighting settings
     pub mod lighting {
-        pub const DIRECTIONAL_ILLUMINANCE: f32 = 12_500.0;
-        pub const AMBIENT_BRIGHTNESS: f32 = 360.0;
+        /// if true, skip key light and run ambient-only calibration view.
+        pub const AMBIENT_ONLY_CALIBRATION: bool = false;
+
+        /// world background color; prevents pure-black void clipping.
+        pub const BACKGROUND_COLOR: (f32, f32, f32) = (0.15, 0.15, 0.16);
+
+        /// key light intensity for depth-only shading without floor blowout.
+        pub const DIRECTIONAL_ILLUMINANCE: f32 = 7_000.0;
+        /// flat visibility baseline; tuned in ambient-only pass.
+        pub const AMBIENT_BRIGHTNESS: f32 = 320.0;
+
+        /// key light position; x and z equal to y approximates 45-degree incidence.
+        pub const KEY_LIGHT_POSITION: (f32, f32, f32) = (12.0, 12.0, 12.0);
+        /// key light target.
+        pub const KEY_LIGHT_TARGET: (f32, f32, f32) = (0.0, 0.0, 0.0);
     }
 
     /// Congestion overlay cadence and render budgets.

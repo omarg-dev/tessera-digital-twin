@@ -238,15 +238,28 @@ pub fn propagate_tile_optimizations(
 
 /// Spawns the scene lighting
 pub fn populate_lighting(mut commands: Commands) {
-    // directional light (sun-like) for even illumination
-    commands.spawn((
-        DirectionalLight {
-            illuminance: lighting::DIRECTIONAL_ILLUMINANCE,
-            shadows_enabled: !opt::DISABLE_DIRECTIONAL_SHADOWS,
-            ..default()
-        },
-        Transform::from_xyz(10.0, 20.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+    if !lighting::AMBIENT_ONLY_CALIBRATION {
+        // key light for depth and wall bevel definition.
+        let key_pos = Vec3::new(
+            lighting::KEY_LIGHT_POSITION.0,
+            lighting::KEY_LIGHT_POSITION.1,
+            lighting::KEY_LIGHT_POSITION.2,
+        );
+        let key_target = Vec3::new(
+            lighting::KEY_LIGHT_TARGET.0,
+            lighting::KEY_LIGHT_TARGET.1,
+            lighting::KEY_LIGHT_TARGET.2,
+        );
+
+        commands.spawn((
+            DirectionalLight {
+                illuminance: lighting::DIRECTIONAL_ILLUMINANCE,
+                shadows_enabled: !opt::DISABLE_DIRECTIONAL_SHADOWS,
+                ..default()
+            },
+            Transform::from_translation(key_pos).looking_at(key_target, Vec3::Y),
+        ));
+    }
 
     // ambient light so shadows aren't pitch black
     commands.insert_resource(AmbientLight {

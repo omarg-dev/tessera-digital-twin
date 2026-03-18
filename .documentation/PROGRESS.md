@@ -194,6 +194,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Label readability + state encoding pass 2: LOD tiers, per-frame budget, cluster badges, pulse-based state cues, and task/details hierarchy polish
 - [x] Third polish pass 3: shelf occupancy readability bins, congestion overlays, render counters, and screenshot regression harness controls
 - [x] Screenshot capture pass 4: built-in baseline/after file saves, always-on path flow animation, and temporary heatmap control lock
+- [x] Scene calibration pass 5: 20-80 albedo clamps, ambient/key-light tuning controls, explicit ACES tonemapping, and bloom threshold gating
 
 **Pending Features:**
 
@@ -291,6 +292,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-18: Scene calibration pass 5 (albedo, lighting, and post-process discipline) (Phase 5)
+
+- Added visual calibration constants in `protocol::config::visual` for albedo bounds (20-80 guardrail), background charcoal color, ambient-only calibration switch, key-light position/target, and bloom prefilter threshold controls.
+- Updated luminance hierarchy material remap to clamp floor/wall/shelf albedo into calibrated bounds and reduce large-surface blowout risk.
+- Updated lighting spawn to support ambient-only calibration mode and key-light directional setup from centralized config values.
+- Set explicit camera tonemapping to `AcesFitted` and locked bloom prefilter thresholding so bloom is reserved for explicit HDR accents.
+- Added app clear color from visual lighting config to prevent near-black void crush around the warehouse scene.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
+- Why: implement the first pass of objective scene calibration to improve baseline readability and depth before higher-cost art polish.
 
 ### 2026-03-17: Screenshot capture and control-bar simplification pass (Phase 5)
 

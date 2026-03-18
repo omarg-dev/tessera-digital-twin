@@ -36,6 +36,7 @@ use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_mod_outline::{OutlinePlugin, AutoGenerateOutlineNormalsPlugin};
+use protocol::config::visual::lighting;
 use systems::{
     camera::{spawn_camera, camera_controls, camera_follow_selected, camera_follow_task, update_bloom_settings, apply_camera_preset, record_snapshot_markers},
     populate_scene::{populate_environment, populate_lighting, check_reload_environment, sync_shelf_boxes, propagate_tile_optimizations},
@@ -93,6 +94,11 @@ fn main() {
         .add_observer(on_pointer_click)
         // Resources
         .insert_resource(session)
+        .insert_resource(ClearColor(Color::srgb(
+            lighting::BACKGROUND_COLOR.0,
+            lighting::BACKGROUND_COLOR.1,
+            lighting::BACKGROUND_COLOR.2,
+        )))
         .init_resource::<resources::RobotIndex>()
         .init_resource::<resources::RobotLastPositions>()
         .init_resource::<resources::UiState>()
