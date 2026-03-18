@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use crate::components::{Ground, Shelf, Wall};
+use crate::components::{BoxCargo, Ground, Shelf, Wall};
 use protocol::config::visual::luminance;
 
 #[derive(Resource, Default)]
@@ -9,6 +9,7 @@ pub struct LuminanceMaterialState {
     processed_ground: HashSet<AssetId<StandardMaterial>>,
     processed_wall: HashSet<AssetId<StandardMaterial>>,
     processed_shelf: HashSet<AssetId<StandardMaterial>>,
+    processed_box: HashSet<AssetId<StandardMaterial>>,
 }
 
 fn collect_material_handles(
@@ -58,13 +59,14 @@ fn style_material(
     }
 }
 
-/// Apply one-time luminance hierarchy styling to loaded floor, wall, and shelf materials.
+/// Apply one-time luminance hierarchy styling to floor, wall, shelf, and cargo-box materials.
 pub fn apply_luminance_hierarchy(
     mut state: ResMut<LuminanceMaterialState>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     ground_q: Query<Entity, With<Ground>>,
     wall_q: Query<Entity, With<Wall>>,
     shelf_q: Query<Entity, With<Shelf>>,
+    box_q: Query<Entity, With<BoxCargo>>,
     children_q: Query<&Children>,
     material_q: Query<&MeshMaterial3d<StandardMaterial>>,
 ) {
@@ -110,6 +112,21 @@ pub fn apply_luminance_hierarchy(
                     &mut materials,
                     luminance::SHELF_BRIGHTNESS,
                     luminance::SHELF_SATURATION,
+                );
+            }
+        }
+    }
+
+    for root in &box_q {
+        handles.clear();
+        collect_material_handles(root, &children_q, &material_q, &mut handles);
+        for handle in &handles {
+            if state.processed_box.insert(handle.id()) {
+                style_material(
+                    handle,
+                    &mut materials,
+                    luminance::BOX_BRIGHTNESS,
+                    luminance::BOX_SATURATION,
                 );
             }
         }

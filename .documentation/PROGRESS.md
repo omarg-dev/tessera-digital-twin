@@ -195,6 +195,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Third polish pass 3: shelf occupancy readability bins, congestion overlays, render counters, and screenshot regression harness controls
 - [x] Screenshot capture pass 4: built-in baseline/after file saves, always-on path flow animation, and temporary heatmap control lock
 - [x] Scene calibration pass 5: 20-80 albedo clamps, ambient/key-light tuning controls, explicit ACES tonemapping, and bloom threshold gating
+- [x] Scene material parity pass 6: split cargo-box luminance controls from shelf structure tuning
 
 **Pending Features:**
 
@@ -292,6 +293,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-18: Scene material parity pass 6 (cargo boxes vs shelf body) (Phase 5)
+
+- Added dedicated cargo-box luminance constants (`BOX_BRIGHTNESS`, `BOX_SATURATION`) in `protocol::config::visual::luminance`.
+- Updated luminance hierarchy system to process `BoxCargo` entities in a separate pass with separate material tracking so shelf-body tuning no longer forces box appearance.
+- Why: shelf cargo boxes were visually too dark relative to shelves because both assets shared one shelf transform profile despite different source albedo/texturing.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-18: Scene calibration pass 5 (albedo, lighting, and post-process discipline) (Phase 5)
 

@@ -372,14 +372,18 @@ pub mod visual {
         /// Wall brightness multiplier.
         pub const WALL_BRIGHTNESS: f32 = 0.82;
         /// Shelf brightness multiplier.
-        pub const SHELF_BRIGHTNESS: f32 = 0.86;
+        pub const SHELF_BRIGHTNESS: f32 = 0.95;
+        /// Cargo box brightness multiplier.
+        pub const BOX_BRIGHTNESS: f32 = 1.15;
 
         /// Floor saturation multiplier.
         pub const FLOOR_SATURATION: f32 = 0.60;
         /// Wall saturation multiplier.
         pub const WALL_SATURATION: f32 = 0.45;
         /// Shelf saturation multiplier.
-        pub const SHELF_SATURATION: f32 = 0.55;
+        pub const SHELF_SATURATION: f32 = 0.90;
+        /// Cargo box saturation multiplier.
+        pub const BOX_SATURATION: f32 = 0.78;
     }
 
     /// Lighting settings
@@ -388,15 +392,15 @@ pub mod visual {
         pub const AMBIENT_ONLY_CALIBRATION: bool = false;
 
         /// world background color; prevents pure-black void clipping.
-        pub const BACKGROUND_COLOR: (f32, f32, f32) = (0.15, 0.15, 0.16);
+        pub const BACKGROUND_COLOR: (f32, f32, f32) = (0.17, 0.17, 0.19);
 
         /// key light intensity for depth-only shading without floor blowout.
-        pub const DIRECTIONAL_ILLUMINANCE: f32 = 7_000.0;
+        pub const DIRECTIONAL_ILLUMINANCE: f32 = 3_500.0;
         /// flat visibility baseline; tuned in ambient-only pass.
-        pub const AMBIENT_BRIGHTNESS: f32 = 320.0;
+        pub const AMBIENT_BRIGHTNESS: f32 = 1_000.0;
 
         /// key light position; x and z equal to y approximates 45-degree incidence.
-        pub const KEY_LIGHT_POSITION: (f32, f32, f32) = (12.0, 12.0, 12.0);
+        pub const KEY_LIGHT_POSITION: (f32, f32, f32) = (12.0, 15.0, 12.0);
         /// key light target.
         pub const KEY_LIGHT_TARGET: (f32, f32, f32) = (0.0, 0.0, 0.0);
     }
