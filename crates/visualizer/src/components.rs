@@ -53,13 +53,9 @@ pub struct Dropoff;
 #[derive(Component)]
 pub struct BoxCargo;
 
-/// Marker on robot model child nodes that represent embedded cargo visuals.
+/// Cargo box visual parented under a robot when it is carrying cargo.
 #[derive(Component)]
-pub struct RobotCargoVisual;
-
-/// Marker on robot roots once embedded cargo child binding is complete.
-#[derive(Component)]
-pub struct RobotCargoBindingReady;
+pub struct RobotCargoBox;
 
 /// Marker for entities currently selected via 3D picking.
 /// Added on click, removed on deselect. Drives the outline SELECT_COLOR.

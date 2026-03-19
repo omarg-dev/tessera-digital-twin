@@ -197,6 +197,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Scene calibration pass 5: 20-80 albedo clamps, ambient/key-light tuning controls, explicit ACES tonemapping, and bloom threshold gating
 - [x] Scene material parity pass 6: split cargo-box luminance controls from shelf structure tuning
 - [x] Robot cargo visual pass 7: embedded robot child cargo binding and runtime visibility sync
+- [x] Robot cargo visual pass 8: spawned child `box-small` cargo on robots with config offset/scale controls
 
 **Pending Features:**
 
@@ -294,6 +295,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-19: Robot cargo visual pass 8 (spawned child box sync) (Phase 5)
+
+- Replaced embedded cargo-node binding/toggle path with a direct child-entity sync system that spawns `box-small` on robots while `Robot.carrying_cargo` is `Some` and despawns on `None`.
+- Added robot cargo configuration constants in `protocol::config::visual::robot`: `CARGO_CHILD_OFFSET` and `CARGO_CHILD_SCALE` for tuning placement without code changes.
+- Removed embedded cargo binding markers and systems, including name-token binding dependencies.
+- Why: simplify behavior and remove model-hierarchy naming coupling; use deterministic state-driven visuals.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-19: Robot cargo visual pass 7 (embedded child mesh visibility sync) (Phase 5)
 

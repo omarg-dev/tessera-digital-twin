@@ -36,7 +36,7 @@ pub mod physics {
     pub const ARRIVAL_THRESHOLD: f32 = 0.1;
     
     /// Robot height offset (Y position above ground)
-    pub const ROBOT_HEIGHT: f32 = 0.25;
+    pub const ROBOT_HEIGHT: f32 = 0.1;
 }
 
 /// Battery settings
@@ -264,13 +264,12 @@ pub mod visual {
         pub const BOX_SCALE: f32 = 0.5;
     }
 
-    /// Robot model cargo-visual binding settings.
+    /// Robot cargo child visual settings.
     pub mod robot {
-        /// case-insensitive node-name token used to find embedded cargo child nodes.
-        /// in Blender, keep cargo child object names containing this token.
-        pub const CARGO_NODE_NAME_TOKEN: &str = "cargo";
-        /// optional local offset for fallback spawned cargo visuals.
-        pub const CARGO_FALLBACK_OFFSET: (f32, f32, f32) = (0.0, 0.62, 0.0);
+        /// local offset for spawned cargo child box relative to robot root transform.
+        pub const CARGO_CHILD_OFFSET: (f32, f32, f32) = (0.0, 0.62, 0.0);
+        /// scale for spawned cargo child box model.
+        pub const CARGO_CHILD_SCALE: f32 = 1.0;
     }
 
     pub mod path {

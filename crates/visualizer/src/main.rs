@@ -55,7 +55,7 @@ use systems::{
     draw_paths::{configure_gizmos, draw_robot_paths},
     luminance_hierarchy::{apply_luminance_hierarchy, LuminanceMaterialState},
     material_diagnostics::{diagnose_imported_materials, MaterialDiagnosticsState},
-    robot_cargo_visibility::{bind_robot_cargo_visuals, sync_robot_cargo_visibility, RobotCargoBindingState},
+    sync_robot_cargo::sync_robot_cargo,
     congestion_overlays::{reset_render_perf_counters, update_congestion_overlay_data, draw_congestion_overlays},
     robot_labels::draw_robot_labels,
 };
@@ -116,7 +116,6 @@ fn main() {
         .init_resource::<resources::CongestionOverlayData>()
         .init_resource::<resources::ScreenshotHarness>()
         .init_resource::<MaterialDiagnosticsState>()
-        .init_resource::<RobotCargoBindingState>()
         .init_resource::<LuminanceMaterialState>()
         // Events
         .add_message::<resources::UiAction>()
@@ -169,10 +168,9 @@ fn main() {
         .add_systems(PostUpdate, (
             check_reload_environment.run_if(resource_exists::<systems::commands::ReloadEnvironment>),
             sync_shelf_boxes,
+            sync_robot_cargo,
             sync_programmatic_outlines,
             propagate_tile_optimizations,
-            bind_robot_cargo_visuals,
-            sync_robot_cargo_visibility,
             diagnose_imported_materials,
             apply_luminance_hierarchy,
         ))

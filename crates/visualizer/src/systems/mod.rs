@@ -15,4 +15,4 @@ pub mod robot_labels;
 pub mod luminance_hierarchy;
 pub mod congestion_overlays;
 pub mod material_diagnostics;
-pub mod robot_cargo_visibility;
+pub mod sync_robot_cargo;
