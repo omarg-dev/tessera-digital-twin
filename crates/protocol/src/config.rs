@@ -36,7 +36,7 @@ pub mod physics {
     pub const ARRIVAL_THRESHOLD: f32 = 0.1;
     
     /// Robot height offset (Y position above ground)
-    pub const ROBOT_HEIGHT: f32 = 0.1;
+    pub const ROBOT_HEIGHT: f32 = 0.25;
 }
 
 /// Battery settings
@@ -270,6 +270,7 @@ pub mod visual {
         pub const CARGO_CHILD_OFFSET: (f32, f32, f32) = (0.0, 0.62, 0.0);
         /// scale for spawned cargo child box model.
         pub const CARGO_CHILD_SCALE: f32 = 1.0;
+        //TODO: add robot y-offset
     }
 
     pub mod path {

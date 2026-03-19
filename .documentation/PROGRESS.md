@@ -198,6 +198,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Scene material parity pass 6: split cargo-box luminance controls from shelf structure tuning
 - [x] Robot cargo visual pass 7: embedded robot child cargo binding and runtime visibility sync
 - [x] Robot cargo visual pass 8: spawned child `box-small` cargo on robots with config offset/scale controls
+- [x] Robot cargo visual pass 9: persistent child cargo entity with visibility toggling (no churn)
 
 **Pending Features:**
 
@@ -295,6 +296,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-19: Robot cargo visual pass 9 (persistent child visibility toggle) (Phase 5)
+
+- Updated robot cargo sync to maintain exactly one child cargo entity per robot and toggle `Visibility` based on `Robot.carrying_cargo`.
+- Added duplicate-child hardening by pruning extra cargo children and retaining one canonical child.
+- Why: avoid repeated spawn/despawn churn while keeping state-driven cargo visuals deterministic.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-19: Robot cargo visual pass 8 (spawned child box sync) (Phase 5)
 
