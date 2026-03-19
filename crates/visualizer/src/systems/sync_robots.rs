@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap};
 use crate::components::{Robot, Shelf};
 use crate::systems::models;
-use protocol::config::visual::{CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
+use protocol::config::visual::{robot as robot_cfg, CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
 use protocol::grid_map::TileType;
 
 fn world_to_grid_xy(pos: Vec3) -> Option<(usize, usize)> {
@@ -38,7 +38,11 @@ pub fn sync_robots(
                 robot.battery = update.battery;
                 robot.carrying_cargo = update.carrying_cargo;
                 robot.enabled = update.enabled;
-                let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
+                let pos = Vec3::new(
+                    update.position[0],
+                    update.position[1] + robot_cfg::MODEL_Y_OFFSET,
+                    update.position[2],
+                );
                 let vel = Vec3::new(update.velocity[0], update.velocity[1], update.velocity[2]);
                 robot.position = pos;
                 // update interpolation target and velocity — transform.translation is
@@ -95,7 +99,11 @@ pub fn sync_robots(
             }
         } else {
             // robot not found - spawn a new entity
-            let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
+            let pos = Vec3::new(
+                update.position[0],
+                update.position[1] + robot_cfg::MODEL_Y_OFFSET,
+                update.position[2],
+            );
 
             let entity = commands.spawn((
                 SceneRoot(asset_server.load(format!("{}#Scene0", models::assets::ROBOT))),

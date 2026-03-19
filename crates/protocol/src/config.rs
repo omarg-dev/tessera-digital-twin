@@ -266,11 +266,13 @@ pub mod visual {
 
     /// Robot cargo child visual settings.
     pub mod robot {
+        /// visual Y offset applied to robot world transforms.
+        /// use this to lift/drop the robot model without changing firmware physics.
+        pub const MODEL_Y_OFFSET: f32 = 0.25;
         /// local offset for spawned cargo child box relative to robot root transform.
         pub const CARGO_CHILD_OFFSET: (f32, f32, f32) = (0.0, 0.62, 0.0);
         /// scale for spawned cargo child box model.
         pub const CARGO_CHILD_SCALE: f32 = 1.0;
-        //TODO: add robot y-offset
     }
 
     pub mod path {

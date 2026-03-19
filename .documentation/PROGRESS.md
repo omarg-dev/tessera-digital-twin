@@ -199,6 +199,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Robot cargo visual pass 7: embedded robot child cargo binding and runtime visibility sync
 - [x] Robot cargo visual pass 8: spawned child `box-small` cargo on robots with config offset/scale controls
 - [x] Robot cargo visual pass 9: persistent child cargo entity with visibility toggling (no churn)
+- [x] Robot visual alignment pass 10: configurable robot model Y-offset control
 
 **Pending Features:**
 
@@ -296,6 +297,13 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-19: Robot visual alignment pass 10 (model Y-offset control) (Phase 5)
+
+- Added `visual::robot::MODEL_Y_OFFSET` in protocol config as a dedicated control for robot model vertical alignment.
+- Updated robot visual position updates and initial spawn transforms to apply the configured model offset.
+- Why: allow model-level vertical tuning without changing firmware coordinate semantics.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-19: Robot cargo visual pass 9 (persistent child visibility toggle) (Phase 5)
 
