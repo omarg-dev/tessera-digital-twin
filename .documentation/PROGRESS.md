@@ -196,15 +196,15 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Screenshot capture pass 4: built-in baseline/after file saves, always-on path flow animation, and temporary heatmap control lock
 - [x] Scene calibration pass 5: 20-80 albedo clamps, ambient/key-light tuning controls, explicit ACES tonemapping, and bloom threshold gating
 - [x] Scene material parity pass 6: split cargo-box luminance controls from shelf structure tuning
+- [x] Robot cargo visual pass 7: embedded robot child cargo binding and runtime visibility sync
 
 **Pending Features:**
 
 - [x] 3D gizmos: traffic heatmap overlay
-- [ ] 3D gizmos: debug grid
-- [ ] Robot ID labels rendered in 3D viewport
-- [ ] Analytics dashboard (throughput graphs, battery histograms)
-- [ ] Cargo/package entity tracking (visual cargo on robots)
-- [ ] Keyboard shortcuts: P=pause, R=resume, Space=reset, Esc=quit
+- [x] 3D gizmos: debug grid
+- [x] Robot ID labels rendered in 3D viewport
+- [x] Analytics dashboard (throughput graphs, battery histograms)
+- [x] Cargo/package entity tracking (visual cargo on robots)
 
 ## MVP Showcase
 
@@ -271,6 +271,7 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - [ ] Dynamic screenshot preset management (runtime editable presets + file persistence)
 - [ ] Screenshot regression pipeline controls (output path settings + batch baseline/after capture)
 - [ ] Top navigation/preferences bar for global app controls and layout presets
+- [ ] Keyboard shortcuts: P=pause, R=resume, Space=reset, Esc=quit
 
 **Architecture Impact:**
 
@@ -293,6 +294,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-19: Robot cargo visual pass 7 (embedded child mesh visibility sync) (Phase 5)
+
+- Switched robot spawning from placeholder cuboid to `models/robot.glb` scene roots so authored child nodes are available at runtime.
+- Added cargo-visual binding pipeline that scans robot descendants once loaded and tags child nodes whose names contain the configured token `visual::robot::CARGO_NODE_NAME_TOKEN`.
+- Added frame-sync visibility system for tagged robot cargo child nodes: visible when `Robot.carrying_cargo` is `Some`, hidden when `None`.
+- Added targeted runtime warnings in visualizer log buffer when no cargo child node is discovered for a robot model, with naming guidance.
+- Why: preserve Blender-authored cargo placement while enabling deterministic runtime state-driven visibility without respawn churn.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-18: Scene material parity pass 6 (cargo boxes vs shelf body) (Phase 5)
 

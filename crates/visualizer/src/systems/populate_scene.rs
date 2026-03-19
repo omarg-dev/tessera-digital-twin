@@ -4,7 +4,7 @@ use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
 use protocol::config::{LAYOUT_FILE_PATH,
-    visual::{TILE_SIZE, shelf, lighting, colors, semantic, ROBOT_SIZE},
+    visual::{TILE_SIZE, shelf, lighting, colors},
     warehouse};
 use protocol::config::optimization as opt;
 use protocol::grid_map::{GridMap, TileType};
@@ -84,7 +84,7 @@ pub fn populate_environment(
         }
     }
 
-    // pre-allocate shared placeholder meshes (station, dropoff, robot)
+    // pre-allocate shared placeholder meshes (station, dropoff)
     let placeholders = PlaceholderMeshes {
         station_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
         station_material: materials.add(StandardMaterial {
@@ -94,13 +94,6 @@ pub fn populate_environment(
         dropoff_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
         dropoff_material: materials.add(StandardMaterial {
             base_color: Color::srgb(colors::DROPOFF.0, colors::DROPOFF.1, colors::DROPOFF.2),
-            ..default()
-        }),
-        robot_mesh: meshes.add(Cuboid::new(ROBOT_SIZE, ROBOT_SIZE, ROBOT_SIZE)),
-        robot_material: materials.add(StandardMaterial {
-            base_color: Color::srgb(semantic::ROBOT_BODY.0, semantic::ROBOT_BODY.1, semantic::ROBOT_BODY.2),
-            perceptual_roughness: 0.72,
-            metallic: 0.12,
             ..default()
         }),
     };

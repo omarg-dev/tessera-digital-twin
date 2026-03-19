@@ -54,6 +54,8 @@ use systems::{
     outline::{on_pointer_over, on_pointer_out, on_pointer_click, sync_programmatic_outlines},
     draw_paths::{configure_gizmos, draw_robot_paths},
     luminance_hierarchy::{apply_luminance_hierarchy, LuminanceMaterialState},
+    material_diagnostics::{diagnose_imported_materials, MaterialDiagnosticsState},
+    robot_cargo_visibility::{bind_robot_cargo_visuals, sync_robot_cargo_visibility, RobotCargoBindingState},
     congestion_overlays::{reset_render_perf_counters, update_congestion_overlay_data, draw_congestion_overlays},
     robot_labels::draw_robot_labels,
 };
@@ -113,6 +115,8 @@ fn main() {
         .init_resource::<resources::UiFrameInputs>()
         .init_resource::<resources::CongestionOverlayData>()
         .init_resource::<resources::ScreenshotHarness>()
+        .init_resource::<MaterialDiagnosticsState>()
+        .init_resource::<RobotCargoBindingState>()
         .init_resource::<LuminanceMaterialState>()
         // Events
         .add_message::<resources::UiAction>()
@@ -167,6 +171,9 @@ fn main() {
             sync_shelf_boxes,
             sync_programmatic_outlines,
             propagate_tile_optimizations,
+            bind_robot_cargo_visuals,
+            sync_robot_cargo_visibility,
+            diagnose_imported_materials,
             apply_luminance_hierarchy,
         ))
         .run();

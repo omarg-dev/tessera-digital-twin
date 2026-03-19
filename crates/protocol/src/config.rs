@@ -264,6 +264,15 @@ pub mod visual {
         pub const BOX_SCALE: f32 = 0.5;
     }
 
+    /// Robot model cargo-visual binding settings.
+    pub mod robot {
+        /// case-insensitive node-name token used to find embedded cargo child nodes.
+        /// in Blender, keep cargo child object names containing this token.
+        pub const CARGO_NODE_NAME_TOKEN: &str = "cargo";
+        /// optional local offset for fallback spawned cargo visuals.
+        pub const CARGO_FALLBACK_OFFSET: (f32, f32, f32) = (0.0, 0.62, 0.0);
+    }
+
     pub mod path {
         /// Path color for global active routes (subtle, non-dominant)
         pub const ACTIVE_OTHER_COLOR: (f32, f32, f32) = (0.18, 0.50, 0.58);
@@ -363,9 +372,9 @@ pub mod visual {
     /// Luminance and saturation controls to separate floor, walls, and shelves.
     pub mod luminance {
         /// lower albedo clamp for large static surfaces (20-80 rule).
-        pub const ALBEDO_MIN: f32 = 0.15;
+        pub const ALBEDO_MIN: f32 = 0.10;
         /// upper albedo clamp for large static surfaces (20-80 rule).
-        pub const ALBEDO_MAX: f32 = 0.80;
+        pub const ALBEDO_MAX: f32 = 0.90;
 
         /// Floor brightness multiplier.
         pub const FLOOR_BRIGHTNESS: f32 = 0.94;
@@ -403,6 +412,16 @@ pub mod visual {
         pub const KEY_LIGHT_POSITION: (f32, f32, f32) = (12.0, 15.0, 12.0);
         /// key light target.
         pub const KEY_LIGHT_TARGET: (f32, f32, f32) = (0.0, 0.0, 0.0);
+    }
+
+    /// Runtime diagnostics for imported scene materials.
+    pub mod diagnostics {
+        /// logs imported floor/shelf material properties once after scene load.
+        pub const ENABLE_IMPORT_MATERIAL_LOGS: bool = true;
+        /// max floor materials logged in one run.
+        pub const MAX_FLOOR_MATERIAL_LOGS: usize = 6;
+        /// max shelf materials logged in one run.
+        pub const MAX_SHELF_MATERIAL_LOGS: usize = 8;
     }
 
     /// Congestion overlay cadence and render budgets.

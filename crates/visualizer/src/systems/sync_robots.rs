@@ -1,6 +1,7 @@
 use bevy::prelude::*;
-use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap, PlaceholderMeshes};
+use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap};
 use crate::components::{Robot, Shelf};
+use crate::systems::models;
 use protocol::config::visual::{CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
 use protocol::grid_map::TileType;
 
@@ -21,7 +22,7 @@ pub fn sync_robots(
     mut log_buffer: ResMut<LogBuffer>,
     mut shelves: Query<(Entity, &mut Shelf, &Transform), Without<Robot>>,
     warehouse_map: Option<Res<WarehouseMap>>,
-    placeholder_meshes: Option<Res<PlaceholderMeshes>>,
+    asset_server: Res<AssetServer>,
     time: Res<Time>,
 ) {
     // Drain all updates collected this frame
@@ -96,44 +97,23 @@ pub fn sync_robots(
             // robot not found - spawn a new entity
             let pos = Vec3::new(update.position[0], update.position[1], update.position[2]);
 
-            // TODO: replace placeholder cuboid with .glb robot model when available
-            let entity = if let Some(ref handles) = placeholder_meshes {
-                commands.spawn((
-                    Mesh3d(handles.robot_mesh.clone()),
-                    MeshMaterial3d(handles.robot_material.clone()),
-                    Transform::from_translation(pos),
-                    Robot {
-                        id: update.id,
-                        state: update.state.clone(),
-                        position: pos,
-                        battery: update.battery,
-                        current_task: None,
-                        carrying_cargo: update.carrying_cargo,
-                        // on spawn, target = current pos so interpolation starts settled
-                        target_position: pos,
-                        network_velocity: Vec3::ZERO,
-                        last_update_secs: time.elapsed_secs(),
-                        enabled: update.enabled,
-                    },
-                )).id()
-            } else {
-                // fallback: PlaceholderMeshes not yet inserted (race on first frame)
-                commands.spawn((
-                    Transform::from_translation(pos),
-                    Robot {
-                        id: update.id,
-                        state: update.state.clone(),
-                        position: pos,
-                        battery: update.battery,
-                        current_task: None,
-                        carrying_cargo: update.carrying_cargo,
-                        target_position: pos,
-                        network_velocity: Vec3::ZERO,
-                        last_update_secs: time.elapsed_secs(),
-                        enabled: update.enabled,
-                    },
-                )).id()
-            };
+            let entity = commands.spawn((
+                SceneRoot(asset_server.load(format!("{}#Scene0", models::assets::ROBOT))),
+                Transform::from_translation(pos),
+                Robot {
+                    id: update.id,
+                    state: update.state.clone(),
+                    position: pos,
+                    battery: update.battery,
+                    current_task: None,
+                    carrying_cargo: update.carrying_cargo,
+                    // on spawn, target = current pos so interpolation starts settled
+                    target_position: pos,
+                    network_velocity: Vec3::ZERO,
+                    last_update_secs: time.elapsed_secs(),
+                    enabled: update.enabled,
+                },
+            )).id();
 
             index.by_id.insert(update.id, entity);
             log_buffer.push(

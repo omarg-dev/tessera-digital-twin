@@ -72,7 +72,7 @@ pub struct RobotLastPositions {
 #[derive(Resource)]
 pub struct WarehouseMap(pub GridMap);
 
-/// Shared mesh+material handles for placeholder entities (station, dropoff, robot).
+/// Shared mesh+material handles for placeholder entities (station, dropoff).
 /// Avoids creating duplicate GPU assets per entity.
 #[derive(Resource, Clone)]
 pub struct PlaceholderMeshes {
@@ -80,9 +80,6 @@ pub struct PlaceholderMeshes {
     pub station_material: Handle<StandardMaterial>,
     pub dropoff_mesh: Handle<Mesh>,
     pub dropoff_material: Handle<StandardMaterial>,
-    /// TODO: replace with .glb robot model when available
-    pub robot_mesh: Handle<Mesh>,
-    pub robot_material: Handle<StandardMaterial>,
 }
 
 /// Fixed camera viewpoints for visual regression snapshots.

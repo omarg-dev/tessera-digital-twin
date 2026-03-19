@@ -36,8 +36,8 @@ pub mod assets {
     pub const SHELF: &str = "models/shelf.glb";
     /// small cargo box
     pub const BOX_SMALL: &str = "models/box-small.glb";
-    // /// robot chassis model
-    // pub const ROBOT: &str = "models/robot.glb";
+    /// robot chassis model
+    pub const ROBOT: &str = "models/robot.glb";
     // /// charging station model
     // pub const STATION: &str = "models/station.glb";
 }
