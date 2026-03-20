@@ -150,7 +150,7 @@ pub fn task_detail_minimap(
                             Some(TileType::Ground) => egui::Color32::from_gray(70),
                             Some(TileType::Station) => egui::Color32::from_rgb(100, 40, 60),
                             Some(TileType::Dropoff) => egui::Color32::from_rgb(20, 130, 70),
-                            Some(TileType::Shelf(_)) => egui::Color32::from_gray(80),
+                            Some(TileType::Shelf(_)) => egui::Color32::from_rgb(132, 100, 62),
                             Some(TileType::Empty) | None => egui::Color32::from_gray(15),
                         }
                     };

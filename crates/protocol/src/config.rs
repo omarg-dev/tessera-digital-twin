@@ -270,7 +270,7 @@ pub mod visual {
         /// use this to lift/drop the robot model without changing firmware physics.
         pub const MODEL_Y_OFFSET: f32 = -0.25;
         /// local offset for spawned cargo child box relative to robot root transform.
-        pub const CARGO_CHILD_OFFSET: (f32, f32, f32) = (0.0, 0.4, 0.0);
+        pub const CARGO_CHILD_OFFSET: (f32, f32, f32) = (0.0, 0.25, 0.0);
         /// scale for spawned cargo child box model.
         pub const CARGO_CHILD_SCALE: f32 = 0.9;
     }
@@ -306,7 +306,7 @@ pub mod visual {
         pub const PATH_Y_OFFSET: f32 = 0.05;
 
         /// Gizmo line width for path trails (pixels)
-        pub const LINE_WIDTH: f32 = 3.5;
+        pub const LINE_WIDTH: f32 = 5.5;
 
         /// max active path segments rendered each frame.
         pub const MAX_SEGMENTS_PER_FRAME: usize = 2600;
@@ -338,7 +338,7 @@ pub mod visual {
         /// Muted steel-blue for robot body color.
         pub const ROBOT_BODY: (f32, f32, f32) = (0.42, 0.56, 0.66);
         /// Bright cyan reserved for active selected path only.
-        pub const FLOW_ACTIVE: (f32, f32, f32) = (0.0, 2.8, 3.1);
+        pub const FLOW_ACTIVE: (f32, f32, f32) = (0.25, 4.4, 5.1);
         /// Accent for selected entities and key interactive states.
         pub const SELECTION: (f32, f32, f32) = (3.8, 2.4, 0.45);
         /// Alert accent for fault or critical warnings.

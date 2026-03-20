@@ -200,6 +200,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Robot cargo visual pass 8: spawned child `box-small` cargo on robots with config offset/scale controls
 - [x] Robot cargo visual pass 9: persistent child cargo entity with visibility toggling (no churn)
 - [x] Robot visual alignment pass 10: configurable robot model Y-offset control
+- [x] Visual contrast pass 11: neon path emphasis and task-minimap shelf contrast tuning
 
 **Pending Features:**
 
@@ -297,6 +298,14 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-20: Visual contrast pass 11 (path gizmo + task-minimap shelf contrast) (Phase 5)
+
+- Increased gizmo path line width from `3.5` to `5.5` for stronger path legibility at distance.
+- Boosted selected path HDR cyan token `FLOW_ACTIVE` to intensify bloom-driven neon contrast on active routes.
+- Updated task inspector minimap shelf tile color from near-gray to a warmer brown tone for clearer separation from ground and empty tiles.
+- Why: active routes and shelf endpoints were readable functionally but visually too close to neutral scene tones.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-19: Robot visual alignment pass 10 (model Y-offset control) (Phase 5)
 
