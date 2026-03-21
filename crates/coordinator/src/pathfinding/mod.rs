@@ -16,7 +16,7 @@ mod whca;
 mod dispatcher;
 
 pub use astar::AStarPathfinder;
-pub use whca::WHCAPathfinder;
+pub use whca::{WHCAPathfinder, WHCAStatsSnapshot};
 pub use dispatcher::PathfinderInstance;
 
 use protocol::GridMap;
@@ -101,13 +101,13 @@ use protocol::config::physics::ROBOT_HEIGHT;
 /// Convert grid coordinates to world position
 /// Grid (x, y) → World (x, ROBOT_HEIGHT, y)
 pub fn grid_to_world(pos: GridPos) -> WorldPos {
-    [pos.0 as f32, ROBOT_HEIGHT, pos.1 as f32]
+    protocol::grid_to_world(pos, ROBOT_HEIGHT)
 }
 
 /// Convert world position to grid coordinates
 /// World (x, _, z) → Grid (round(x), round(z))
 pub fn world_to_grid(pos: WorldPos) -> GridPos {
-    ((pos[0] + 0.5) as usize, (pos[2] + 0.5) as usize)
+    protocol::world_to_grid(pos).unwrap_or((0, 0))
 }
 
 /// Convert a grid path to world coordinates

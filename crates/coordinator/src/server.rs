@@ -9,6 +9,7 @@ use protocol::*;
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::{collision as collision_config, sensor as sensor_config};
 use protocol::logs;
+use protocol::grid_map::ShelfInventory;
 use serde_json::{to_vec, from_slice};
 use std::collections::HashMap;
 
@@ -34,6 +35,7 @@ pub async fn run(session: Session, map: GridMap) {
         pathfinder.name(),
         coord_config::PATHFINDING_STRATEGY
     );
+    pathfinder.reset_whca_stats();
     
     // Publishers
     let cmd_publisher = session
@@ -55,6 +57,16 @@ pub async fn run(session: Session, map: GridMap) {
         .declare_publisher(topics::ROBOT_CONTROL)
         .await
         .expect("Failed to declare ROBOT_CONTROL publisher");
+
+    let path_telemetry_publisher = session
+        .declare_publisher(topics::TELEMETRY_PATHS)
+        .await
+        .expect("Failed to declare TELEMETRY_PATHS publisher");
+
+    let whca_metrics_publisher = session
+        .declare_publisher(topics::TELEMETRY_WHCA_METRICS)
+        .await
+        .expect("Failed to declare TELEMETRY_WHCA_METRICS publisher");
     
     // Subscribers
     let robot_subscriber = session
@@ -88,8 +100,10 @@ pub async fn run(session: Session, map: GridMap) {
         map_hash: map.hash,
         map_dimensions: (map.width, map.height),
     };
+    let map_validation_payload = to_vec(&map_validation)
+        .expect("Failed to serialize map validation payload");
     map_publisher
-        .put(to_vec(&map_validation).unwrap())
+        .put(map_validation_payload)
         .await
         .expect("Failed to publish map validation");
     println!("✓ Map hash broadcast for validation");
@@ -98,8 +112,10 @@ pub async fn run(session: Session, map: GridMap) {
     let mut robots: HashMap<u32, TrackedRobot> = HashMap::new();
     let mut paused = false;
     let mut verbose = true;
+    let mut inventory = ShelfInventory::from_map(&map);
     let mut pending_tasks: usize = 0;  // From QueueState broadcasts
     let mut next_cmd_id: u64 = 1;  // Unique ID for command tracking
+    let mut time_scale: f32 = 1.0;
     
     // Channel for stdin commands
     let (tx, mut rx) = mpsc::channel::<StdinCmd>(16);
@@ -109,72 +125,98 @@ pub async fn run(session: Session, map: GridMap) {
     
     let mut last_tick = std::time::Instant::now();
     let mut last_validation_publish = std::time::Instant::now();
+    let mut last_whca_stats_log = std::time::Instant::now();
+    let mut last_whca_stats_snapshot: Option<pathfinding::WHCAStatsSnapshot> = None;
     let mut chaos = protocol::config::chaos::ENABLED;
     
     loop {
         // Republish map hash periodically (ensures latecomers can validate)
         if last_validation_publish.elapsed() >= std::time::Duration::from_secs(coord_config::MAP_HASH_REPUBLISH_SECS) {
-            map_publisher
-                .put(to_vec(&map_validation).unwrap())
-                .await
-                .ok();
+            let _ = protocol::publish_json_logged(
+                "Coordinator",
+                "periodic map validation",
+                &map_validation,
+                |payload| async { map_publisher.put(payload).await.map(|_| ()) },
+            )
+            .await;
             last_validation_publish = std::time::Instant::now();
         }
         
         // Handle system commands (from orchestrator via Zenoh)
         while let Ok(Some(sample)) = control_subscriber.try_recv() {
-            if let Ok(sys_cmd) = from_slice::<SystemCommand>(&sample.payload().to_bytes()) {
-                commands::handle_system_command(&sys_cmd, &mut paused, &mut verbose, &mut chaos);
+            let payload = sample.payload().to_bytes();
+            match from_slice::<SystemCommand>(&payload) {
+                Ok(sys_cmd) => {
+                    commands::handle_system_command(
+                        &sys_cmd,
+                        &mut paused,
+                        &mut verbose,
+                        &mut chaos,
+                        &mut time_scale,
+                    );
+                }
+                Err(err) => log_deserialize_failure("SystemCommand", topics::ADMIN_CONTROL, &payload, &err),
             }
         }
         
         // Handle task assignments (from scheduler)
         while let Ok(Some(sample)) = task_subscriber.try_recv() {
-            if let Ok(assignment) = from_slice::<TaskAssignment>(&sample.payload().to_bytes()) {
-                let result = task_manager::handle_task_assignment(
-                    &assignment,
-                    &mut robots,
-                    &map,
-                    &mut pathfinder,
-                    &cmd_publisher,
-                    &status_publisher,
-                    &mut next_cmd_id,
-                    verbose,
-                ).await;
+            let payload = sample.payload().to_bytes();
+            match from_slice::<TaskAssignment>(&payload) {
+                Ok(assignment) => {
+                    let result = task_manager::handle_task_assignment(
+                        &assignment,
+                        &mut robots,
+                        &map,
+                        &mut pathfinder,
+                        &mut inventory,
+                        &cmd_publisher,
+                        &status_publisher,
+                        &mut next_cmd_id,
+                        verbose,
+                    ).await;
 
-                let reason = match result {
-                    task_manager::AssignmentResult::Accepted { waypoints, cost } => {
-                        format!("accepted: {} waypoints (cost: {})", waypoints, cost)
-                    }
-                    task_manager::AssignmentResult::LowBatteryReturn { battery } => {
-                        format!("rejected: low battery ({:.1}%)", battery)
-                    }
-                    task_manager::AssignmentResult::RobotNotFound => "rejected: robot not found".to_string(),
-                    task_manager::AssignmentResult::RobotFaultedOrBlocked => "rejected: robot faulted/blocked".to_string(),
-                    task_manager::AssignmentResult::RobotBusy => "rejected: robot busy".to_string(),
-                    task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
-                    task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
-                    task_manager::AssignmentResult::InvalidTileCombination => "rejected: invalid pickup/dropoff".to_string(),
-                    task_manager::AssignmentResult::NoPathToPickup => "rejected: no path to pickup".to_string(),
-                };
+                    let reason = match result {
+                        task_manager::AssignmentResult::Accepted { waypoints, cost } => {
+                            format!("accepted: {} waypoints (cost: {})", waypoints, cost)
+                        }
+                        task_manager::AssignmentResult::LowBatteryReturn { battery } => {
+                            format!("rejected: low battery ({:.1}%)", battery)
+                        }
+                        task_manager::AssignmentResult::RobotNotFound => "rejected: robot not found".to_string(),
+                        task_manager::AssignmentResult::RobotFaultedOrBlocked => "rejected: robot faulted/blocked".to_string(),
+                        task_manager::AssignmentResult::RobotDisabled => "rejected: robot disabled".to_string(),
+                        task_manager::AssignmentResult::RobotBusy => "rejected: robot busy".to_string(),
+                        task_manager::AssignmentResult::NoPickupLocation => "rejected: no pickup location".to_string(),
+                        task_manager::AssignmentResult::NoDropoffLocation => "rejected: no dropoff location".to_string(),
+                        task_manager::AssignmentResult::InvalidTileCombination => "rejected: invalid pickup/dropoff".to_string(),
+                        task_manager::AssignmentResult::ShelfCapacity { reason } => format!("rejected: {}", reason),
+                        task_manager::AssignmentResult::NoPathToPickup => "rejected: no path to pickup".to_string(),
+                    };
 
-                let log = &format!("Task {} assignment result (robot {}): {}", assignment.task.id, assignment.robot_id, reason);
-                
-                if verbose {
-                    println!("{}", log);
+                    let log = &format!("Task {} assignment result (robot {}): {}", assignment.task.id, assignment.robot_id, reason);
+
+                    if verbose {
+                        println!("{}", log);
+                    }
+
+                    logs::save_log(
+                        "Coordinator",
+                        log,
+                    );
                 }
-                
-                logs::save_log(
-                    "Coordinator",
-                    log,
-                );
+                Err(err) => log_deserialize_failure("TaskAssignment", topics::TASK_ASSIGNMENTS, &payload, &err),
             }
         }
         
         // Handle queue state updates (from scheduler)
         while let Ok(Some(sample)) = queue_subscriber.try_recv() {
-            if let Ok(state) = from_slice::<QueueState>(&sample.payload().to_bytes()) {
-                pending_tasks = state.pending;
+            let payload = sample.payload().to_bytes();
+            match from_slice::<QueueState>(&payload) {
+                Ok(state) => {
+                    pending_tasks = state.pending;
+                }
+                Err(err) => log_deserialize_failure("QueueState", topics::QUEUE_STATE, &payload, &err),
             }
         }
         
@@ -189,7 +231,7 @@ pub async fn run(session: Session, map: GridMap) {
                         let start = pathfinding::world_to_grid(robot.last_update.position);
                         let goal = (x, y);
                         
-                        if let Some(result) = pathfinder.find_path(&map, start, goal) {
+                        if let Some(result) = pathfinder.find_path_for_robot(&map, start, goal, robot_id) {
                             println!("→ Robot {} path: {} waypoints (cost: {})", robot_id, result.world_path.len(), result.cost);
                             robot.set_path(result.world_path);
                         } else {
@@ -205,36 +247,51 @@ pub async fn run(session: Session, map: GridMap) {
         
         // Process incoming robot updates (non-blocking) - expects RobotUpdateBatch
         while let Ok(Some(sample)) = robot_subscriber.try_recv() {
+            let payload = sample.payload().to_bytes();
             // Try batched format first (current standard)
-            if let Ok(batch) = from_slice::<RobotUpdateBatch>(&sample.payload().to_bytes()) {
-                for update in batch.updates {
-                    handle_robot_update(
-                        &map,
-                        &mut robots,
-                        update,
-                        Some(batch.tick),
-                        &status_publisher,
-                        &mut pathfinder,
-                        verbose,
-                    ).await;
+            match from_slice::<RobotUpdateBatch>(&payload) {
+                Ok(batch) => {
+                    for update in batch.updates {
+                        handle_robot_update(
+                            &map,
+                            &mut robots,
+                            update,
+                            Some(batch.tick),
+                            time_scale,
+                            &cmd_publisher,
+                            &status_publisher,
+                            &mut next_cmd_id,
+                            &mut pathfinder,
+                            verbose,
+                        ).await;
+                    }
                 }
-            }
-            // Fallback: legacy individual RobotUpdate
-            else if let Ok(update) = from_slice::<RobotUpdate>(&sample.payload().to_bytes()) {
-                handle_robot_update(
-                    &map,
-                    &mut robots,
-                    update,
-                    None,
-                    &status_publisher,
-                    &mut pathfinder,
-                    verbose,
-                ).await;
+                // Fallback: legacy individual RobotUpdate
+                Err(batch_err) => match from_slice::<RobotUpdate>(&payload) {
+                    Ok(update) => {
+                        handle_robot_update(
+                            &map,
+                            &mut robots,
+                            update,
+                            None,
+                            time_scale,
+                            &cmd_publisher,
+                            &status_publisher,
+                            &mut next_cmd_id,
+                            &mut pathfinder,
+                            verbose,
+                        ).await;
+                    }
+                    Err(single_err) => {
+                        log_deserialize_failure("RobotUpdateBatch", topics::ROBOT_UPDATES, &payload, &batch_err);
+                        log_deserialize_failure("RobotUpdate", topics::ROBOT_UPDATES, &payload, &single_err);
+                    }
+                },
             }
         }
         
         // Detect inter-robot collisions after updates
-        detect_inter_robot_collisions(&mut robots, &status_publisher, &mut pathfinder, verbose).await;
+        detect_inter_robot_collisions(&mut robots, &status_publisher, &cmd_publisher, &mut next_cmd_id, &mut pathfinder, verbose).await;
 
         // Task progression: detect state transitions and send next waypoint
         if !paused {
@@ -245,6 +302,7 @@ pub async fn run(session: Session, map: GridMap) {
                 &mut robots,
                 &map,
                 &mut pathfinder,
+                &mut inventory,
                 &cmd_publisher,
                 &status_publisher,
                 &robot_control_publisher,
@@ -264,6 +322,88 @@ pub async fn run(session: Session, map: GridMap) {
             if !paused {
                 send_path_commands(&mut robots, &cmd_publisher, &mut next_cmd_id, &mut pathfinder, verbose).await;
             }
+
+            // Broadcast remaining paths for all robots (visualizer path telemetry)
+            broadcast_path_telemetry(&robots, &path_telemetry_publisher).await;
+        }
+
+        if last_whca_stats_log.elapsed() >= std::time::Duration::from_secs(5) {
+            if let Some(current) = pathfinder.whca_stats_snapshot() {
+                let window_secs = 5;
+                let delta = if let Some(previous) = last_whca_stats_snapshot {
+                    pathfinding::WHCAStatsSnapshot {
+                        searches_total: current.searches_total.saturating_sub(previous.searches_total),
+                        searches_succeeded: current.searches_succeeded.saturating_sub(previous.searches_succeeded),
+                        searches_failed: current.searches_failed.saturating_sub(previous.searches_failed),
+                        nodes_expanded_total: current.nodes_expanded_total.saturating_sub(previous.nodes_expanded_total),
+                        reservation_probe_calls_total: current.reservation_probe_calls_total.saturating_sub(previous.reservation_probe_calls_total),
+                        edge_collision_checks_total: current.edge_collision_checks_total.saturating_sub(previous.edge_collision_checks_total),
+                        wait_actions_added_total: current.wait_actions_added_total.saturating_sub(previous.wait_actions_added_total),
+                        open_set_peak_observed: current.open_set_peak_observed,
+                        reservation_entries_peak: current.reservation_entries_peak,
+                        total_search_time_us: current.total_search_time_us.saturating_sub(previous.total_search_time_us),
+                        last_search_time_us: current.last_search_time_us,
+                    }
+                } else {
+                    current
+                };
+
+                let searches = delta.searches_total;
+                let avg_us = if searches > 0 {
+                    delta.total_search_time_us / searches
+                } else {
+                    0
+                };
+                let success_pct = if searches > 0 {
+                    (delta.searches_succeeded as f64 * 100.0) / searches as f64
+                } else {
+                    0.0
+                };
+                let msg = format!(
+                    "WHCA metrics[5s]: searches={} success={:.1}% expanded={} reserve_probes={} edge_checks={} waits={} avg_us={} last_us={} open_peak={} reservations_peak={}",
+                    searches,
+                    success_pct,
+                    delta.nodes_expanded_total,
+                    delta.reservation_probe_calls_total,
+                    delta.edge_collision_checks_total,
+                    delta.wait_actions_added_total,
+                    avg_us,
+                    delta.last_search_time_us,
+                    delta.open_set_peak_observed,
+                    delta.reservation_entries_peak,
+                );
+
+                if verbose {
+                    println!("{}", msg);
+                }
+                logs::save_log("Coordinator", &msg);
+
+                let telemetry = WhcaMetricsTelemetry {
+                    window_secs,
+                    searches_total: delta.searches_total,
+                    searches_succeeded: delta.searches_succeeded,
+                    searches_failed: delta.searches_failed,
+                    nodes_expanded_total: delta.nodes_expanded_total,
+                    reservation_probe_calls_total: delta.reservation_probe_calls_total,
+                    edge_collision_checks_total: delta.edge_collision_checks_total,
+                    wait_actions_added_total: delta.wait_actions_added_total,
+                    avg_search_time_us: avg_us,
+                    last_search_time_us: delta.last_search_time_us,
+                    open_set_peak_observed: delta.open_set_peak_observed,
+                    reservation_entries_peak: delta.reservation_entries_peak,
+                };
+
+                let _ = protocol::publish_json_logged(
+                    "Coordinator",
+                    "whca metrics telemetry",
+                    &telemetry,
+                    |payload| async { whca_metrics_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await;
+
+                last_whca_stats_snapshot = Some(current);
+            }
+            last_whca_stats_log = std::time::Instant::now();
         }
         
         time::sleep(std::time::Duration::from_millis(coord_config::LOOP_INTERVAL_MS)).await;
@@ -276,27 +416,31 @@ fn handle_command_responses(
     verbose: bool,
 ) {
     while let Ok(Some(sample)) = subscriber.try_recv() {
-        if let Ok(response) = from_slice::<CommandResponse>(&sample.payload().to_bytes()) {
-            match response.status {
-                CommandStatus::Accepted => {
-                    if verbose {
-                        println!("[{}ms] ✓ Robot {} accepted command #{}", 
-                            timestamp(), response.robot_id, response.cmd_id);
+        let payload = sample.payload().to_bytes();
+        match from_slice::<CommandResponse>(&payload) {
+            Ok(response) => {
+                match response.status {
+                    CommandStatus::Accepted => {
+                        if verbose {
+                            println!("[{}ms] ✓ Robot {} accepted command #{}", 
+                                timestamp(), response.robot_id, response.cmd_id);
+                        }
+                        logs::save_log("Coordinator", &format!(
+                            "Robot {} accepted command #{}", 
+                            response.robot_id, response.cmd_id
+                        ));
                     }
-                    logs::save_log("Coordinator", &format!(
-                        "Robot {} accepted command #{}", 
-                        response.robot_id, response.cmd_id
-                    ));
-                }
-                CommandStatus::Rejected { ref reason } => {
-                    println!("[{}ms] ✗ Robot {} rejected command #{}: {}", 
-                        timestamp(), response.robot_id, response.cmd_id, reason);
-                    logs::save_log("Coordinator", &format!(
-                        "Robot {} rejected command #{}: {}", 
-                        response.robot_id, response.cmd_id, reason
-                    ));
+                    CommandStatus::Rejected { ref reason } => {
+                        println!("[{}ms] ✗ Robot {} rejected command #{}: {}", 
+                            timestamp(), response.robot_id, response.cmd_id, reason);
+                        logs::save_log("Coordinator", &format!(
+                            "Robot {} rejected command #{}: {}", 
+                            response.robot_id, response.cmd_id, reason
+                        ));
+                    }
                 }
             }
+            Err(err) => log_deserialize_failure("CommandResponse", topics::COMMAND_RESPONSES, &payload, &err),
         }
     }
 }
@@ -305,21 +449,16 @@ fn handle_command_responses(
 // Path Command Helpers
 // ============================================================================
 
-/// Build a PathCommand based on robot's current task stage
-fn build_path_command(robot: &TrackedRobot, target: [f32; 3]) -> PathCommand {
-    let speed = coord_config::DEFAULT_SPEED;
-    
-    match robot.current_task {
-        Some(_) => match robot.task_stage {
-            TaskStage::MovingToPickup => PathCommand::MoveToPickup { target, speed },
-            TaskStage::MovingToDropoff => PathCommand::MoveToDropoff { target, speed },
-            _ => PathCommand::MoveTo { target, speed },
-        },
-        None => PathCommand::MoveTo { target, speed },
-    }
-}
-
-/// Send path commands for all robots with active paths
+/// Send path commands for all robots with active paths.
+///
+/// With lookahead batching, the coordinator sends a single FollowPath
+/// containing all remaining waypoints. The firmware advances through them
+/// internally without stopping. This function's 100 ms tick now serves as:
+///  - a watchdog (re-sends if path_sent is cleared by replan/set_path)
+///  - a path_index sync (advances coordinator's position tracking for
+///    deviation detection and telemetry)
+///  - a reservation checker (sends Stop if next cell is reserved, then
+///    re-sends FollowPath from the current position once the cell clears)
 async fn send_path_commands(
     robots: &mut HashMap<u32, TrackedRobot>,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
@@ -328,95 +467,163 @@ async fn send_path_commands(
     _verbose: bool,
 ) {
     for (robot_id, robot) in robots.iter_mut() {
-        // Pause waypoint commands while robot is performing a pickup/dropoff action
+        // pause during pickup/dropoff actions
         if matches!(robot.last_update.state, RobotState::Picking) {
             continue;
         }
 
-        let Some(waypoint) = robot.next_waypoint() else {
+        // skip if no path to follow
+        if robot.path_complete() {
+            continue;
+        }
+
+        // scan the next LOOKAHEAD_BLOCK_SCAN_CELLS waypoints for reservations.
+        // checking only next_waypoint() gave the coordinator one tick to react before
+        // the firmware crossed into a reserved cell; scanning ahead stops the robot
+        // earlier, giving WHCA* time to find an alternate route.
+        let Some(next_wp) = robot.next_waypoint() else {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} has incomplete path but no next waypoint; resetting send state",
+                    robot_id
+                ),
+            );
+            robot.path_sent = false;
             continue;
         };
-        
-        // If the next cell will be reserved at arrival time, wait in place
-        let target_grid = pathfinding::world_to_grid(waypoint);
-        if pathfinder.is_reserved_soon(
-            target_grid,
-            coord_config::whca::MOVE_TIME_MS,
-            Some(*robot_id),
-        )
-        || pathfinder.is_reserved_now(
-            target_grid,
-            Some(*robot_id),
-        ) {
+        let target_grid = pathfinding::world_to_grid(next_wp);
+        let is_blocked = robot.current_path[robot.path_index..]
+            .iter()
+            .take(coord_config::LOOKAHEAD_BLOCK_SCAN_CELLS)
+            .enumerate()
+            .any(|(step_idx, &wp)| {
+                let g = pathfinding::world_to_grid(wp);
+                let offset_ms = coord_config::whca::MOVE_TIME_MS
+                    .saturating_mul((step_idx as u64).saturating_add(1));
+                let reserved_future = pathfinder.is_reserved_soon(g, offset_ms, Some(*robot_id));
+                let reserved_now = step_idx == 0 && pathfinder.is_reserved_now(g, Some(*robot_id));
+                reserved_future || reserved_now
+            });
+
+        if is_blocked {
             robot.set_wait(target_grid);
 
+            // If blocked for a long time, report it but keep holding position.
+            // forcing a resume into known reservations caused avoidable collisions.
             if let Some(wait_secs) = robot.wait_elapsed_secs() {
                 if wait_secs >= collision_config::RESERVATION_WAIT_OVERRIDE_SECS {
-                    // Deadlock breaker: override reservation wait after timeout
                     logs::save_log(
                         "Coordinator",
                         &format!(
-                            "Robot {} overriding reservation wait after {}s",
+                            "Robot {} still blocked after {}s; maintaining stop until reservation clears",
                             robot_id, wait_secs
                         ),
                     );
-                    robot.clear_wait();
-
-                    let cmd = PathCmd {
-                        cmd_id: *next_cmd_id,
-                        robot_id: *robot_id,
-                        command: build_path_command(robot, waypoint),
-                    };
-                    *next_cmd_id += 1;
-                    cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-                    continue;
                 }
             }
 
-            // Ensure our current cell stays reserved while waiting
+            if robot.path_sent {
+                // still blocked and path already sent - stop firmware and wait
+                let stop_cmd = PathCmd {
+                    cmd_id: *next_cmd_id,
+                    robot_id: *robot_id,
+                    command: PathCommand::Stop,
+                };
+                *next_cmd_id += 1;
+                let _ = protocol::publish_json_logged(
+                    "Coordinator",
+                    "reservation stop command",
+                    &stop_cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await;
+                robot.path_sent = false; // will resend FollowPath once unblocked
+            }
+
             let current_grid = pathfinding::world_to_grid(robot.last_update.position);
             pathfinder.reserve_stationary(*robot_id, current_grid);
             robot.mark_progress();
-            let wait_cmd = PathCmd {
-                cmd_id: *next_cmd_id,
-                robot_id: *robot_id,
-                command: PathCommand::Stop,
-            };
-            *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&wait_cmd).unwrap()).await.ok();
             continue;
+        } else {
+            robot.clear_wait();
         }
 
-        // Check if robot reached current waypoint
-        let pos = robot.last_update.position;
-        let dist = ((pos[0] - waypoint[0]).powi(2) + (pos[2] - waypoint[2]).powi(2)).sqrt();
-        
-        if dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD {
-            // Advance to next waypoint - this is progress!
-            robot.advance_path();
-            robot.mark_progress();
-            robot.clear_wait();
-            
-            if let Some(next) = robot.next_waypoint() {
+        // send path command if not yet dispatched for this path segment.
+        // use ReturnToStation when the robot is heading home so firmware sets
+        // MovingToStation (not MovingToPickup which FollowPath infers from no cargo).
+        if !robot.path_sent {
+            let remaining: Vec<[f32; 3]> = robot.current_path[robot.path_index..].to_vec();
+            if !remaining.is_empty() {
+                let command = if robot.task_stage == crate::state::TaskStage::ReturningToStation {
+                    PathCommand::ReturnToStation {
+                        waypoints: remaining,
+                        speed: coord_config::DEFAULT_SPEED,
+                    }
+                } else {
+                    PathCommand::FollowPath {
+                        waypoints: remaining,
+                        speed: coord_config::DEFAULT_SPEED,
+                    }
+                };
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id: *robot_id,
-                    command: build_path_command(robot, next),
+                    command,
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                if protocol::publish_json_logged(
+                    "Coordinator",
+                    "path follow command",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await
+                {
+                    robot.path_sent = true;
+                }
             }
-        } else {
-            robot.clear_wait();
-            // Keep sending current waypoint command
-            let cmd = PathCmd {
-                cmd_id: *next_cmd_id,
-                robot_id: *robot_id,
-                command: build_path_command(robot, waypoint),
-            };
-            *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
         }
+
+        // Refresh rolling reservations for long paths so windowed WHCA* protection
+        // does not expire on the untraversed path tail.
+        let remaining_grid: Vec<(usize, usize)> = robot.current_path[robot.path_index..]
+            .iter()
+            .map(|wp| pathfinding::world_to_grid(*wp))
+            .collect();
+        if remaining_grid.len() > 1 {
+            pathfinder.reserve_path(*robot_id, &remaining_grid, robot.last_update.velocity);
+        }
+    }
+}
+
+// ============================================================================
+// Path Telemetry
+// ============================================================================
+
+/// Broadcast remaining waypoints for all tracked robots.
+/// Runs once per tick so the visualizer always has fresh path data.
+async fn broadcast_path_telemetry(
+    robots: &HashMap<u32, TrackedRobot>,
+    publisher: &zenoh::pubsub::Publisher<'_>,
+) {
+    use protocol::RobotPathTelemetry;
+
+    for (&robot_id, robot) in robots.iter() {
+        let waypoints: Vec<[f32; 3]> = if robot.path_index < robot.current_path.len() {
+            robot.current_path[robot.path_index..].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let telemetry = RobotPathTelemetry { robot_id, waypoints };
+        let _ = protocol::publish_json_logged(
+            "Coordinator",
+            "path telemetry broadcast",
+            &telemetry,
+            |payload| async move { publisher.put(payload).await.map(|_| ()) },
+        )
+        .await;
     }
 }
 
@@ -488,7 +695,10 @@ async fn handle_robot_update(
     robots: &mut HashMap<u32, TrackedRobot>,
     update: RobotUpdate,
     tick: Option<u64>,
+    time_scale: f32,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
@@ -498,15 +708,79 @@ async fn handle_robot_update(
     });
 
     let prev_update = robot.last_update.clone();
+
+    // Detect firmware restart: Faulted/Blocked → Idle means the firmware
+    // teleported the robot back to its station. Clean up stale coordinator
+    // state so other robots are not permanently blocked by ghost reservations.
+    let was_faulted = matches!(prev_update.state, RobotState::Faulted | RobotState::Blocked);
+    let now_idle = matches!(update.state, RobotState::Idle);
+    if was_faulted && now_idle {
+        pathfinder.clear_robot_reservations(update.id);
+        robot.current_task = None;
+        robot.task_stage = TaskStage::Idle;
+        robot.current_path = Vec::new();
+        robot.path_index = 0;
+        robot.blocked_since = None;
+        robot.faulted_since = None;
+        robot.replan_attempts = 0;
+        robot.waiting_since = None;
+        robot.waiting_for = None;
+        // skip position validation: teleport after restart is expected
+        robot.skip_next_validation = true;
+        println!("[Coordinator] Robot {} recovered ({:?} → Idle) — reservations cleared", update.id, prev_update.state);
+        logs::save_log("Coordinator", &format!("Robot {} recovered from {:?}, reservations cleared", update.id, prev_update.state));
+    }
+
     let validation = if robot.skip_next_validation {
         robot.skip_next_validation = false;
         Ok(())
     } else {
-        validate_robot_update(map, &prev_update, &update, robot.last_tick, tick)
+        validate_robot_update(map, &prev_update, &update, robot.last_tick, tick, time_scale)
     };
 
     robot.last_update = update;
     robot.last_tick = tick;
+
+    // Auto-unassign policy: if a robot is disabled while carrying an active assignment,
+    // fail that task immediately so scheduler can requeue it.
+    if !robot.last_update.enabled {
+        if let Some(task_id) = robot.current_task {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} disabled with active task {}; auto-unassigning",
+                    robot.last_update.id,
+                    task_id
+                ),
+            );
+
+            task_manager::send_task_failure(
+                status_publisher,
+                task_id,
+                robot.last_update.id,
+                "Robot disabled (auto-unassign)".to_string(),
+            )
+            .await;
+
+            pathfinder.clear_robot_reservations(robot.last_update.id);
+            robot.current_task = None;
+            robot.task_stage = TaskStage::Idle;
+            robot.task_started = None;
+            robot.pickup_location = None;
+            robot.dropoff_location = None;
+            robot.pickup_grid = None;
+            robot.dropoff_grid = None;
+            robot.return_reason = None;
+            robot.current_path.clear();
+            robot.path_index = 0;
+            robot.path_sent = false;
+            robot.replan_attempts = 0;
+            robot.blocked_since = None;
+            robot.clear_wait();
+            robot.mark_progress();
+        }
+    }
+
     let grid_pos = pathfinding::world_to_grid(robot.last_update.position);
     if robot.recent_positions.back().copied() != Some(grid_pos) {
         robot.recent_positions.push_back(grid_pos);
@@ -516,12 +790,30 @@ async fn handle_robot_update(
         }
     }
 
+    // advance path_index at firmware rate (20 Hz) so broadcast_path_telemetry
+    // and deviation detection stay accurate; gated behind path_sent so a stopped
+    // robot never overruns its index and triggers spurious replans
+    if robot.path_sent && !robot.path_complete() {
+        let pos = robot.last_update.position;
+        while let Some(wp) = robot.next_waypoint() {
+            let dist = ((pos[0] - wp[0]).powi(2) + (pos[2] - wp[2]).powi(2)).sqrt();
+            if dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD {
+                robot.advance_path();
+                robot.mark_progress();
+            } else {
+                break;
+            }
+        }
+    }
+
     if let Err(reason) = validation {
         task_manager::mark_robot_faulted(
             robot,
             robot.last_update.id,
             reason,
+            cmd_publisher,
             status_publisher,
+            next_cmd_id,
             pathfinder,
             verbose,
         ).await;
@@ -535,6 +827,7 @@ fn validate_robot_update(
     update: &RobotUpdate,
     prev_tick: Option<u64>,
     current_tick: Option<u64>,
+    time_scale: f32,
 ) -> Result<(), String> {
     if update.position[0].is_nan() || update.position[2].is_nan() {
         return Err("Invalid position: NaN detected".to_string());
@@ -546,7 +839,9 @@ fn validate_robot_update(
     let dist = (dx * dx + dz * dz).sqrt();
     let max_delta = if let (Some(prev_tick), Some(current_tick)) = (prev_tick, current_tick) {
         let tick_delta = current_tick.saturating_sub(prev_tick).max(1);
-        let dt_secs = tick_delta as f32 * (protocol::config::physics::TICK_INTERVAL_MS as f32 / 1000.0);
+        let dt_secs = tick_delta as f32
+            * (protocol::config::physics::TICK_INTERVAL_MS as f32 / 1000.0)
+            * time_scale.clamp(0.1, 1000.0);
         (coord_config::DEFAULT_SPEED * dt_secs) + sensor_config::MAX_POSITION_DELTA
     } else {
         sensor_config::MAX_POSITION_DELTA
@@ -574,19 +869,34 @@ fn validate_robot_update(
     Ok(())
 }
 
-/// Detect inter-robot collisions (offender only unless head-on)
+/// Detect inter-robot collisions, fault offenders, and immediately stop any other
+/// robot whose remaining path overlaps the collision zone.
+///
+/// Three-pass structure to avoid borrow conflicts:
+/// 1. Collect pairs to fault (read-only pass)
+/// 2. Fault and collect their grid positions
+/// 3. Stop other robots routed through the faulted cells
 async fn detect_inter_robot_collisions(
     robots: &mut HashMap<u32, TrackedRobot>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
+    // pass 1: determine which robots need to be faulted (read-only)
+    let mut to_fault: Vec<(u32, String)> = Vec::new();
     let ids: Vec<u32> = robots.keys().cloned().collect();
     for i in 0..ids.len() {
         for j in (i + 1)..ids.len() {
             let id_a = ids[i];
             let id_b = ids[j];
             let (Some(robot_a), Some(robot_b)) = (robots.get(&id_a), robots.get(&id_b)) else { continue; };
+
+            // skip already-faulted robots to avoid re-faulting in subsequent ticks
+            if robot_a.faulted_since.is_some() || robot_b.faulted_since.is_some() {
+                continue;
+            }
 
             let dx = robot_a.last_update.position[0] - robot_b.last_update.position[0];
             let dz = robot_a.last_update.position[2] - robot_b.last_update.position[2];
@@ -604,74 +914,89 @@ async fn detect_inter_robot_collisions(
                  robot_a.last_update.velocity[2] * robot_b.last_update.velocity[2]) < 0.0;
 
             if head_on {
-                if let Some(robot) = robots.get_mut(&id_a) {
-                    task_manager::mark_robot_faulted(
-                        robot,
-                        id_a,
-                        "Head-on collision".to_string(),
-                        status_publisher,
-                        pathfinder,
-                        verbose,
-                    ).await;
-                }
-                if let Some(robot) = robots.get_mut(&id_b) {
-                    task_manager::mark_robot_faulted(
-                        robot,
-                        id_b,
-                        "Head-on collision".to_string(),
-                        status_publisher,
-                        pathfinder,
-                        verbose,
-                    ).await;
-                }
+                to_fault.push((id_a, "Head-on collision".to_string()));
+                to_fault.push((id_b, "Head-on collision".to_string()));
+            } else if speed_a > speed_b {
+                to_fault.push((id_a, format!("Collision with robot {}", id_b)));
+            } else if speed_b > speed_a {
+                to_fault.push((id_b, format!("Collision with robot {}", id_a)));
             } else {
-                // Offender is the moving robot if the other is stationary
-                if speed_a > speed_b {
-                    if let Some(robot) = robots.get_mut(&id_a) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_a,
-                            format!("Collision with robot {}", id_b),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                } else if speed_b > speed_a {
-                    if let Some(robot) = robots.get_mut(&id_b) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_b,
-                            format!("Collision with robot {}", id_a),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                } else {
-                    // Equal speeds: fault both conservatively
-                    if let Some(robot) = robots.get_mut(&id_a) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_a,
-                            format!("Collision with robot {}", id_b),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                    if let Some(robot) = robots.get_mut(&id_b) {
-                        task_manager::mark_robot_faulted(
-                            robot,
-                            id_b,
-                            format!("Collision with robot {}", id_a),
-                            status_publisher,
-                            pathfinder,
-                            verbose,
-                        ).await;
-                    }
-                }
+                to_fault.push((id_a, format!("Collision with robot {}", id_b)));
+                to_fault.push((id_b, format!("Collision with robot {}", id_a)));
             }
         }
     }
+
+    if to_fault.is_empty() {
+        return;
+    }
+
+    // pass 2: fault the identified robots, collect their grid positions so we
+    // can stop other robots routing through the same cells
+    let mut faulted_cells: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let faulted_ids: std::collections::HashSet<u32> = to_fault.iter().map(|(id, _)| *id).collect();
+    for (robot_id, _) in &to_fault {
+        if let Some(robot) = robots.get(robot_id) {
+            faulted_cells.insert(pathfinding::world_to_grid(robot.last_update.position));
+        }
+    }
+    for (robot_id, reason) in to_fault {
+        if let Some(robot) = robots.get_mut(&robot_id) {
+            task_manager::mark_robot_faulted(robot, robot_id, reason, cmd_publisher, status_publisher, next_cmd_id, pathfinder, verbose).await;
+        }
+    }
+
+    // pass 3: stop any robot whose remaining path passes through a faulted cell.
+    // when a collision clears reservations, other robots' dispatched FollowPaths
+    // may route through those now-unowned cells toward the restarting robots.
+    // stopping them forces a replan via the send_path_commands watchdog.
+    for (robot_id, robot) in robots.iter_mut() {
+        if faulted_ids.contains(robot_id) || !robot.path_sent {
+            continue;
+        }
+        let path_intersects = robot.current_path[robot.path_index..]
+            .iter()
+            .any(|&wp| faulted_cells.contains(&pathfinding::world_to_grid(wp)));
+        if path_intersects {
+            let stop_cmd = PathCmd {
+                cmd_id: *next_cmd_id,
+                robot_id: *robot_id,
+                command: PathCommand::Stop,
+            };
+            *next_cmd_id += 1;
+            if protocol::publish_json_logged(
+                "Coordinator",
+                "collision stop command",
+                &stop_cmd,
+                |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+            )
+            .await
+            {
+                robot.path_sent = false;
+            }
+            if verbose {
+                println!("[{}ms] Robot {} stopped: path routes through collision zone", timestamp(), robot_id);
+            }
+        }
+    }
+}
+
+fn log_deserialize_failure(expected_type: &str, topic: &str, payload: &[u8], err: &serde_json::Error) {
+    let preview = payload
+        .iter()
+        .take(8)
+        .map(|byte| format!("{:02x}", byte))
+        .collect::<Vec<_>>()
+        .join("");
+    logs::save_log(
+        "Coordinator",
+        &format!(
+            "Malformed {} on {} ({} bytes, preview={}): {}",
+            expected_type,
+            topic,
+            payload.len(),
+            preview,
+            err
+        ),
+    );
 }

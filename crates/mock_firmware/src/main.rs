@@ -52,9 +52,17 @@ async fn validate_map_hash(session: &Session, map: &GridMap) {
     let result = tokio::time::timeout(timeout_duration, async {
         loop {
             if let Ok(Some(sample)) = subscriber.try_recv() {
-                if let Ok(validation) = from_slice::<MapValidation>(&sample.payload().to_bytes()) {
-                    if validation.sender == topics::SENDER_COORDINATOR {
+                let bytes = sample.payload().to_bytes();
+                match from_slice::<MapValidation>(&bytes) {
+                    Ok(validation) if validation.sender == topics::SENDER_COORDINATOR => {
                         return Some(validation);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        protocol::logs::save_log(
+                            "Firmware",
+                            &format!("Ignoring malformed MAP_VALIDATION payload: {}", e),
+                        );
                     }
                 }
             }

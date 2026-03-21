@@ -39,6 +39,17 @@ pub const TASK_STATUS: &str = "factory/tasks/status";
 /// Queue state broadcast for monitoring (scheduler → renderer)
 pub const QUEUE_STATE: &str = "factory/tasks/queue";
 
+/// Full task list snapshot for per-task display (scheduler → renderer)
+pub const TASK_LIST: &str = "factory/tasks/list";
+
+// ============ Telemetry Topics ============
+
+/// Path telemetry for visualization (coordinator → renderer)
+pub const TELEMETRY_PATHS: &str = "factory/telemetry/paths";
+
+/// WHCA runtime metrics telemetry (coordinator → renderer)
+pub const TELEMETRY_WHCA_METRICS: &str = "factory/telemetry/whca_metrics";
+
 // ============ Sender Identifiers ============
 // Used in MapValidation.sender to identify the source of broadcasts
 

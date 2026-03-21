@@ -41,6 +41,21 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+/// Stable semantic label for a task status.
+///
+/// Keeps status wording consistent across crates while leaving renderer-specific
+/// formatting (colors, extra details) to consumers.
+pub fn task_status_label(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Pending => "Pending",
+        TaskStatus::Assigned { .. } => "Assigned",
+        TaskStatus::InProgress { .. } => "In Progress",
+        TaskStatus::Completed => "Completed",
+        TaskStatus::Failed { .. } => "Failed",
+        TaskStatus::Cancelled => "Cancelled",
+    }
+}
+
 /// The type of work to perform
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskType {
@@ -77,6 +92,9 @@ pub struct Task {
     pub status: TaskStatus,
     /// Timestamp when task was created (Unix millis)
     pub created_at: u64,
+    /// Timestamp when task was completed/failed/cancelled (Unix millis)
+    #[serde(default)]
+    pub completed_at: Option<u64>,
 }
 
 impl Task {
@@ -93,6 +111,7 @@ impl Task {
             priority,
             status: TaskStatus::Pending,
             created_at,
+            completed_at: None,
         }
     }
 
@@ -142,6 +161,31 @@ pub struct TaskRequest {
     pub task_type: TaskType,
     /// Priority level
     pub priority: Priority,
+}
+
+/// Command sent to the scheduler via TASK_REQUESTS topic.
+///
+/// Extends beyond simple new-task requests to support full task management
+/// (creation, cancellation, and priority mutation) from external systems.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskCommand {
+    /// Create a new task
+    New { task_type: TaskType, priority: Priority },
+    /// Cancel an existing pending task
+    Cancel(TaskId),
+    /// Change the priority of an existing pending task
+    SetPriority(TaskId, Priority),
+}
+
+/// Full task list snapshot: scheduler → renderer, broadcast periodically.
+///
+/// Allows the renderer to display individual task details.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskListSnapshot {
+    /// all tasks currently tracked by the scheduler
+    pub tasks: Vec<Task>,
+    /// Unix milliseconds when this snapshot was taken
+    pub timestamp_ms: u64,
 }
 
 /// Queue status snapshot: scheduler broadcasts this periodically
@@ -237,5 +281,15 @@ mod tests {
             let parsed: TaskStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, status);
         }
+    }
+
+    #[test]
+    fn test_task_status_label_mapping() {
+        assert_eq!(task_status_label(&TaskStatus::Pending), "Pending");
+        assert_eq!(task_status_label(&TaskStatus::Assigned { robot_id: 1 }), "Assigned");
+        assert_eq!(task_status_label(&TaskStatus::InProgress { robot_id: 1 }), "In Progress");
+        assert_eq!(task_status_label(&TaskStatus::Completed), "Completed");
+        assert_eq!(task_status_label(&TaskStatus::Failed { reason: "x".to_string() }), "Failed");
+        assert_eq!(task_status_label(&TaskStatus::Cancelled), "Cancelled");
     }
 }

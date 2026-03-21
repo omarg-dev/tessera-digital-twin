@@ -10,8 +10,12 @@ pub fn handle_system_command(
     paused: &mut bool,
     verbose: &mut bool,
     chaos: &mut bool,
+    time_scale: &mut f32,
 ) {
-    cmd.apply_with_log("Coordinator", Some(paused), Some(verbose), Some(chaos));
+    let effect = cmd.apply_with_log("Coordinator", Some(paused), Some(verbose), Some(chaos));
+    if let protocol::SystemCommandEffect::TimeScale(scale) = effect {
+        *time_scale = scale.clamp(0.1, 1000.0);
+    }
 }
 
 /// Print current status of tracked robots

@@ -6,6 +6,7 @@ members = [
     "crates/coordinator",
     "crates/mock_firmware",
     "crates/scheduler",
+    "crates/notifier",
 ]
 resolver = "2"
 
@@ -22,6 +23,23 @@ rand = "0.8"
 
 [profile.dev]
 opt-level = 1
+# unpacked splits debug info into per-object .pdb shards — faster incremental linking on Windows
+split-debuginfo = "unpacked"
+# cranelift skips LLVM entirely for dev builds: no optimisation passes, much faster codegen
+codegen-backend = "cranelift"
+
+# zenoh's TLS/crypto stack is slow to compile; keep them at opt-level 0 so
+# Cranelift handles them cheaply during dev builds. They don't need speed at debug time.
+[profile.dev.package.ring]
+opt-level = 0
+[profile.dev.package.rustls]
+opt-level = 0
+[profile.dev.package.quinn-proto]
+opt-level = 0
+[profile.dev.package.quinn]
+opt-level = 0
+[profile.dev.package.rustls-webpki]
+opt-level = 0
 
 [profile.release]
 opt-level = 3

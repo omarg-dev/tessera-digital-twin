@@ -4,7 +4,6 @@ use zenoh::Session;
 use tokio::time;
 use protocol::*;
 use protocol::config::physics::TICK_INTERVAL_MS;
-use serde_json::to_vec;
 use std::time::Instant;
 
 use crate::robot::SimRobot;
@@ -46,6 +45,7 @@ pub async fn run(session: Session, map: GridMap) {
     
     let mut paused = false;
     let mut chaos = protocol::config::chaos::ENABLED;
+    let mut time_scale: f32 = 1.0;
     let mut last_tick = Instant::now();
     let mut tick_count: u64 = 0;
     
@@ -54,18 +54,19 @@ pub async fn run(session: Session, map: GridMap) {
         let dt = now.duration_since(last_tick).as_secs_f32();
         last_tick = now;
         
-        // Handle system commands (pause/resume/chaos)
-        handle_system_commands(&control_subscriber, &mut paused, &mut chaos);
+        // Handle system commands (pause/resume/chaos/time_scale)
+        handle_system_commands(&control_subscriber, &mut paused, &mut chaos, &mut time_scale);
         
         // Handle robot control commands (up/down/restart)
         handle_robot_control(&robot_control_subscriber, &mut robots);
         
         // Handle path commands from coordinator
-        handle_path_commands(&cmd_subscriber, &response_publisher, &mut robots, chaos);
+        handle_path_commands(&cmd_subscriber, &response_publisher, &mut robots, chaos).await;
         
-        // Physics update for all robots
+        // Physics update for all robots (dt scaled by time_scale)
+        let scaled_dt = dt * time_scale;
         for robot in &mut robots {
-            robot.update_physics(dt, paused, chaos, &map);
+            robot.update_physics(scaled_dt, paused, chaos, &map);
         }
         
         // Batch and publish all robot updates (with chaos packet loss)
@@ -109,14 +110,16 @@ async fn publish_batch_update(
     }
     
     let batch = RobotUpdateBatch {
-        // Only publish updates for enabled robots
-        updates: robots.iter()
-            .filter(|r| r.enabled)
-            .map(|r| r.to_update())
-            .collect(),
+        // Include all robots, even disabled ones (receiver filters by enabled flag)
+        updates: robots.iter().map(|r| r.to_update()).collect(),
         tick,
     };
-    
-    let payload = to_vec(&batch).expect("Failed to serialize RobotUpdateBatch");
-    publisher.put(payload).await.ok();
+
+    let _ = protocol::publish_json_logged(
+        "Firmware",
+        &format!("RobotUpdateBatch tick={}", tick),
+        &batch,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }

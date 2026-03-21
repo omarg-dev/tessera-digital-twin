@@ -43,6 +43,8 @@ pub struct TrackedRobot {
     pub task_stage: TaskStage,  // Where in task execution
     pub pickup_location: Option<[f32; 3]>,  // Pickup in world coords
     pub dropoff_location: Option<[f32; 3]>,  // Dropoff in world coords
+    pub pickup_grid: Option<(usize, usize)>,  // Pickup shelf grid position (for inventory)
+    pub dropoff_grid: Option<(usize, usize)>,  // Dropoff shelf grid position (for inventory)
     pub return_reason: Option<ReturnReason>,  // Why returning to station (if any)
     pub skip_next_validation: bool,
     
@@ -58,6 +60,10 @@ pub struct TrackedRobot {
     // Reservation wait tracking (deadlock prevention)
     pub waiting_since: Option<Instant>,  // When robot started waiting on reservation
     pub waiting_for: Option<GridPos>,  // Grid cell we are waiting to enter
+
+    /// true after FollowPath has been dispatched for the current path segment;
+    /// cleared by set_path() so any new or replanned path triggers a fresh dispatch.
+    pub path_sent: bool,
 }
 
 impl TrackedRobot {
@@ -72,6 +78,8 @@ impl TrackedRobot {
             task_stage: TaskStage::Idle,
             pickup_location: None,
             dropoff_location: None,
+            pickup_grid: None,
+            dropoff_grid: None,
             return_reason: None,
             skip_next_validation: false,
             last_progress: Instant::now(),
@@ -81,6 +89,7 @@ impl TrackedRobot {
             replan_attempts: 0,
             waiting_since: None,
             waiting_for: None,
+            path_sent: false,
         }
     }
     
@@ -102,10 +111,11 @@ impl TrackedRobot {
         self.clear_wait();
     }
     
-    /// Assign a new path
+    /// Assign a new path and mark it as unsent so coordinator dispatches FollowPath
     pub fn set_path(&mut self, path: Vec<[f32; 3]>) {
         self.current_path = path;
         self.path_index = 0;
+        self.path_sent = false;
         self.clear_wait();
     }
     
@@ -157,6 +167,7 @@ mod tests {
             battery: 100.0,
             carrying_cargo: None,
             station_position: [15.0, 0.25, 1.0],
+            enabled: true,
         }
     }
 

@@ -8,7 +8,6 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 zenoh.workspace = true
-rand.workspace = true
 protocol = { path = "../protocol" }
 
 [[bin]]

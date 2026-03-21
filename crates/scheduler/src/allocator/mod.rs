@@ -18,6 +18,7 @@ pub struct RobotInfo {
     pub id: u32,
     pub position: [f32; 3],
     pub state: RobotState,
+    pub enabled: bool,
     pub battery: f32,
     pub assigned_task: Option<u64>,
 }
@@ -28,6 +29,7 @@ impl From<&RobotUpdate> for RobotInfo {
             id: update.id,
             position: update.position,
             state: update.state.clone(),
+            enabled: update.enabled,
             battery: update.battery,
             assigned_task: None,
         }

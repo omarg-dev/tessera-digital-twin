@@ -1,156 +1,260 @@
 use bevy::prelude::*;
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use crate::components::*;
-use protocol::config::{LAYOUT_FILE_PATH, visual::colors, visual::TILE_SIZE, visual::SHELF_SIZE, visual::lighting};
+use crate::resources::PlaceholderMeshes;
+use crate::systems::models;
+use protocol::config::{LAYOUT_FILE_PATH,
+    visual::{TILE_SIZE, shelf, lighting, colors},
+    warehouse};
+use protocol::config::optimization as opt;
+use protocol::grid_map::{GridMap, TileType};
+
+fn propagate_flags_for_roots(
+    commands: &mut Commands,
+    roots: impl IntoIterator<Item = Entity>,
+    children_q: &Query<&Children>,
+    uncast_meshes: &Query<Entity, (With<Mesh3d>, Without<NotShadowCaster>)>,
+    unrecv_meshes: &Query<Entity, (With<Mesh3d>, Without<NotShadowReceiver>)>,
+    disable_cast: bool,
+    disable_receive: bool,
+) {
+    let mut stack = Vec::new();
+    for root in roots {
+        stack.clear();
+        stack.push(root);
+        while let Some(e) = stack.pop() {
+            if e != root {
+                if disable_cast && uncast_meshes.get(e).is_ok() {
+                    commands.entity(e).insert(NotShadowCaster);
+                }
+                if disable_receive && unrecv_meshes.get(e).is_ok() {
+                    commands.entity(e).insert(NotShadowReceiver);
+                }
+            }
+            if let Ok(children) = children_q.get(e) {
+                for &child in children {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+}
 
 /// Check if environment reload is requested and trigger repopulation
 pub fn check_reload_environment(
     mut commands: Commands,
     reload_trigger: Option<ResMut<crate::systems::commands::ReloadEnvironment>>,
+    asset_server: Res<AssetServer>,
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<StandardMaterial>>,
+    env_entities: Query<Entity, Or<(With<Ground>, With<Wall>, With<Shelf>, With<Station>, With<Dropoff>)>>,
 ) {
     if reload_trigger.is_some() {
-        println!("↻ Reloading warehouse environment");
-        populate_environment(commands.reborrow(), meshes, materials);
-        // Remove the trigger resource
+        for entity in &env_entities {
+            commands.entity(entity).despawn();
+        }
+        populate_environment(commands.reborrow(), asset_server, meshes, materials);
         commands.remove_resource::<crate::systems::commands::ReloadEnvironment>();
     }
 }
 
-// Read from a .txt map file and populate the warehouse layout
+/// Read from a .txt map file and populate the warehouse layout with .glb models.
+/// Uses protocol::GridMap as the sole source of truth for tile parsing.
+/// A bool wall grid is derived from the GridMap for wall neighbor analysis.
 pub fn populate_environment(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Read layout file directly (blocking I/O - fine for startup)
-    let contents = match std::fs::read_to_string(LAYOUT_FILE_PATH) {
-        Ok(c) => c,
+    // load map via protocol::GridMap (same parser as coordinator + scheduler)
+    let map = match GridMap::load_from_file(LAYOUT_FILE_PATH) {
+        Ok(m) => m,
         Err(e) => {
-            warn!("Failed to load layout file: {}", e);
+            warn!("Failed to load layout file via GridMap: {}", e);
             return;
         }
     };
 
-    let mut max_x: usize = 0;
-    let mut max_y: usize = 0;
-
-    // Track actual row index (skipping comments/empty lines)
-    let mut row_index = 0;
-    
-    for line in contents.lines() {
-        // Skip empty lines or comments (starting with '/')
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('/') {
-            continue;
+    // build wall grid from GridMap tiles (true = wall)
+    let mut wall_grid = vec![vec![false; map.width]; map.height];
+    for tile in &map.tiles {
+        if tile.tile_type == TileType::Wall {
+            wall_grid[tile.y][tile.x] = true;
         }
+    }
 
-        // Split by whitespace to get tokens
-        for (x, token) in trimmed.split_whitespace().enumerate() {
-            let pos = Vec3::new(x as f32 * TILE_SIZE, 0.0, row_index as f32 * TILE_SIZE);
+    // pre-allocate shared placeholder meshes (station, dropoff)
+    let placeholders = PlaceholderMeshes {
+        station_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
+        station_material: materials.add(StandardMaterial {
+            base_color: Color::srgb(colors::STATION.0, colors::STATION.1, colors::STATION.2),
+            ..default()
+        }),
+        dropoff_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
+        dropoff_material: materials.add(StandardMaterial {
+            base_color: Color::srgb(colors::DROPOFF.0, colors::DROPOFF.1, colors::DROPOFF.2),
+            ..default()
+        }),
+    };
 
-            max_x = max_x.max(x);
-            max_y = max_y.max(row_index);
+    // spawn environment entities from the parsed GridMap tiles
+    for tile in &map.tiles {
+        let pos = Vec3::new(tile.x as f32 * TILE_SIZE, 0.0, tile.y as f32 * TILE_SIZE);
 
-            match token {
-                "." => {
-                    // Ground tile
-                    instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Plane(TILE_SIZE), colors::GROUND, Ground {});
-                }
-                "#" => {
-                    // Wall Cube tile
-                    instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Cube(Vec3::splat(TILE_SIZE)), colors::WALL, Wall {});
-                }
-                "_" => {
-                    // Station tile
-                    instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Plane(TILE_SIZE), colors::STATION, Station {});
-                }
-                "v" => {
-                    // Dropoff tile
-                    instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Plane(TILE_SIZE), colors::DROPOFF, Dropoff {});
-                }
-                _ if token.starts_with("x") && token.len() > 1 => {
-                    // Shelf Cube tile with capacity(c): xc
-                    let capacity: u32 = token[1..]
-                        .parse()
-                        .unwrap_or(5); // default capacity if parse fails
+        match tile.tile_type {
+            TileType::Ground => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+            }
+            TileType::Wall => {
+                models::spawn_wall(&mut commands, &asset_server, pos, &wall_grid, tile.y, tile.x);
+            }
+            TileType::Station => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+                models::spawn_station(&mut commands, &placeholders, pos);
+            }
+            TileType::Dropoff => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+                models::spawn_dropoff(&mut commands, &placeholders, pos);
+            }
+            TileType::Shelf(initial_stock) => {
+                models::spawn_floor(&mut commands, &asset_server, pos);
+                // initial_stock from layout token (xN); max from global warehouse config
+                models::spawn_shelf(&mut commands, &asset_server, pos,
+                    initial_stock as u32, warehouse::SHELF_MAX_CAPACITY);
+            }
+            TileType::Empty => {
+                // N/A tile (~), skip
+            }
+        }
+    }
 
-                    let shelf_size = Vec3::new(SHELF_SIZE.0, SHELF_SIZE.1, SHELF_SIZE.2);
-                    instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Cube(shelf_size), colors::SHELF, Shelf { capacity });
-                    
-                    // Also spawn ground tile beneath shelf
-                    instantiate(&mut commands, &mut meshes, &mut materials, pos,
-                        TileShape::Plane(TILE_SIZE), colors::GROUND, Ground {});
+    info!("Warehouse layout loaded: {}x{} (GridMap)", map.width, map.height);
+
+    // store resources for other systems
+    commands.insert_resource(placeholders);
+    commands.insert_resource(crate::resources::WarehouseMap(map));
+}
+
+/// Sync visual box entities with shelf cargo count.
+/// Removes boxes when cargo decreases, adds boxes when cargo increases.
+/// Triggers on any Shelf component change (including initial add from populate_environment).
+pub fn sync_shelf_boxes(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    shelves: Query<(Entity, &Shelf, Option<&Children>), Changed<Shelf>>,
+    box_query: Query<&BoxCargo>,
+) {
+    for (shelf_entity, shelf, children) in &shelves {
+        let current_boxes: Vec<Entity> = children
+            .map(|c| {
+                let mut boxes = Vec::new();
+                for child in c.iter() {
+                    if box_query.contains(child) {
+                        boxes.push(child);
+                    }
                 }
-                _ => {
-                    // Unknown token - skip (includes ~ for N/A tile)
+                boxes
+            })
+            .unwrap_or_default();
+
+        let target = shelf.cargo.min(shelf.max_capacity) as usize;
+        let current = current_boxes.len();
+
+        if current > target {
+            // remove excess boxes (from the end)
+            for &box_entity in current_boxes.iter().rev().take(current - target) {
+                commands.entity(box_entity).despawn();
+            }
+        } else if current < target {
+            // spawn missing boxes at available offsets
+            let offsets = models::box_offsets();
+            for i in current..target {
+                if let Some(&offset) = offsets.get(i) {
+                    let child = commands.spawn((
+                        SceneRoot(asset_server.load(
+                            format!("{}#Scene0", models::assets::BOX_SMALL)
+                        )),
+                        Transform::from_translation(offset)
+                            .with_scale(Vec3::splat(shelf::BOX_SCALE)),
+                        BoxCargo,
+                    )).id();
+                    commands.entity(shelf_entity).add_child(child);
                 }
             }
         }
-        
-        // Increment row index for next non-empty line
-        row_index += 1;
+    }
+}
+
+/// After .glb scenes finish loading, propagate shadow and picking optimizations to
+/// the actual `Mesh3d` entities inside tile scene hierarchies.
+///
+/// Each `Ground` or `Wall` root entity's child meshes are tagged with
+/// `NotShadowCaster` (and `NotShadowReceiver` for floors) the first time they
+/// are seen. The `Without` filter makes this a no-op once all tiles are tagged.
+pub fn propagate_tile_optimizations(
+    mut commands: Commands,
+    ground_tiles: Query<Entity, With<Ground>>,
+    wall_tiles: Query<Entity, With<Wall>>,
+    uncast_meshes: Query<Entity, (With<Mesh3d>, Without<NotShadowCaster>)>,
+    unrecv_meshes: Query<Entity, (With<Mesh3d>, Without<NotShadowReceiver>)>,
+    children_q: Query<&Children>,
+) {
+    if !opt::DISABLE_TILE_SHADOW_CAST && !opt::DISABLE_FLOOR_SHADOW_RECEIVE {
+        return;
     }
 
-    info!("Warehouse layout loaded: {}x{}", max_x + 1, max_y + 1);
-}
+    if opt::DISABLE_TILE_SHADOW_CAST || opt::DISABLE_FLOOR_SHADOW_RECEIVE {
+        propagate_flags_for_roots(
+            &mut commands,
+            ground_tiles.iter(),
+            &children_q,
+            &uncast_meshes,
+            &unrecv_meshes,
+            opt::DISABLE_TILE_SHADOW_CAST,
+            opt::DISABLE_FLOOR_SHADOW_RECEIVE,
+        );
+    }
 
-/// Shape type for tile instantiation
-enum TileShape {
-    Cube(Vec3),   // size (x, y, z)
-    Plane(f32),   // tile_size
-}
-
-/// Spawns a tile entity with the given shape, color, and component
-fn instantiate(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    pos: Vec3,
-    shape: TileShape,
-    rgb: (f32, f32, f32),
-    component: impl Component,
-) {
-    let (mesh, transform) = match shape {
-        TileShape::Cube(size) => (
-            meshes.add(Cuboid::new(size.x, size.y, size.z)),
-            Transform::from_translation(pos + Vec3::Y * (size.y / 2.0)),
-        ),
-        TileShape::Plane(tile_size) => (
-            meshes.add(Plane3d::default().mesh().size(tile_size, tile_size)),
-            Transform::from_translation(pos),
-        ),
-    };
-
-    commands.spawn((
-        Mesh3d(mesh),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(rgb.0, rgb.1, rgb.2),
-            ..default()
-        })),
-        transform,
-        component,
-    ));
+    if opt::DISABLE_TILE_SHADOW_CAST {
+        propagate_flags_for_roots(
+            &mut commands,
+            wall_tiles.iter(),
+            &children_q,
+            &uncast_meshes,
+            &unrecv_meshes,
+            true,
+            false,
+        );
+    }
 }
 
 /// Spawns the scene lighting
 pub fn populate_lighting(mut commands: Commands) {
-    // Directional light (sun-like) for even illumination
-    commands.spawn((
-        DirectionalLight {
-            illuminance: lighting::DIRECTIONAL_ILLUMINANCE,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(10.0, 20.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+    if !lighting::AMBIENT_ONLY_CALIBRATION {
+        // key light for depth and wall bevel definition.
+        let key_pos = Vec3::new(
+            lighting::KEY_LIGHT_POSITION.0,
+            lighting::KEY_LIGHT_POSITION.1,
+            lighting::KEY_LIGHT_POSITION.2,
+        );
+        let key_target = Vec3::new(
+            lighting::KEY_LIGHT_TARGET.0,
+            lighting::KEY_LIGHT_TARGET.1,
+            lighting::KEY_LIGHT_TARGET.2,
+        );
 
-    // Ambient light so shadows aren't pitch black
+        commands.spawn((
+            DirectionalLight {
+                illuminance: lighting::DIRECTIONAL_ILLUMINANCE,
+                shadows_enabled: !opt::DISABLE_DIRECTIONAL_SHADOWS,
+                ..default()
+            },
+            Transform::from_translation(key_pos).looking_at(key_target, Vec3::Y),
+        ));
+    }
+
+    // ambient light so shadows aren't pitch black
     commands.insert_resource(AmbientLight {
         color: Color::WHITE,
         brightness: lighting::AMBIENT_BRIGHTNESS,

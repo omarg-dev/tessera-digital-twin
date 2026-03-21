@@ -21,6 +21,10 @@ mod component_tests {
             battery: 85.0,
             current_task: Some(100),
             carrying_cargo: None,
+            target_position: Vec3::new(5.0, 0.25, 3.0),
+            network_velocity: Vec3::ZERO,
+            last_update_secs: 0.0,
+            enabled: true,
         };
 
         assert_eq!(robot.id, 42);
@@ -39,6 +43,10 @@ mod component_tests {
             battery: 50.0,
             current_task: Some(5),
             carrying_cargo: Some(999),
+            target_position: Vec3::ZERO,
+            network_velocity: Vec3::ZERO,
+            last_update_secs: 0.0,
+            enabled: true,
         };
 
         assert_eq!(robot.carrying_cargo, Some(999));
@@ -47,8 +55,9 @@ mod component_tests {
 
     #[test]
     fn test_shelf_with_capacity() {
-        let shelf = Shelf { capacity: 100 };
-        assert_eq!(shelf.capacity, 100);
+        let shelf = Shelf { cargo: 5, max_capacity: 16 };
+        assert_eq!(shelf.cargo, 5);
+        assert_eq!(shelf.max_capacity, 16);
     }
 }
 
@@ -98,6 +107,7 @@ mod resource_tests {
             battery: 100.0,
             carrying_cargo: None,
             station_position: [0.0, 0.25, 0.0],
+            enabled: true,
         });
 
         assert_eq!(updates.updates.len(), 1);
@@ -150,6 +160,10 @@ mod integration_tests {
                 battery: 50.0,
                 current_task: None,
                 carrying_cargo: None,
+                target_position: Vec3::ZERO,
+                network_velocity: Vec3::ZERO,
+                last_update_secs: 0.0,
+                enabled: true,
             };
             
             assert_eq!(robot.state, state);

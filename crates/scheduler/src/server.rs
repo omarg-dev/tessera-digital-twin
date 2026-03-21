@@ -4,14 +4,15 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time;
 use zenoh::Session;
-use serde_json::{from_slice, to_vec};
+use serde_json::from_slice;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
 use protocol::config::scheduler as sched_config;
 use protocol::{
-    timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, Task, TaskAssignment,
-    TaskRequest, TaskStatus, TaskStatusUpdate, TaskType,
+    timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
+    Task, TaskAssignment, TaskCommand, TaskListSnapshot, TaskStatus, TaskStatusUpdate, TaskType,
+    is_reachable_on_map, world_to_grid,
 };
 
 use crate::allocator::{Allocator, AllocatorInstance, RobotInfo};
@@ -31,9 +32,13 @@ pub async fn run(session: Session) {
         map.get_dropoffs().len(),
     );
 
+    // Shelf inventory for capacity enforcement (shelves start full)
+    let mut inventory = ShelfInventory::from_map(&map);
+
     // Publishers
     let assignment_pub = session.declare_publisher(topics::TASK_ASSIGNMENTS).await.unwrap();
     let queue_pub = session.declare_publisher(topics::QUEUE_STATE).await.unwrap();
+    let task_list_pub = session.declare_publisher(topics::TASK_LIST).await.unwrap();
 
     // Subscribers
     let task_sub = session.declare_subscriber(topics::TASK_REQUESTS).await.unwrap();
@@ -67,22 +72,23 @@ pub async fn run(session: Session) {
         handle_stdin(&mut rx, &mut queue, &robots, &map, paused, verbose).await;
         
         // Task requests (from other crates)
-        handle_task_requests(&task_sub, &mut queue);
+        handle_task_requests(&task_sub, &mut queue, &inventory);
         
         // Robot updates (from firmware)
         handle_robot_updates(&robot_sub, &mut robots);
         
         // Task status updates (from coordinator)
-        handle_status_updates(&status_sub, &mut queue, &mut robots);
+        handle_status_updates(&status_sub, &mut queue, &mut robots, &mut inventory);
 
         // Allocate tasks
         if !paused {
-            allocate_tasks(&mut queue, &allocator, &mut robots, &map, &assignment_pub, verbose).await;
+            allocate_tasks(&mut queue, &allocator, &mut robots, &map, &mut inventory, &assignment_pub, verbose).await;
         }
 
-        // Broadcast queue state
+        // Broadcast queue state and task list
         if last_broadcast.elapsed() >= std::time::Duration::from_secs(sched_config::QUEUE_BROADCAST_SECS) {
             broadcast_state(&queue_pub, &queue, &robots).await;
+            broadcast_task_list(&task_list_pub, &queue).await;
             last_broadcast = std::time::Instant::now();
         }
 
@@ -129,8 +135,13 @@ async fn handle_stdin(
                 }
 
                 let mut rng = thread_rng();
-                let shelf = shelves.choose(&mut rng).unwrap();
-                let dropoff = dropoffs.choose(&mut rng).unwrap();
+                let (Some(shelf), Some(dropoff)) = (
+                    shelves.choose(&mut rng),
+                    dropoffs.choose(&mut rng),
+                ) else {
+                    logs::save_log("Scheduler", "Random task creation aborted: no shelf/dropoff candidates");
+                    continue;
+                };
 
                 let id = queue.next_task_id();
                 let task = Task::new(id, TaskType::PickAndDeliver {
@@ -234,14 +245,88 @@ fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)
 fn handle_task_requests(
     sub: &zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
     queue: &mut dyn TaskQueue,
+    inventory: &ShelfInventory,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(req) = from_slice::<TaskRequest>(&sample.payload().to_bytes()) {
-            let id = queue.next_task_id();
-            let task = Task::new(id, req.task_type, req.priority);
-            queue.enqueue(task);
+        let payload = sample.payload().to_bytes();
+        if let Ok(cmd) = from_slice::<TaskCommand>(&payload) {
+            match cmd {
+                TaskCommand::New { task_type, priority } => {
+                    // validate pickup shelf is not empty before queuing
+                    let pickup = match &task_type {
+                        TaskType::PickAndDeliver { pickup, .. } => Some(*pickup),
+                        TaskType::Relocate { from, .. } => Some(*from),
+                        TaskType::ReturnToStation { .. } => None,
+                    };
+                    if let Some(pos) = pickup {
+                        if !inventory.can_pickup(pos) {
+                            println!("[{}ms] ✗ Task rejected: pickup shelf ({},{}) is empty", timestamp(), pos.0, pos.1);
+                            logs::save_log("Scheduler", &format!("Task rejected: pickup ({},{}) is empty", pos.0, pos.1));
+                            continue;
+                        }
+                    }
+                    let id = queue.next_task_id();
+                    let task = Task::new(id, task_type, priority);
+                    println!("[{}ms] + Task #{} created via UI", timestamp(), id);
+                    logs::save_log("Scheduler", &format!("Task {} created via UI command", id));
+                    queue.enqueue(task);
+                }
+                TaskCommand::Cancel(task_id) => {
+                    if let Some(task) = queue.get_mut(task_id) {
+                        if matches!(task.status, TaskStatus::Pending) {
+                            task.status = TaskStatus::Cancelled;
+                            println!("[{}ms] \u{2713} Task #{} cancelled via UI", timestamp(), task_id);
+                            logs::save_log("Scheduler", &format!("Task {} cancelled via UI", task_id));
+                        } else {
+                            println!("[{}ms] \u{2717} Task #{} cannot cancel (status: {:?})", timestamp(), task_id, task.status);
+                        }
+                    } else {
+                        println!("[{}ms] \u{2717} Cancel: task #{} not found", timestamp(), task_id);
+                    }
+                }
+                TaskCommand::SetPriority(task_id, priority) => {
+                    if let Some(task) = queue.get_mut(task_id) {
+                        if matches!(task.status, TaskStatus::Pending) {
+                            let old = task.priority;
+                            task.priority = priority;
+                            println!("[{}ms] \u{2713} Task #{} priority: {:?} \u{2192} {:?}", timestamp(), task_id, old, priority);
+                            logs::save_log("Scheduler", &format!("Task {} priority changed to {:?}", task_id, priority));
+                        }
+                    }
+                }
+            }
+        } else {
+            logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Malformed TaskCommand payload on {} ({} bytes)",
+                    topics::TASK_REQUESTS,
+                    payload.len()
+                ),
+            );
         }
     }
+}
+
+async fn broadcast_task_list(
+    publisher: &zenoh::pubsub::Publisher<'_>,
+    queue: &dyn TaskQueue,
+) {
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let snapshot = TaskListSnapshot {
+        tasks: queue.all_tasks().into_iter().cloned().collect(),
+        timestamp_ms,
+    };
+    let _ = protocol::publish_json_logged(
+        "Scheduler",
+        "task list snapshot",
+        &snapshot,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }
 
 fn handle_robot_updates(
@@ -249,15 +334,26 @@ fn handle_robot_updates(
     robots: &mut HashMap<u32, RobotInfo>,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(batch) = from_slice::<RobotUpdateBatch>(&sample.payload().to_bytes()) {
+        let payload = sample.payload().to_bytes();
+        if let Ok(batch) = from_slice::<RobotUpdateBatch>(&payload) {
             for update in &batch.updates {
                 let entry = robots.entry(update.id).or_insert_with(|| RobotInfo::from(update));
                 entry.position = update.position;
                 entry.state = update.state.clone();
+                entry.enabled = update.enabled;
                 entry.battery = update.battery;
                 // NOTE: Do NOT touch assigned_task here!
                 // It's managed by handle_status_updates based on TaskStatusUpdate messages
             }
+        } else {
+            logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Malformed RobotUpdateBatch payload on {} ({} bytes)",
+                    topics::ROBOT_UPDATES,
+                    payload.len()
+                ),
+            );
         }
     }
 }
@@ -266,13 +362,54 @@ fn handle_status_updates(
     sub: &zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
     queue: &mut dyn TaskQueue,
     robots: &mut HashMap<u32, RobotInfo>,
+    inventory: &mut ShelfInventory,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
-        if let Ok(update) = from_slice::<TaskStatusUpdate>(&sample.payload().to_bytes()) {
+        let payload = sample.payload().to_bytes();
+        if let Ok(update) = from_slice::<TaskStatusUpdate>(&payload) {
             if let Some(task) = queue.get_mut(update.task_id) {
                 println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
                 logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
-                task.status = update.status.clone();
+
+                let requeue_disabled_failure = match &update.status {
+                    TaskStatus::Failed { reason } => reason.to_ascii_lowercase().contains("disabled"),
+                    _ => false,
+                };
+
+                // Undo inventory reservations on task failure
+                if matches!(update.status, TaskStatus::Failed { .. }) {
+                    if let Some(pickup) = task.pickup_location() {
+                        inventory.undo_pickup(pickup);
+                    }
+                    if let Some(dropoff) = task.target_location() {
+                        inventory.undo_dropoff(dropoff);
+                    }
+                    logs::save_log("Scheduler", &format!("Task {} failed: inventory reservations undone", task.id));
+                }
+
+                if requeue_disabled_failure {
+                    task.status = TaskStatus::Pending;
+                    task.completed_at = None;
+                    logs::save_log(
+                        "Scheduler",
+                        &format!(
+                            "Task {} requeued after disabled robot auto-unassign",
+                            task.id
+                        ),
+                    );
+                } else {
+                    task.status = update.status.clone();
+
+                    // stamp completion time for terminal transitions
+                    if matches!(update.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled) {
+                        task.completed_at = Some(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64
+                        );
+                    }
+                }
 
                 // Free robot on completion/failure
                 if let Some(robot_id) = update.robot_id {
@@ -283,6 +420,15 @@ fn handle_status_updates(
                     }
                 }
             }
+        } else {
+            logs::save_log(
+                "Scheduler",
+                &format!(
+                    "Malformed TaskStatusUpdate payload on {} ({} bytes)",
+                    topics::TASK_STATUS,
+                    payload.len()
+                ),
+            );
         }
     }
 }
@@ -292,6 +438,7 @@ async fn allocate_tasks(
     allocator: &dyn Allocator,
     robots: &mut HashMap<u32, RobotInfo>,
     map: &GridMap,
+    inventory: &mut ShelfInventory,
     publisher: &zenoh::pubsub::Publisher<'_>,
     verbose: bool,
 ) {
@@ -300,11 +447,33 @@ async fn allocate_tasks(
     for task_id in pending_ids {
         let Some(task) = queue.get(task_id).cloned() else { continue };
 
+        // Shelf capacity enforcement: skip tasks that can't be fulfilled
+        if let Some(pickup) = task.pickup_location() {
+            if !inventory.can_pickup(pickup) {
+                if verbose {
+                    let stock = inventory.stock_at(pickup);
+                    println!("[{}ms] ⏸ Task {} skipped: pickup shelf ({},{}) empty ({:?})",
+                        timestamp(), task_id, pickup.0, pickup.1, stock);
+                }
+                continue;
+            }
+        }
+        if let Some(dropoff) = task.target_location() {
+            if !inventory.can_dropoff(dropoff) {
+                if verbose {
+                    let stock = inventory.stock_at(dropoff);
+                    println!("[{}ms] ⏸ Task {} skipped: dropoff shelf ({},{}) full ({:?})",
+                        timestamp(), task_id, dropoff.0, dropoff.1, stock);
+                }
+                continue;
+            }
+        }
+
         let Some(pickup) = task.pickup_location() else { continue };
         let mut reachable_robots: HashMap<u32, RobotInfo> = HashMap::new();
         for (id, robot) in robots.iter() {
-            let start = world_to_grid(robot.position);
-            if is_reachable(map, start, pickup) {
+            let Some(start) = world_to_grid(robot.position) else { continue; };
+            if is_reachable_on_map(map, start, pickup) {
                 reachable_robots.insert(*id, robot.clone());
             }
         }
@@ -312,81 +481,58 @@ async fn allocate_tasks(
         let Some(robot_id) = allocator.allocate(&task, &reachable_robots) else { continue };
 
         // Mark robot assigned
+        let previous_assignment = robots.get(&robot_id).and_then(|robot| robot.assigned_task);
         if let Some(robot) = robots.get_mut(&robot_id) {
             robot.assigned_task = Some(task_id);
         }
 
+        // Reserve inventory: decrement pickup shelf, increment dropoff shelf
+        if let Some(pickup_pos) = task.pickup_location() {
+            inventory.pickup(pickup_pos);
+        }
+        if let Some(dropoff_pos) = task.target_location() {
+            inventory.dropoff(dropoff_pos);
+        }
+
         // Update task status
         if let Some(task) = queue.get_mut(task_id) {
-            task.status = TaskStatus::Assigned { robot_id };
-
-            let assignment = TaskAssignment { task: task.clone(), robot_id };
-            if let Ok(payload) = to_vec(&assignment) {
-                publisher.put(payload).await.ok();
+            let previous_status = task.status.clone();
+            let mut assigned_task = task.clone();
+            assigned_task.status = TaskStatus::Assigned { robot_id };
+            let assignment = TaskAssignment { task: assigned_task, robot_id };
+            if protocol::publish_json_logged(
+                "Scheduler",
+                "task assignment",
+                &assignment,
+                |payload| async move { publisher.put(payload).await.map(|_| ()) },
+            )
+            .await
+            {
+                task.status = TaskStatus::Assigned { robot_id };
                 if verbose {
                     println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
                 }
+            } else {
+                task.status = previous_status;
+                if let Some(robot) = robots.get_mut(&robot_id) {
+                    robot.assigned_task = previous_assignment;
+                }
+                if let Some(pickup_pos) = task.pickup_location() {
+                    inventory.undo_pickup(pickup_pos);
+                }
+                if let Some(dropoff_pos) = task.target_location() {
+                    inventory.undo_dropoff(dropoff_pos);
+                }
+                logs::save_log(
+                    "Scheduler",
+                    &format!(
+                        "Task {} assignment publish failed, rolled back reservation/state",
+                        task_id
+                    ),
+                );
             }
         }
     }
-}
-
-fn world_to_grid(pos: [f32; 3]) -> (usize, usize) {
-    ((pos[0] + 0.5) as usize, (pos[2] + 0.5) as usize)
-}
-
-fn is_reachable(map: &GridMap, start: (usize, usize), goal: (usize, usize)) -> bool {
-    if start.0 >= map.width || start.1 >= map.height {
-        return false;
-    }
-    if !map.is_walkable(start.0, start.1) {
-        return false;
-    }
-
-    let mut goals: Vec<(usize, usize)> = Vec::new();
-    if map.is_walkable(goal.0, goal.1) {
-        goals.push(goal);
-    } else {
-        for (dx, dy) in [(1i32,0i32), (-1,0), (0,1), (0,-1)] {
-            let nx = goal.0 as i32 + dx;
-            let ny = goal.1 as i32 + dy;
-            if nx < 0 || ny < 0 { continue; }
-            let nx = nx as usize;
-            let ny = ny as usize;
-            if nx >= map.width || ny >= map.height { continue; }
-            if map.is_walkable(nx, ny) {
-                goals.push((nx, ny));
-            }
-        }
-    }
-    if goals.is_empty() {
-        return false;
-    }
-
-    let mut visited = vec![vec![false; map.width]; map.height];
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(start);
-    visited[start.1][start.0] = true;
-
-    while let Some((x, y)) = queue.pop_front() {
-        if goals.iter().any(|g| g.0 == x && g.1 == y) {
-            return true;
-        }
-        for (dx, dy) in [(1i32,0i32), (-1,0), (0,1), (0,-1)] {
-            let nx = x as i32 + dx;
-            let ny = y as i32 + dy;
-            if nx < 0 || ny < 0 { continue; }
-            let nx = nx as usize;
-            let ny = ny as usize;
-            if nx >= map.width || ny >= map.height { continue; }
-            if visited[ny][nx] { continue; }
-            if !map.is_walkable(nx, ny) { continue; }
-            visited[ny][nx] = true;
-            queue.push_back((nx, ny));
-        }
-    }
-
-    false
 }
 
 async fn broadcast_state(
@@ -400,7 +546,11 @@ async fn broadcast_state(
         robots_online: robots.len(),
     };
 
-    if let Ok(payload) = to_vec(&state) {
-        publisher.put(payload).await.ok();
-    }
+    let _ = protocol::publish_json_logged(
+        "Scheduler",
+        "queue state broadcast",
+        &state,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }

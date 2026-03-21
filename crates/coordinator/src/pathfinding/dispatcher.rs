@@ -3,7 +3,7 @@
 //! Allows runtime selection of pathfinding algorithm via config.
 //! Provides enum-based dispatch to A* or WHCA* while maintaining trait flexibility.
 
-use super::{AStarPathfinder, WHCAPathfinder, Pathfinder, PathResult, GridPos};
+use super::{AStarPathfinder, WHCAPathfinder, WHCAStatsSnapshot, Pathfinder, PathResult, GridPos};
 use protocol::GridMap;
 
 /// Runtime-selectable pathfinding strategy
@@ -90,8 +90,8 @@ impl PathfinderInstance {
 
     /// Find path with robot self-exclusion (WHCA* won't collide with own reservations)
     ///
-    /// Falls back to A* if WHCA* fails due to reservation congestion.
     /// For A* strategy, robot_id is ignored (no reservation table).
+    /// For WHCA*, strict no-fallback behavior applies.
     pub fn find_path_for_robot(
         &self,
         map: &GridMap,
@@ -107,7 +107,7 @@ impl PathfinderInstance {
 
     /// Find path to non-walkable tile with robot self-exclusion
     ///
-    /// Falls back to A* if WHCA* fails due to reservation congestion.
+    /// For WHCA*, strict no-fallback behavior applies.
     pub fn find_path_to_non_walkable_for_robot(
         &self,
         map: &GridMap,
@@ -118,6 +118,21 @@ impl PathfinderInstance {
         match self {
             PathfinderInstance::AStar(astar) => astar.find_path_to_non_walkable(map, start, goal),
             PathfinderInstance::WHCA(whca) => whca.find_path_to_non_walkable_for_robot(map, start, goal, robot_id),
+        }
+    }
+
+    /// Return WHCA metrics snapshot if the active strategy is WHCA*
+    pub fn whca_stats_snapshot(&self) -> Option<WHCAStatsSnapshot> {
+        match self {
+            PathfinderInstance::WHCA(whca) => Some(whca.stats_snapshot()),
+            PathfinderInstance::AStar(_) => None,
+        }
+    }
+
+    /// Reset WHCA metrics counters when running benchmark windows
+    pub fn reset_whca_stats(&self) {
+        if let PathfinderInstance::WHCA(whca) = self {
+            whca.reset_stats();
         }
     }
 }

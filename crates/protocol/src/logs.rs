@@ -186,11 +186,18 @@ pub fn merge_logs() {
                             let reader = BufReader::new(file);
                             for line in reader.lines() {
                                 if let Ok(line) = line {
-                                    // Extract timestamp from format: [HH:MM:SS.mmm] message
-                                    if let Some(bracket_end) = line.find(']') {
+                                    // Expected format: [HH:MM:SS.mmm] message
+                                    // Guard: line must start with '[' and contain a closing ']'
+                                    // to avoid panicking on embedded ']' in message content or
+                                    // continuation lines from multi-line log entries.
+                                    if !line.starts_with('[') {
+                                        continue;
+                                    }
+                                    if let Some(bracket_end) = line[1..].find(']').map(|i| i + 1) {
                                         let timestamp = line[1..bracket_end].to_string();
-                                        // Reformat with crate name: [HH:MM:SS.mmm] Crate message
-                                        let message = line[bracket_end + 2..].to_string(); // Skip "] "
+                                        // skip "] " (2 chars) to get the message body
+                                        let msg_start = (bracket_end + 2).min(line.len());
+                                        let message = line[msg_start..].to_string();
                                         let formatted_line = format!("[{}] {} {}", timestamp, crate_name, message);
                                         entries.push((timestamp, formatted_line, crate_name.clone()));
                                     }
@@ -274,9 +281,25 @@ pub fn merge_logs() {
 
 /// Start a new orchestrator session (logs/SESSION_START/)
 ///
-/// Call this once when orchestrator starts.
+/// Call this once when orchestrator starts. Always creates a fresh dated directory,
+/// overwriting orchestrator_session.txt so child crates find the new path.
 pub fn start_orchestrator_session() -> PathBuf {
-    get_orchestrator_session_dir()
+    let log_dir = get_log_dir();
+    let _ = create_dir_all(&log_dir);
+
+    let now = Local::now().format("%Y-%m-%d_%H-%M").to_string();
+    let new_dir = log_dir.join(&now);
+    let _ = create_dir_all(&new_dir);
+
+    // overwrite the pointer file so child crates resolve to this session
+    let _ = std::fs::write(log_dir.join(ORCH_SESSION_FILE), format!("{}\n", now));
+
+    // seed the OnceLock so all subsequent calls in this process return the same path;
+    // set() is a no-op if already initialised (shouldn't happen — orchestrator calls
+    // this before any other log operation)
+    let _ = ORCH_SESSION_DIR.set(new_dir.clone());
+
+    new_dir
 }
 
 /// Start a new run session (logs/SESSION_START/RUN_START/)

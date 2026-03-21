@@ -14,7 +14,7 @@ use protocol::{Task, TaskId};
 /// Trait for task queue implementations
 ///
 /// Implement this trait to create custom queueing strategies:
-/// - `FifoQueue` - Priority queue with FIFO tiebreaking (default)
+/// - `FifoQueue` - Priority-first queue with FIFO tiebreaking (default)
 /// - `PriorityQueue` - Heap-based priority queue (future)
 /// - `MLOptimizedQueue` - ML-driven task ordering (future)
 ///

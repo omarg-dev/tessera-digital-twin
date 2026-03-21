@@ -2,7 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use crate::config::warehouse::SHELF_MAX_CAPACITY;
+
+const DEFAULT_SHELF_STOCK: u8 = 5;
 
 /// Tile types in the warehouse grid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -10,7 +14,7 @@ pub enum TileType {
     Empty,      // ~ in layout
     Ground,     // .
     Wall,       // #
-    Shelf(u8),  // xN (N = capacity)
+    Shelf(u8),  // xN (N = initial stock; max capacity is warehouse::SHELF_MAX_CAPACITY)
     Station,    // _ (charging station)
     Dropoff,    // v
 }
@@ -86,15 +90,12 @@ impl GridMap {
             "_" => TileType::Station,
             "v" => TileType::Dropoff,
             t if t.starts_with('x') && t.len() > 1 => {
-                let capacity = match t[1..].parse() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        println!("Warning: failed to parse shelf capacity from token '{}': 
-                            {}. Defaulting to 5.",t, e);
-                        5
-                    }
-                };
-                TileType::Shelf(capacity)
+                let parsed_stock = t[1..].parse::<u8>().ok();
+                let stock = parsed_stock
+                    .filter(|value| *value > 0)
+                    .unwrap_or(DEFAULT_SHELF_STOCK)
+                    .min(SHELF_MAX_CAPACITY as u8);
+                TileType::Shelf(stock)
             }
             _ => TileType::Empty,
         }
@@ -153,6 +154,97 @@ pub struct MapValidation {
     pub sender: String,     // "coordinator", "firmware", "renderer"
     pub map_hash: u64,
     pub map_dimensions: (usize, usize),
+}
+
+// ── Shelf inventory tracking ──
+
+/// Tracks current stock levels for all shelf tiles.
+///
+/// Both the scheduler (reservation tracking) and coordinator (actual tracking)
+/// can maintain independent instances initialized from the same GridMap.
+/// Shelves start at full capacity.
+#[derive(Debug, Clone)]
+pub struct ShelfInventory {
+    /// shelf grid (x, y) → (current_stock, max_capacity)
+    shelves: HashMap<(usize, usize), (u8, u8)>,
+}
+
+impl ShelfInventory {
+    /// Initialize from a GridMap. Each shelf starts with the stock defined by
+    /// its layout token (xN = N items). Max capacity is warehouse::SHELF_MAX_CAPACITY.
+    pub fn from_map(map: &GridMap) -> Self {
+        let mut shelves = HashMap::new();
+        for tile in &map.tiles {
+            if let TileType::Shelf(initial_stock) = tile.tile_type {
+                let max = SHELF_MAX_CAPACITY as u8;
+                let stock = initial_stock.min(max);
+                shelves.insert((tile.x, tile.y), (stock, max));
+            }
+        }
+        ShelfInventory { shelves }
+    }
+
+    /// check if a position has stock available for pickup.
+    /// Non-shelf positions always return true (no constraint).
+    pub fn can_pickup(&self, pos: (usize, usize)) -> bool {
+        self.shelves.get(&pos).map_or(true, |&(stock, _)| stock > 0)
+    }
+
+    /// check if a position has room for a delivery.
+    /// Non-shelf positions always return true (no constraint).
+    pub fn can_dropoff(&self, pos: (usize, usize)) -> bool {
+        self.shelves.get(&pos).map_or(true, |&(stock, cap)| stock < cap)
+    }
+
+    /// decrement stock at a shelf (pickup or pickup reservation).
+    /// Returns false if shelf is empty or position is not a shelf.
+    pub fn pickup(&mut self, pos: (usize, usize)) -> bool {
+        if let Some((stock, _)) = self.shelves.get_mut(&pos) {
+            if *stock > 0 {
+                *stock -= 1;
+                return true;
+            }
+            return false;
+        }
+        true // not a shelf, no constraint
+    }
+
+    /// increment stock at a shelf (dropoff or dropoff reservation).
+    /// Returns false if shelf is full or position is not a shelf.
+    pub fn dropoff(&mut self, pos: (usize, usize)) -> bool {
+        if let Some((stock, cap)) = self.shelves.get_mut(&pos) {
+            if *stock < *cap {
+                *stock += 1;
+                return true;
+            }
+            return false;
+        }
+        true // not a shelf, no constraint
+    }
+
+    /// undo a pickup reservation (re-add stock)
+    pub fn undo_pickup(&mut self, pos: (usize, usize)) {
+        if let Some((stock, cap)) = self.shelves.get_mut(&pos) {
+            if *stock < *cap {
+                *stock += 1;
+            }
+        }
+    }
+
+    /// undo a dropoff reservation (remove stock)
+    pub fn undo_dropoff(&mut self, pos: (usize, usize)) {
+        if let Some((stock, _)) = self.shelves.get_mut(&pos) {
+            if *stock > 0 {
+                *stock -= 1;
+            }
+        }
+    }
+
+    /// get (current_stock, max_capacity) for a shelf position.
+    /// Returns None if the position is not a shelf.
+    pub fn stock_at(&self, pos: (usize, usize)) -> Option<(u8, u8)> {
+        self.shelves.get(&pos).copied()
+    }
 }
 
 #[cfg(test)]
@@ -240,5 +332,95 @@ mod tests {
         
         assert_eq!(map.height, 2);
         assert_eq!(map.tiles.len(), 6);
+    }
+
+    // ── ShelfInventory tests ──
+
+    #[test]
+    fn inventory_from_map_starts_full() {
+        let map = GridMap::parse("x5 . x3").unwrap();
+        let inv = ShelfInventory::from_map(&map);
+        // stock starts at parsed value, capacity is SHELF_MAX_CAPACITY (16)
+        assert_eq!(inv.stock_at((0, 0)), Some((5, 16)));
+        assert_eq!(inv.stock_at((2, 0)), Some((3, 16)));
+        assert_eq!(inv.stock_at((1, 0)), None); // ground
+    }
+
+    #[test]
+    fn inventory_can_pickup_full_shelf() {
+        let map = GridMap::parse("x5").unwrap();
+        let inv = ShelfInventory::from_map(&map);
+        assert!(inv.can_pickup((0, 0)));
+    }
+
+    #[test]
+    fn inventory_cannot_pickup_empty_shelf() {
+        let map = GridMap::parse("x5").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        for _ in 0..5 { inv.pickup((0, 0)); }
+        assert!(!inv.can_pickup((0, 0)));
+    }
+
+    #[test]
+    fn inventory_can_dropoff_empty_shelf() {
+        let map = GridMap::parse("x3").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        for _ in 0..3 { inv.pickup((0, 0)); }
+        assert!(inv.can_dropoff((0, 0)));
+    }
+
+    #[test]
+    fn inventory_cannot_dropoff_full_shelf() {
+        // x16 starts at capacity (SHELF_MAX_CAPACITY = 16)
+        let map = GridMap::parse("x16").unwrap();
+        let inv = ShelfInventory::from_map(&map);
+        assert!(!inv.can_dropoff((0, 0))); // starts full
+    }
+
+    #[test]
+    fn inventory_pickup_decrements() {
+        let map = GridMap::parse("x3").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        assert!(inv.pickup((0, 0)));
+        assert_eq!(inv.stock_at((0, 0)), Some((2, 16)));
+    }
+
+    #[test]
+    fn inventory_dropoff_increments() {
+        let map = GridMap::parse("x3").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        inv.pickup((0, 0));
+        assert!(inv.dropoff((0, 0)));
+        assert_eq!(inv.stock_at((0, 0)), Some((3, 16)));
+    }
+
+    #[test]
+    fn inventory_undo_pickup() {
+        let map = GridMap::parse("x3").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        inv.pickup((0, 0));
+        assert_eq!(inv.stock_at((0, 0)), Some((2, 16)));
+        inv.undo_pickup((0, 0));
+        assert_eq!(inv.stock_at((0, 0)), Some((3, 16)));
+    }
+
+    #[test]
+    fn inventory_undo_dropoff() {
+        let map = GridMap::parse("x3").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        inv.pickup((0, 0));
+        inv.dropoff((0, 0));
+        inv.undo_dropoff((0, 0));
+        assert_eq!(inv.stock_at((0, 0)), Some((2, 16)));
+    }
+
+    #[test]
+    fn inventory_non_shelf_always_allowed() {
+        let map = GridMap::parse(". v _").unwrap();
+        let mut inv = ShelfInventory::from_map(&map);
+        assert!(inv.can_pickup((0, 0)));
+        assert!(inv.can_dropoff((1, 0)));
+        assert!(inv.pickup((0, 0)));
+        assert!(inv.dropoff((1, 0)));
     }
 }

@@ -1,0 +1,63 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "check workspace",
+            "type": "shell",
+            "command": "cargo check --workspace && cargo run -q -p notifier",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "build visualizer",
+            "type": "shell",
+            "command": "cargo build -p visualizer && cargo run -q -p notifier",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "build workspace",
+            "type": "shell",
+            "command": "cargo build --workspace && cargo run -q -p notifier",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "run orchestrator",
+            "type": "shell",
+            "command": "cargo run -p orchestrator",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run wall_debug",
+            "type": "shell",
+            "command": "cargo run -p visualizer --example wall_debug && cargo run -q -p notifier",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": ["$rustc"]
+        }
+    ]
+}

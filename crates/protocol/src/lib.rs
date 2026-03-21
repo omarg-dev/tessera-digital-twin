@@ -49,11 +49,23 @@ pub mod tasks;
 pub mod topics;
 pub mod logs;
 pub mod chaos;
+pub mod util;
+pub mod publish;
 
 // Re-export for convenience
 pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemCommandEffect, CommandResponse, CommandStatus};
 pub use config::LAYOUT_FILE_PATH;
-pub use grid_map::{GridMap, MapValidation, Tile, TileType};
-pub use robot::{RobotState, RobotUpdate, RobotUpdateBatch};
-pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskId, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType};
+pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
+pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch, WhcaMetricsTelemetry};
+pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType, task_status_label};
 pub use logs::{timestamp, save_log};
+pub use publish::{publish_json_logged, publish_json_logged_sync};
+pub use util::{
+	distance_sq_xz,
+	distance_xz,
+	grid_to_world,
+	is_finite_position,
+	is_reachable_on_map,
+	manhattan_distance_xz,
+	world_to_grid,
+};

@@ -1,13 +1,8 @@
 //! Simulated robot with physics state
 
+use std::collections::VecDeque;
 use protocol::{RobotState, RobotUpdate, PathCommand, CommandStatus, GridMap};
 use protocol::config::{battery, physics};
-use rand::Rng;
-
-/// Convert world position to grid coordinates
-fn world_to_grid(pos: [f32; 3]) -> (usize, usize) {
-    (pos[0].round() as usize, pos[2].round() as usize)
-}
 
 
 /// A simulated robot with physics state
@@ -19,11 +14,14 @@ pub struct SimRobot {
     pub battery: f32,
     pub carrying_cargo: Option<u32>,
     pub target: Option<[f32; 3]>,
-    pub target_speed: f32, // Speed to use when moving to target
-    pub station_position: [f32; 3], // Home charging station
-    pub pickup_timer: f32, // Time remaining for pickup operation
-    pub drop_timer: f32, // Time remaining for dropoff operation
-    pub enabled: bool, // Whether robot is active (can be disabled by orchestrator)
+    pub target_speed: f32, // speed to use when moving to target
+    pub station_position: [f32; 3], // home charging station
+    pub pickup_timer: f32, // time remaining for pickup operation
+    pub drop_timer: f32, // time remaining for dropoff operation
+    pub enabled: bool, // whether robot is active (can be disabled by orchestrator)
+    /// waypoints queued by FollowPath - firmware advances through these
+    /// without stopping, eliminating the per-tile pause caused by coordinator round-trips
+    pub waypoint_queue: VecDeque<[f32; 3]>,
 }
 
 impl SimRobot {
@@ -41,6 +39,7 @@ impl SimRobot {
             pickup_timer: 0.0,
             drop_timer: 0.0,
             enabled: true,
+            waypoint_queue: VecDeque::new(),
         }
     }
     
@@ -56,6 +55,7 @@ impl SimRobot {
         self.pickup_timer = 0.0;
         self.drop_timer = 0.0;
         self.enabled = true;
+        self.waypoint_queue.clear();
     }
     
     /// Physics tick: pos += vel * dt
@@ -68,7 +68,16 @@ impl SimRobot {
         if self.velocity[0].abs() > 0.01 || self.velocity[2].abs() > 0.01 {
             let next_pos_x = self.position[0] + self.velocity[0] * dt;
             let next_pos_z = self.position[2] + self.velocity[2] * dt;
-            let (grid_x, grid_z) = world_to_grid([next_pos_x, 0.0, next_pos_z]);
+            let Some((grid_x, grid_z)) = protocol::world_to_grid([next_pos_x, 0.0, next_pos_z]) else {
+                self.velocity = [0.0, 0.0, 0.0];
+                self.target = None;
+                self.state = RobotState::Faulted;
+                protocol::logs::save_log(
+                    "Firmware",
+                    &format!("Robot {} faulted due to invalid projected position", self.id),
+                );
+                return;
+            };
             
             if !map.is_walkable(grid_x, grid_z) {
                 // Wall collision detected!
@@ -101,16 +110,14 @@ impl SimRobot {
         // Drain battery while moving
         let speed = (self.velocity[0].powi(2) + self.velocity[2].powi(2)).sqrt();
         if speed > 0.01 {
-            // Add random variation to drain rate (±40% variation)
-            let mut rng = rand::thread_rng();
-            let drain_rate = rng.gen_range(battery::DRAIN_RATE_RANGE.0..=battery::DRAIN_RATE_RANGE.1);
-            self.battery -= drain_rate * dt;
+            self.battery -= battery::DRAIN_RATE_PER_SEC * dt;
             self.battery = self.battery.max(0.0);
             
-            // Check for low battery
+            // Check for low battery (don't override a robot already returning home)
             if self.battery <= battery::LOW_THRESHOLD 
                 && self.state != RobotState::LowBattery 
-                && self.state != RobotState::Charging 
+                && self.state != RobotState::Charging
+                && self.state != RobotState::MovingToStation
             {
                 self.state = RobotState::LowBattery;
                 println!("⚠ Robot {} LOW BATTERY: {:.1}%", self.id, self.battery);
@@ -122,12 +129,31 @@ impl SimRobot {
             let dx = target[0] - self.position[0];
             let dz = target[2] - self.position[2];
             let dist = (dx * dx + dz * dz).sqrt();
+            let moving = self.velocity[0].abs() > 0.01 || self.velocity[2].abs() > 0.01;
+            let passed_target = moving && (self.velocity[0] * dx + self.velocity[2] * dz) <= 0.0;
             
-            if dist < physics::ARRIVAL_THRESHOLD {
-                // Arrived at target
-                self.velocity = [0.0, 0.0, 0.0];
-                self.target = None;
-                self.on_arrival();
+            if dist < physics::ARRIVAL_THRESHOLD || passed_target {
+                // snap to waypoint when we reach or pass it in one large dt step
+                // this prevents high-speed oscillation around waypoints.
+                self.position[0] = target[0];
+                self.position[2] = target[2];
+                // Arrived at this waypoint - pop the next from the queue
+                if let Some(next) = self.waypoint_queue.pop_front() {
+                    // transition directly to next waypoint without stopping
+                    let ndx = next[0] - self.position[0];
+                    let ndz = next[2] - self.position[2];
+                    let ndist = (ndx * ndx + ndz * ndz).sqrt();
+                    if ndist > 0.001 {
+                        self.velocity[0] = (ndx / ndist) * self.target_speed;
+                        self.velocity[2] = (ndz / ndist) * self.target_speed;
+                    }
+                    self.target = Some(next);
+                } else {
+                    // queue empty - fully arrived at final waypoint
+                    self.velocity = [0.0, 0.0, 0.0];
+                    self.target = None;
+                    self.on_arrival();
+                }
             } else {
                 // Move toward target at commanded speed
                 self.velocity[0] = (dx / dist) * self.target_speed;
@@ -195,6 +221,7 @@ impl SimRobot {
             battery: self.battery,
             carrying_cargo: self.carrying_cargo,
             station_position: self.station_position,
+            enabled: self.enabled,
         }
     }
     
@@ -205,7 +232,7 @@ impl SimRobot {
         
         match command {
             PathCommand::MoveTo { target, speed } => {
-                if target[0].is_nan() || target[2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(*target) || *speed <= 0.0 {
                     return CommandStatus::Rejected { 
                         reason: "Invalid target".to_string() 
                     };
@@ -220,7 +247,7 @@ impl SimRobot {
                 }
             }
             PathCommand::MoveToPickup { target, speed } => {
-                if target[0].is_nan() || target[2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(*target) || *speed <= 0.0 {
                     return CommandStatus::Rejected { 
                         reason: "Invalid pickup target".to_string() 
                     };
@@ -233,7 +260,7 @@ impl SimRobot {
                 self.state = RobotState::MovingToPickup;
             }
             PathCommand::MoveToDropoff { target, speed } => {
-                if target[0].is_nan() || target[2].is_nan() || *speed <= 0.0 {
+                if !protocol::is_finite_position(*target) || *speed <= 0.0 {
                     return CommandStatus::Rejected { 
                         reason: "Invalid dropoff target".to_string() 
                     };
@@ -243,9 +270,51 @@ impl SimRobot {
                 self.target_speed = *speed;
                 self.state = RobotState::MovingToDrop;
             }
+            PathCommand::FollowPath { waypoints, speed } => {
+                if waypoints.is_empty() {
+                    return CommandStatus::Accepted;
+                }
+                if !protocol::is_finite_position(waypoints[0]) || *speed <= 0.0 {
+                    return CommandStatus::Rejected {
+                        reason: "Invalid FollowPath".to_string(),
+                    };
+                }
+                self.waypoint_queue.clear();
+                // first waypoint becomes the active target
+                self.target = Some(waypoints[0]);
+                self.target_speed = *speed;
+                // remaining waypoints queue up for continuous traversal
+                for &wp in &waypoints[1..] {
+                    self.waypoint_queue.push_back(wp);
+                }
+                // infer state from cargo (same logic as MoveTo)
+                if self.carrying_cargo.is_some() {
+                    self.state = RobotState::MovingToDrop;
+                } else {
+                    self.state = RobotState::MovingToPickup;
+                }
+            }
+            PathCommand::ReturnToStation { waypoints, speed } => {
+                if waypoints.is_empty() {
+                    return CommandStatus::Accepted;
+                }
+                if !protocol::is_finite_position(waypoints[0]) || *speed <= 0.0 {
+                    return CommandStatus::Rejected {
+                        reason: "Invalid ReturnToStation".to_string(),
+                    };
+                }
+                self.waypoint_queue.clear();
+                self.target = Some(waypoints[0]);
+                self.target_speed = *speed;
+                for &wp in &waypoints[1..] {
+                    self.waypoint_queue.push_back(wp);
+                }
+                self.state = RobotState::MovingToStation;
+            }
             PathCommand::Stop => {
                 self.velocity = [0.0, 0.0, 0.0];
                 self.target = None;
+                self.waypoint_queue.clear();
             }
             PathCommand::Pickup { cargo_id } => {
                 if self.carrying_cargo.is_some() {
@@ -285,6 +354,14 @@ impl SimRobot {
                 }
                 self.target = None;
                 self.velocity = [0.0, 0.0, 0.0];
+            }
+            PathCommand::Fault => {
+                // Coordinator has determined this robot is unrecoverable for now.
+                // Stop all movement and broadcast Faulted state via Zenoh.
+                self.velocity = [0.0, 0.0, 0.0];
+                self.target = None;
+                self.waypoint_queue.clear();
+                self.state = RobotState::Faulted;
             }
         }
         

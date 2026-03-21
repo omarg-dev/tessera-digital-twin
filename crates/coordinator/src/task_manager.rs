@@ -13,8 +13,8 @@ use protocol::*;
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::collision as collision_config;
 use protocol::config::battery as battery_config;
+use protocol::grid_map::ShelfInventory;
 use protocol::logs;
-use serde_json::to_vec;
 
 use crate::state::{TrackedRobot, TaskStage, ReturnReason};
 use crate::pathfinding::{self, GridPos, PathfinderInstance};
@@ -32,6 +32,8 @@ pub enum AssignmentResult {
     RobotNotFound,
     /// Robot is faulted or blocked
     RobotFaultedOrBlocked,
+    /// Robot is disabled
+    RobotDisabled,
     /// Robot is busy with another task
     RobotBusy,
     /// Robot returning to station with low battery
@@ -42,6 +44,8 @@ pub enum AssignmentResult {
     NoDropoffLocation,
     /// Invalid pickup/dropoff tile combination
     InvalidTileCombination,
+    /// Shelf capacity check failed (empty pickup or full dropoff)
+    ShelfCapacity { reason: String },
     /// No path found to pickup
     NoPathToPickup,
 }
@@ -52,6 +56,7 @@ pub async fn handle_task_assignment(
     robots: &mut HashMap<u32, TrackedRobot>,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
@@ -78,6 +83,13 @@ pub async fn handle_task_assignment(
         send_task_failure(status_publisher, task.id, robot_id,
             format!("Robot {:?}", robot.last_update.state)).await;
         return AssignmentResult::RobotFaultedOrBlocked;
+    }
+
+    // Reject assignments for disabled robots.
+    if !robot.last_update.enabled {
+        println!("✗ Task {} rejected: Robot {} is disabled", task.id, robot_id);
+        send_task_failure(status_publisher, task.id, robot_id, "Robot disabled".to_string()).await;
+        return AssignmentResult::RobotDisabled;
     }
     
     // If robot is returning to station due to no pending tasks, interrupt the return
@@ -159,6 +171,22 @@ pub async fn handle_task_assignment(
         return AssignmentResult::InvalidTileCombination;
     }
 
+    // Shelf capacity enforcement: verify pickup has stock and dropoff has room
+    if !inventory.can_pickup(pickup) {
+        let stock = inventory.stock_at(pickup);
+        let reason = format!("pickup shelf ({},{}) empty ({:?})", pickup.0, pickup.1, stock);
+        println!("✗ Task {} rejected: {}", task.id, reason);
+        send_task_failure(status_publisher, task.id, robot_id, reason.clone()).await;
+        return AssignmentResult::ShelfCapacity { reason };
+    }
+    if !inventory.can_dropoff(dropoff_grid) {
+        let stock = inventory.stock_at(dropoff_grid);
+        let reason = format!("dropoff shelf ({},{}) full ({:?})", dropoff_grid.0, dropoff_grid.1, stock);
+        println!("✗ Task {} rejected: {}", task.id, reason);
+        send_task_failure(status_publisher, task.id, robot_id, reason.clone()).await;
+        return AssignmentResult::ShelfCapacity { reason };
+    }
+
     // Calculate path to pickup BEFORE accepting task
     let robot_world_pos = robot.last_update.position;
     let start = pathfinding::world_to_grid(robot_world_pos);
@@ -194,6 +222,8 @@ pub async fn handle_task_assignment(
     let dropoff_world = pathfinding::grid_to_world(dropoff_grid);
     robot.pickup_location = Some(pickup_arrival);
     robot.dropoff_location = Some(dropoff_world);
+    robot.pickup_grid = Some(pickup);
+    robot.dropoff_grid = Some(dropoff_grid);
     
     if verbose {
         println!("[{}ms] → Robot {} path to pickup: {} waypoints (cost: {})", timestamp(), robot_id, waypoints, cost);
@@ -232,21 +262,39 @@ pub async fn handle_task_assignment(
         status: TaskStatus::InProgress { robot_id },
         robot_id: Some(robot_id),
     };
-    if let Ok(payload) = to_vec(&update) {
-        status_publisher.put(payload).await.ok();
-    }
+    let _ = protocol::publish_json_logged(
+        "Coordinator",
+        "task in-progress status",
+        &update,
+        |payload| async move { status_publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
     
-    // Send first waypoint command immediately
-    if let Some(waypoint) = robot.next_waypoint() {
+    // Send full path to pickup immediately (FollowPath - firmware follows all waypoints
+    // without stopping, eliminating the per-tile pause from coordinator round-trips)
+    let full_path = robot.current_path.clone();
+    if !full_path.is_empty() {
         let cmd = PathCmd {
             cmd_id: *next_cmd_id,
             robot_id,
-            command: PathCommand::MoveToPickup { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+            command: PathCommand::FollowPath {
+                waypoints: full_path,
+                speed: coord_config::DEFAULT_SPEED,
+            },
         };
         *next_cmd_id += 1;
-        cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+        if protocol::publish_json_logged(
+            "Coordinator",
+            "task assignment follow path",
+            &cmd,
+            |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+        )
+        .await
+        {
+            robot.path_sent = true;
+        }
     }
-    
+
     AssignmentResult::Accepted { waypoints, cost }
 }
 
@@ -275,9 +323,13 @@ pub async fn send_task_failure(
         status: TaskStatus::Failed { reason },
         robot_id: Some(robot_id),
     };
-    if let Ok(payload) = to_vec(&update) {
-        publisher.put(payload).await.ok();
-    }
+    let _ = protocol::publish_json_logged(
+        "Coordinator",
+        "task failure status",
+        &update,
+        |payload| async move { publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 }
 
 // ============================================================================
@@ -295,6 +347,7 @@ pub async fn progress_tasks(
     robots: &mut HashMap<u32, TrackedRobot>,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     robot_control_publisher: &zenoh::pubsub::Publisher<'_>,
@@ -306,7 +359,7 @@ pub async fn progress_tasks(
     handle_task_timeouts(robots, status_publisher, pathfinder).await;
 
     // Fault cleanup: restart faulted robots after delay
-    handle_fault_cleanup(robots, robot_control_publisher, verbose).await;
+    handle_fault_cleanup(robots, robot_control_publisher, pathfinder, verbose).await;
 
     // Blocked handling: immediate replan or fault escalation
     handle_blocked_robots(robots, map, pathfinder, cmd_publisher, status_publisher, next_cmd_id, verbose).await;
@@ -328,6 +381,10 @@ pub async fn progress_tasks(
         }
     }
     
+    // collect (robot_id, new_path) pairs for each successful replan so we can stop
+    // conflicting robots in the fourth pass below
+    let mut replanned_paths: Vec<(u32, Vec<[f32; 3]>)> = Vec::new();
+
     // Third pass: normal task progression
     for (robot_id, robot) in robots.iter_mut() {
         // Deadlock breaker: if waiting too long on a reserved cell, attempt replan
@@ -343,6 +400,7 @@ pub async fn progress_tasks(
                     verbose,
                 ).await;
                 if replanned {
+                    replanned_paths.push((*robot_id, robot.current_path.clone()));
                     robot.clear_wait();
                     continue;
                 }
@@ -361,20 +419,39 @@ pub async fn progress_tasks(
                 verbose,
             ).await;
             if replanned {
+                replanned_paths.push((*robot_id, robot.current_path.clone()));
                 continue;
             }
         }
 
         // Handle returning to station (no task required)
         if robot.task_stage == TaskStage::ReturningToStation {
-            handle_returning_to_station(robot, *robot_id, cmd_publisher, next_cmd_id, verbose).await;
+            handle_returning_to_station(
+                robot,
+                *robot_id,
+                map,
+                pathfinder,
+                cmd_publisher,
+                next_cmd_id,
+                verbose,
+            )
+            .await;
             continue;
         }
         
         // Only process robots with active tasks
         let Some(task_id) = robot.current_task else {
             // Idle robot with low battery should return to station
-            handle_idle_low_battery(robot, *robot_id, map, pathfinder, cmd_publisher, next_cmd_id, verbose).await;
+            handle_idle_low_battery(
+                robot,
+                *robot_id,
+                map,
+                pathfinder,
+                cmd_publisher,
+                next_cmd_id,
+                verbose,
+            )
+            .await;
             continue;
         };
         
@@ -383,7 +460,7 @@ pub async fn progress_tasks(
                 handle_moving_to_pickup(robot, *robot_id, task_id, cmd_publisher, next_cmd_id, verbose).await;
             }
             TaskStage::Picking => {
-                handle_picking(robot, *robot_id, task_id, map, pathfinder, cmd_publisher, next_cmd_id, verbose).await;
+                handle_picking(robot, *robot_id, task_id, map, pathfinder, inventory, cmd_publisher, next_cmd_id, verbose).await;
             }
             TaskStage::MovingToDropoff => {
                 handle_moving_to_dropoff(
@@ -396,6 +473,7 @@ pub async fn progress_tasks(
                     robot, *robot_id, task_id,
                     map,
                     pathfinder,
+                    inventory,
                     cmd_publisher,
                     status_publisher,
                     next_cmd_id,
@@ -404,6 +482,44 @@ pub async fn progress_tasks(
                 ).await;
             }
             _ => {}
+        }
+    }
+
+    // Fourth pass: stop robots whose next waypoint conflicts with a newly replanned path.
+    // this eliminates the ~100 ms blind-spot where a robot would enter a cell just
+    // reserved by another robot's fresh FollowPath command.
+    for (replanned_id, new_path) in &replanned_paths {
+        let new_cells: std::collections::HashSet<(usize, usize)> = new_path
+            .iter()
+            .map(|p| pathfinding::world_to_grid(*p))
+            .collect();
+        for (robot_id, robot) in robots.iter_mut() {
+            if *robot_id == *replanned_id || !robot.path_sent {
+                continue;
+            }
+            if let Some(wp) = robot.next_waypoint() {
+                if new_cells.contains(&pathfinding::world_to_grid(wp)) {
+                    let stop_cmd = PathCmd {
+                        cmd_id: *next_cmd_id,
+                        robot_id: *robot_id,
+                        command: PathCommand::Stop,
+                    };
+                    *next_cmd_id += 1;
+                    if protocol::publish_json_logged(
+                        "Coordinator",
+                        "replan conflict stop",
+                        &stop_cmd,
+                        |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                    )
+                    .await
+                    {
+                        robot.path_sent = false;
+                    }
+                    if verbose {
+                        println!("[{}ms] Robot {} stopped: next waypoint conflicts with replanned path of robot {}", timestamp(), robot_id, replanned_id);
+                    }
+                }
+            }
         }
     }
 }
@@ -440,9 +556,13 @@ async fn handle_task_timeouts(
                 status: TaskStatus::Failed { reason: format!("Timeout ({}s no progress)", elapsed) },
                 robot_id: Some(robot_id),
             };
-            if let Ok(payload) = to_vec(&update) {
-                status_publisher.put(payload).await.ok();
-            }
+            let _ = protocol::publish_json_logged(
+                "Coordinator",
+                "task timeout status",
+                &update,
+                |payload| async move { status_publisher.put(payload).await.map(|_| ()) },
+            )
+            .await;
             
             // Clear robot state
             robot.current_task = None;
@@ -450,6 +570,8 @@ async fn handle_task_timeouts(
             robot.task_started = None;
             robot.pickup_location = None;
             robot.dropoff_location = None;
+            robot.pickup_grid = None;
+            robot.dropoff_grid = None;
             robot.clear_wait();
             
             // Clear reservations from multi-robot coordination
@@ -466,7 +588,9 @@ pub async fn mark_robot_faulted(
     robot: &mut TrackedRobot,
     robot_id: u32,
     reason: String,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
     pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
@@ -489,6 +613,8 @@ pub async fn mark_robot_faulted(
     robot.task_started = None;
     robot.pickup_location = None;
     robot.dropoff_location = None;
+    robot.pickup_grid = None;
+    robot.dropoff_grid = None;
     robot.return_reason = None;
     robot.current_path.clear();
     robot.path_index = 0;
@@ -499,6 +625,21 @@ pub async fn mark_robot_faulted(
 
     // Update local state to reflect fault
     robot.last_update.state = RobotState::Faulted;
+
+    // Tell firmware to stop and set Faulted state so it broadcasts via Zenoh.
+    let fault_cmd = PathCmd {
+        cmd_id: *next_cmd_id,
+        robot_id,
+        command: PathCommand::Fault,
+    };
+    *next_cmd_id += 1;
+    let _ = protocol::publish_json_logged(
+        "Coordinator",
+        "robot fault command",
+        &fault_cmd,
+        |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 
     // Clear reservations for this robot
     pathfinder.clear_robot_reservations(robot_id);
@@ -535,7 +676,9 @@ async fn handle_blocked_robots(
                     robot,
                     robot_id,
                     format!("Blocked timeout ({}s)", collision_config::BLOCKED_TIMEOUT_SECS),
+                    cmd_publisher,
                     status_publisher,
+                    next_cmd_id,
                     pathfinder,
                     verbose,
                 ).await;
@@ -564,7 +707,9 @@ async fn handle_blocked_robots(
                     robot,
                     robot_id,
                     format!("Replan failed ({} attempts)", robot.replan_attempts),
+                    cmd_publisher,
                     status_publisher,
+                    next_cmd_id,
                     pathfinder,
                     verbose,
                 ).await;
@@ -577,15 +722,22 @@ async fn handle_blocked_robots(
 async fn handle_fault_cleanup(
     robots: &mut HashMap<u32, TrackedRobot>,
     robot_control_publisher: &zenoh::pubsub::Publisher<'_>,
+    pathfinder: &mut PathfinderInstance,
     verbose: bool,
 ) {
     for (robot_id, robot) in robots.iter_mut() {
         let Some(since) = robot.faulted_since else { continue; };
         if since.elapsed().as_secs() >= collision_config::FAULT_CLEANUP_DELAY_SECS {
+            // clear stale WHCA* reservations before sending restart
+            pathfinder.clear_robot_reservations(*robot_id);
             let cmd = RobotControl::Restart(*robot_id);
-            if let Ok(payload) = to_vec(&cmd) {
-                robot_control_publisher.put(payload).await.ok();
-            }
+            let _ = protocol::publish_json_logged(
+                "Coordinator",
+                "robot restart control",
+                &cmd,
+                |payload| async move { robot_control_publisher.put(payload).await.map(|_| ()) },
+            )
+            .await;
             if verbose {
                 println!("[{}ms] 🔄 Robot {} restart after fault cleanup", timestamp(), robot_id);
             }
@@ -627,15 +779,20 @@ async fn attempt_replan(
     next_cmd_id: &mut u64,
     verbose: bool,
 ) -> bool {
-    let Some(task_id) = robot.current_task else { return false; };
-
-    let target_world = match robot.task_stage {
-        TaskStage::MovingToPickup => robot.pickup_location,
-        TaskStage::MovingToDropoff | TaskStage::Delivering => robot.dropoff_location,
-        _ => None,
+    let (task_id_for_log, target_world, use_return_command) = match robot.task_stage {
+        TaskStage::MovingToPickup => {
+            let Some(task_id) = robot.current_task else { return false; };
+            let Some(target_world) = robot.pickup_location else { return false; };
+            (Some(task_id), target_world, false)
+        }
+        TaskStage::MovingToDropoff | TaskStage::Delivering => {
+            let Some(task_id) = robot.current_task else { return false; };
+            let Some(target_world) = robot.dropoff_location else { return false; };
+            (Some(task_id), target_world, false)
+        }
+        TaskStage::ReturningToStation => (None, robot.last_update.station_position, true),
+        _ => return false,
     };
-
-    let Some(target_world) = target_world else { return false; };
     let start = pathfinding::world_to_grid(robot.last_update.position);
     let goal = pathfinding::world_to_grid(target_world);
 
@@ -649,18 +806,55 @@ async fn attempt_replan(
     robot.mark_progress();
 
     if verbose {
-        println!("[{}ms] 🔁 Robot {} replanned (task {}) - {} waypoints", timestamp(), robot_id, task_id, robot.current_path.len());
+        if let Some(task_id) = task_id_for_log {
+            println!(
+                "[{}ms] 🔁 Robot {} replanned (task {}) - {} waypoints",
+                timestamp(),
+                robot_id,
+                task_id,
+                robot.current_path.len()
+            );
+        } else {
+            println!(
+                "[{}ms] 🔁 Robot {} replanned (return-to-station) - {} waypoints",
+                timestamp(),
+                robot_id,
+                robot.current_path.len()
+            );
+        }
     }
 
-    if let Some(waypoint) = robot.next_waypoint() {
-        let command = match robot.task_stage {
-            TaskStage::MovingToPickup => PathCommand::MoveToPickup { target: waypoint, speed: coord_config::DEFAULT_SPEED },
-            TaskStage::MovingToDropoff | TaskStage::Delivering => PathCommand::MoveToDropoff { target: waypoint, speed: coord_config::DEFAULT_SPEED },
-            _ => return false,
+    // Send full replanned path immediately so robot corrects course without waiting
+    // for the next send_path_commands watchdog tick
+    let remaining = robot.current_path[robot.path_index..].to_vec();
+    if !remaining.is_empty() {
+        let command = if use_return_command {
+            PathCommand::ReturnToStation {
+                waypoints: remaining,
+                speed: coord_config::DEFAULT_SPEED,
+            }
+        } else {
+            PathCommand::FollowPath {
+                waypoints: remaining,
+                speed: coord_config::DEFAULT_SPEED,
+            }
         };
-        let cmd = PathCmd { cmd_id: *next_cmd_id, robot_id, command };
+        let cmd = PathCmd {
+            cmd_id: *next_cmd_id,
+            robot_id,
+            command,
+        };
         *next_cmd_id += 1;
-        cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+        if protocol::publish_json_logged(
+            "Coordinator",
+            "replanned follow path",
+            &cmd,
+            |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+        )
+        .await
+        {
+            robot.path_sent = true;
+        }
     }
 
     true
@@ -670,46 +864,138 @@ async fn attempt_replan(
 async fn handle_returning_to_station(
     robot: &mut TrackedRobot,
     robot_id: u32,
+    map: &GridMap,
+    pathfinder: &mut PathfinderInstance,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
     verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
-    
-    // Check if robot has completed path to station
-    if robot.path_complete() {
-        let station_pos = robot.last_update.station_position;
-        if is_near(robot_pos, station_pos) {
+    let station_pos = robot.last_update.station_position;
+
+    if is_near(robot_pos, station_pos) {
+        let station_grid = pathfinding::world_to_grid(station_pos);
+        if pathfinder.is_reserved_now(station_grid, Some(robot_id)) {
+            // Station is currently owned by another robot reservation; hold outside.
+            let current_grid = pathfinding::world_to_grid(robot_pos);
+            pathfinder.reserve_stationary(robot_id, current_grid);
             if verbose {
-                println!("[{}ms] 🔋 Robot {} arrived at station, charging", timestamp(), robot_id);
+                println!("[{}ms] ⏸ Robot {} waiting: station occupied", timestamp(), robot_id);
             }
-            
-            let cmd = PathCmd {
-                cmd_id: *next_cmd_id,
-                robot_id,
-                command: PathCommand::ReturnToCharge,
-            };
-            *next_cmd_id += 1;
-            cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
-            
-            robot.current_path.clear();
-            robot.path_index = 0;
+            logs::save_log("Coordinator", &format!("Robot {} waiting outside occupied station", robot_id));
+            return;
         }
-    }
-    
-    // Check if robot is done charging
-    let battery = robot.last_update.battery;
-    if battery >= battery_config::MIN_BATTERY_FOR_TASK {
+
         if verbose {
-            println!("[{}ms] ✅ Robot {} charged to {:.1}%, available for tasks", 
-                timestamp(), robot_id, battery);
+            println!("[{}ms] 🔋 Robot {} arrived at station, charging", timestamp(), robot_id);
         }
-        logs::save_log("Coordinator", &format!(
-            "Robot {} ready: battery {:.1}%", robot_id, battery
-        ));
-        
-        robot.task_stage = TaskStage::Idle;
-        robot.return_reason = None;
+
+        let cmd = PathCmd {
+            cmd_id: *next_cmd_id,
+            robot_id,
+            command: PathCommand::ReturnToCharge,
+        };
+        *next_cmd_id += 1;
+        let _ = protocol::publish_json_logged(
+            "Coordinator",
+            "return to charge command",
+            &cmd,
+            |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+        )
+        .await;
+
+        robot.current_path.clear();
+        robot.path_index = 0;
+
+        // Only transition to Idle here — the robot has physically arrived.
+        let battery = robot.last_update.battery;
+        if battery >= battery_config::MIN_BATTERY_FOR_TASK {
+            if verbose {
+                println!(
+                    "[{}ms] ✅ Robot {} charged to {:.1}%, available for tasks",
+                    timestamp(),
+                    robot_id,
+                    battery
+                );
+            }
+            logs::save_log("Coordinator", &format!("Robot {} ready: battery {:.1}%", robot_id, battery));
+            robot.task_stage = TaskStage::Idle;
+            robot.return_reason = None;
+        }
+        return;
+    }
+
+    // If no active return path, retry path planning to station.
+    if robot.path_complete() {
+        let current_grid = pathfinding::world_to_grid(robot_pos);
+        let station_grid = pathfinding::world_to_grid(station_pos);
+
+        if pathfinder.is_reserved_now(station_grid, Some(robot_id))
+            || pathfinder.is_reserved_soon(
+                station_grid,
+                coord_config::whca::MOVE_TIME_MS,
+                Some(robot_id),
+            )
+        {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            if verbose {
+                println!(
+                    "[{}ms] ⏸ Robot {} waiting for station availability while returning",
+                    timestamp(),
+                    robot_id
+                );
+            }
+            return;
+        }
+
+        if let Some(result) = pathfinder.find_path_for_robot(map, current_grid, station_grid, robot_id) {
+            pathfinder.clear_robot_reservations(robot_id);
+            pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
+            robot.set_path(result.world_path);
+            robot.clear_wait();
+
+            let return_path = robot.current_path[robot.path_index..].to_vec();
+            if !return_path.is_empty() {
+                let cmd = PathCmd {
+                    cmd_id: *next_cmd_id,
+                    robot_id,
+                    command: PathCommand::ReturnToStation {
+                        waypoints: return_path,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
+                };
+                *next_cmd_id += 1;
+                if protocol::publish_json_logged(
+                    "Coordinator",
+                    "retry return-to-station path",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await
+                {
+                    robot.path_sent = true;
+                    if verbose {
+                        println!(
+                            "[{}ms] 🧭 Robot {} retried return path: {} waypoints",
+                            timestamp(),
+                            robot_id,
+                            robot.current_path.len()
+                        );
+                    }
+                }
+            }
+        } else {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} return-to-station path not found yet; holding position",
+                    robot_id
+                ),
+            );
+        }
     }
 }
 
@@ -718,7 +1004,7 @@ async fn handle_idle_low_battery(
     robot: &mut TrackedRobot,
     robot_id: u32,
     map: &GridMap,
-    pathfinder: &PathfinderInstance,
+    pathfinder: &mut PathfinderInstance,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,    next_cmd_id: &mut u64,    verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
@@ -728,6 +1014,20 @@ async fn handle_idle_low_battery(
     if battery < battery_config::LOW_THRESHOLD && !is_near(robot_pos, station_pos) {
         let current_grid = pathfinding::world_to_grid(robot_pos);
         let station_grid = pathfinding::world_to_grid(station_pos);
+
+        if pathfinder.is_reserved_now(station_grid, Some(robot_id))
+            || pathfinder.is_reserved_soon(
+                station_grid,
+                coord_config::whca::MOVE_TIME_MS,
+                Some(robot_id),
+            )
+        {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            if verbose {
+                println!("[{}ms] ⏸ Robot {} waiting for station availability", timestamp(), robot_id);
+            }
+            return;
+        }
         
         if let Some(result) = pathfinder.find_path_for_robot(map, current_grid, station_grid, robot_id) {
             if verbose {
@@ -741,15 +1041,28 @@ async fn handle_idle_low_battery(
             robot.set_path(result.world_path);
             robot.task_stage = TaskStage::ReturningToStation;
             robot.return_reason = Some(ReturnReason::LowBattery);
-            
-            if let Some(waypoint) = robot.next_waypoint() {
+
+            let return_path = robot.current_path.clone();
+            if !return_path.is_empty() {
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id,
-                    command: PathCommand::MoveTo { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+                    command: PathCommand::ReturnToStation {
+                        waypoints: return_path,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                if protocol::publish_json_logged(
+                    "Coordinator",
+                    "idle low battery return path",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await
+                {
+                    robot.path_sent = true;
+                }
             }
         }
     }
@@ -782,7 +1095,13 @@ async fn handle_moving_to_pickup(
                     command: PathCommand::Pickup { cargo_id: task_id as u32 },
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                let _ = protocol::publish_json_logged(
+                    "Coordinator",
+                    "pickup command",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await;
                 
                 if verbose {
                     println!("[{}ms] 📦 Robot {} picking up cargo ({}s delay)...", 
@@ -800,6 +1119,7 @@ async fn handle_picking(
     task_id: u64,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,    next_cmd_id: &mut u64,    verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
@@ -808,6 +1128,21 @@ async fn handle_picking(
     if matches!(robot.last_update.state, RobotState::MovingToDrop) {
         robot.task_stage = TaskStage::MovingToDropoff;
         robot.mark_progress();
+        
+        // Decrement shelf inventory on confirmed pickup
+        if let Some(pickup_grid) = robot.pickup_grid {
+            if inventory.pickup(pickup_grid) {
+                if verbose {
+                    let stock = inventory.stock_at(pickup_grid);
+                    println!("[{}ms] 📦 Shelf ({},{}) stock decremented: {:?}",
+                        timestamp(), pickup_grid.0, pickup_grid.1, stock);
+                }
+                logs::save_log("Coordinator", &format!(
+                    "Task {} pickup: shelf ({},{}) stock now {:?}",
+                    task_id, pickup_grid.0, pickup_grid.1, inventory.stock_at(pickup_grid)
+                ));
+            }
+        }
         
         if verbose {
             println!("[{}ms] ✓ Robot {} loaded cargo for task {}", timestamp(), robot_id, task_id);
@@ -833,21 +1168,35 @@ async fn handle_picking(
                 pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
 
                 robot.set_path(result.world_path);
-                
+
+                // skip first waypoint if robot is already on top of it
                 if let Some(first_wp) = robot.next_waypoint() {
                     if is_near(robot_pos, first_wp) {
                         robot.advance_path();
                     }
                 }
-                
-                if let Some(waypoint) = robot.next_waypoint() {
+
+                let dropoff_path = robot.current_path[robot.path_index..].to_vec();
+                if !dropoff_path.is_empty() {
                     let cmd = PathCmd {
                         cmd_id: *next_cmd_id,
                         robot_id,
-                        command: PathCommand::MoveToDropoff { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+                        command: PathCommand::FollowPath {
+                            waypoints: dropoff_path,
+                            speed: coord_config::DEFAULT_SPEED,
+                        },
                     };
                     *next_cmd_id += 1;
-                    cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                    if protocol::publish_json_logged(
+                        "Coordinator",
+                        "dropoff follow path",
+                        &cmd,
+                        |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                    )
+                    .await
+                    {
+                        robot.path_sent = true;
+                    }
                 }
             }
         }
@@ -882,7 +1231,13 @@ async fn handle_moving_to_dropoff(
                     command: PathCommand::Drop,
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                let _ = protocol::publish_json_logged(
+                    "Coordinator",
+                    "drop command",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await;
 
                 if verbose {
                     println!(
@@ -904,6 +1259,7 @@ async fn handle_delivering(
     task_id: u64,
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
+    inventory: &mut ShelfInventory,
     cmd_publisher: &zenoh::pubsub::Publisher<'_>,
     status_publisher: &zenoh::pubsub::Publisher<'_>,
     next_cmd_id: &mut u64,
@@ -913,6 +1269,21 @@ async fn handle_delivering(
     // Firmware transitions to Idle after Drop is applied
     if !matches!(robot.last_update.state, RobotState::Idle) {
         return;
+    }
+
+    // Increment shelf inventory on confirmed delivery (if target is a shelf)
+    if let Some(dropoff_grid) = robot.dropoff_grid {
+        if inventory.dropoff(dropoff_grid) {
+            if verbose {
+                let stock = inventory.stock_at(dropoff_grid);
+                println!("[{}ms] 📦 Shelf ({},{}) stock incremented: {:?}",
+                    timestamp(), dropoff_grid.0, dropoff_grid.1, stock);
+            }
+            logs::save_log("Coordinator", &format!(
+                "Task {} delivery: shelf ({},{}) stock now {:?}",
+                task_id, dropoff_grid.0, dropoff_grid.1, inventory.stock_at(dropoff_grid)
+            ));
+        }
     }
 
     // Task completed!
@@ -928,14 +1299,20 @@ async fn handle_delivering(
         status: TaskStatus::Completed,
         robot_id: Some(robot_id),
     };
-    if let Ok(payload) = to_vec(&update) {
-        status_publisher.put(payload).await.ok();
-    }
+    let _ = protocol::publish_json_logged(
+        "Coordinator",
+        "task completed status",
+        &update,
+        |payload| async move { status_publisher.put(payload).await.map(|_| ()) },
+    )
+    .await;
 
     // Clear task state
     robot.current_task = None;
     robot.pickup_location = None;
     robot.dropoff_location = None;
+    robot.pickup_grid = None;
+    robot.dropoff_grid = None;
     robot.current_path.clear();
     robot.path_index = 0;
     robot.task_stage = TaskStage::Idle;
@@ -953,8 +1330,26 @@ async fn handle_delivering(
             ("no pending tasks".to_string(), ReturnReason::NoPendingTasks)
         };
 
+        robot.task_stage = TaskStage::ReturningToStation;
+        robot.return_reason = Some(return_reason);
+
         let current_grid = pathfinding::world_to_grid(robot.last_update.position);
         let station_grid = pathfinding::world_to_grid(station_pos);
+
+        if pathfinder.is_reserved_now(station_grid, Some(robot_id))
+            || pathfinder.is_reserved_soon(
+                station_grid,
+                coord_config::whca::MOVE_TIME_MS,
+                Some(robot_id),
+            )
+        {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            if verbose {
+                println!("[{}ms] ⏸ Robot {} waiting for station occupancy to clear", timestamp(), robot_id);
+            }
+            return;
+        }
 
         if let Some(result) = pathfinder.find_path_for_robot(map, current_grid, station_grid, robot_id) {
             if verbose {
@@ -969,18 +1364,40 @@ async fn handle_delivering(
             pathfinder.reserve_path(robot_id, &result.grid_path, robot.last_update.velocity);
 
             robot.set_path(result.world_path);
-            robot.task_stage = TaskStage::ReturningToStation;
-            robot.return_reason = Some(return_reason);
+            robot.clear_wait();
 
-            if let Some(waypoint) = robot.next_waypoint() {
+            let station_path = robot.current_path.clone();
+            if !station_path.is_empty() {
                 let cmd = PathCmd {
                     cmd_id: *next_cmd_id,
                     robot_id,
-                    command: PathCommand::MoveTo { target: waypoint, speed: coord_config::DEFAULT_SPEED },
+                    command: PathCommand::ReturnToStation {
+                        waypoints: station_path,
+                        speed: coord_config::DEFAULT_SPEED,
+                    },
                 };
                 *next_cmd_id += 1;
-                cmd_publisher.put(to_vec(&cmd).unwrap()).await.ok();
+                if protocol::publish_json_logged(
+                    "Coordinator",
+                    "post-delivery return path",
+                    &cmd,
+                    |payload| async move { cmd_publisher.put(payload).await.map(|_| ()) },
+                )
+                .await
+                {
+                    robot.path_sent = true;
+                }
             }
+        } else {
+            pathfinder.reserve_stationary(robot_id, current_grid);
+            robot.set_wait(station_grid);
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "Robot {} post-delivery return path unavailable; will retry",
+                    robot_id
+                ),
+            );
         }
     } else {
         // Staying idle at dropoff: reserve the current cell immediately

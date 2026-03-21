@@ -27,7 +27,7 @@
 //! ```
 
 use super::{GridPos, PathResult, Pathfinder, grid_to_world_path};
-use protocol::GridMap;
+use protocol::{GridMap, logs};
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::whca::{
     WINDOW_SIZE_MS,
@@ -40,7 +40,47 @@ use protocol::config::coordinator::whca::{
 };
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
+use std::sync::Mutex;
 use std::time::Instant;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WHCAStatsSnapshot {
+    pub searches_total: u64,
+    pub searches_succeeded: u64,
+    pub searches_failed: u64,
+    pub nodes_expanded_total: u64,
+    pub reservation_probe_calls_total: u64,
+    pub edge_collision_checks_total: u64,
+    pub wait_actions_added_total: u64,
+    pub open_set_peak_observed: u64,
+    pub reservation_entries_peak: u64,
+    pub total_search_time_us: u64,
+    pub last_search_time_us: u64,
+}
+
+#[derive(Debug, Default)]
+struct WHCAStats {
+    searches_total: u64,
+    searches_succeeded: u64,
+    searches_failed: u64,
+    nodes_expanded_total: u64,
+    reservation_probe_calls_total: u64,
+    edge_collision_checks_total: u64,
+    wait_actions_added_total: u64,
+    open_set_peak_observed: u64,
+    reservation_entries_peak: u64,
+    total_search_time_us: u64,
+    last_search_time_us: u64,
+}
+
+#[derive(Debug, Default)]
+struct SearchStatsDelta {
+    nodes_expanded: u64,
+    reservation_probe_calls: u64,
+    edge_collision_checks: u64,
+    wait_actions_added: u64,
+    open_set_peak: u64,
+}
 
 /// WHCA* pathfinder with reservation table
 pub struct WHCAPathfinder {
@@ -48,8 +88,12 @@ pub struct WHCAPathfinder {
     window_size_ms: u64,
     /// Space-time reservation table: (x, y, time_ms) → robot_id
     reservations: HashMap<(usize, usize, u64), u32>,
+    /// Per-robot reservation index for fast cleanup
+    robot_reservations: HashMap<u32, HashSet<(usize, usize, u64)>>,
     /// Start time for millisecond calculations
     start_time: Instant,
+    /// Aggregated search/runtime metrics for profiling and benchmark reporting
+    stats: Mutex<WHCAStats>,
 }
 
 impl WHCAPathfinder {
@@ -57,7 +101,9 @@ impl WHCAPathfinder {
         WHCAPathfinder {
             window_size_ms,
             reservations: HashMap::new(),
+            robot_reservations: HashMap::new(),
             start_time: Instant::now(),
+            stats: Mutex::new(WHCAStats::default()),
         }
     }
 
@@ -71,6 +117,68 @@ impl WHCAPathfinder {
         self.start_time.elapsed().as_millis() as u64
     }
 
+    fn insert_reservation(&mut self, key: (usize, usize, u64), robot_id: u32) {
+        self.reservations.insert(key, robot_id);
+        self.robot_reservations
+            .entry(robot_id)
+            .or_default()
+            .insert(key);
+    }
+
+    fn record_search_result(&self, success: bool, delta: SearchStatsDelta, elapsed_us: u64) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.searches_total += 1;
+            if success {
+                stats.searches_succeeded += 1;
+            } else {
+                stats.searches_failed += 1;
+            }
+            stats.nodes_expanded_total += delta.nodes_expanded;
+            stats.reservation_probe_calls_total += delta.reservation_probe_calls;
+            stats.edge_collision_checks_total += delta.edge_collision_checks;
+            stats.wait_actions_added_total += delta.wait_actions_added;
+            if delta.open_set_peak > stats.open_set_peak_observed {
+                stats.open_set_peak_observed = delta.open_set_peak;
+            }
+            stats.total_search_time_us += elapsed_us;
+            stats.last_search_time_us = elapsed_us;
+        }
+    }
+
+    fn update_reservation_peak_metric(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            let current = self.reservations.len() as u64;
+            if current > stats.reservation_entries_peak {
+                stats.reservation_entries_peak = current;
+            }
+        }
+    }
+
+    pub fn stats_snapshot(&self) -> WHCAStatsSnapshot {
+        match self.stats.lock() {
+            Ok(stats) => WHCAStatsSnapshot {
+                searches_total: stats.searches_total,
+                searches_succeeded: stats.searches_succeeded,
+                searches_failed: stats.searches_failed,
+                nodes_expanded_total: stats.nodes_expanded_total,
+                reservation_probe_calls_total: stats.reservation_probe_calls_total,
+                edge_collision_checks_total: stats.edge_collision_checks_total,
+                wait_actions_added_total: stats.wait_actions_added_total,
+                open_set_peak_observed: stats.open_set_peak_observed,
+                reservation_entries_peak: stats.reservation_entries_peak,
+                total_search_time_us: stats.total_search_time_us,
+                last_search_time_us: stats.last_search_time_us,
+            },
+            Err(_) => WHCAStatsSnapshot::default(),
+        }
+    }
+
+    pub fn reset_stats(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            *stats = WHCAStats::default();
+        }
+    }
+
     fn reserve_cell_with_buffer(&mut self, pos: GridPos, time_ms: u64, robot_id: u32) {
         let radius = COLLISION_BUFFER_TILES as i32;
         for dx in -radius..=radius {
@@ -80,7 +188,7 @@ impl WHCAPathfinder {
                 }
                 let x = (pos.0 as i32 + dx).max(0) as usize;
                 let y = (pos.1 as i32 + dy).max(0) as usize;
-                self.reservations.insert((x, y, time_ms), robot_id);
+                self.insert_reservation((x, y, time_ms), robot_id);
             }
         }
     }
@@ -95,6 +203,18 @@ impl WHCAPathfinder {
         // A reservation at time t is stale if t < now - tolerance
         let cutoff = now_ms.saturating_sub(RESERVATION_TOLERANCE_MS as u64 + MOVE_TIME_MS);
         self.reservations.retain(|&(_, _, t), _| t >= cutoff);
+        self.rebuild_robot_reservation_index();
+        self.update_reservation_peak_metric();
+    }
+
+    fn rebuild_robot_reservation_index(&mut self) {
+        self.robot_reservations.clear();
+        for (&key, &owner) in &self.reservations {
+            self.robot_reservations
+                .entry(owner)
+                .or_default()
+                .insert(key);
+        }
     }
 
     /// Reserve a path for a robot in the reservation table
@@ -119,8 +239,8 @@ impl WHCAPathfinder {
             let to = path[i + 1];
 
             // Reserve the current cell at the segment start time
-            for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
-                let t = (time_ms as i64 + offset) as u64;
+            for offset in 0..=RESERVATION_TOLERANCE_MS {
+                let t = time_ms + offset as u64;
                 self.reserve_cell_with_buffer(from, t, robot_id);
             }
             
@@ -133,8 +253,8 @@ impl WHCAPathfinder {
             time_ms += travel_time_ms;
             
             // Reserve destination cell at predicted arrival time with tolerance
-            for offset in -RESERVATION_TOLERANCE_MS..=RESERVATION_TOLERANCE_MS {
-                let t = (time_ms as i64 + offset) as u64;
+            for offset in 0..=RESERVATION_TOLERANCE_MS {
+                let t = time_ms + offset as u64;
                 self.reserve_cell_with_buffer(to, t, robot_id);
             }
         }
@@ -153,6 +273,7 @@ impl WHCAPathfinder {
             println!("[WHCA*] Reserved {} waypoints for robot {} ({}ms window, speed={:.2})", 
                 path.len(), robot_id, time_ms - self.current_time_ms(), speed);
         }
+        self.update_reservation_peak_metric();
     }
 
     /// Reserve a stationary robot's position throughout the planning window
@@ -167,8 +288,8 @@ impl WHCAPathfinder {
             let time = now_ms + offset_ms;
             self.reserve_cell_with_buffer(pos, time, robot_id);
         }
-        println!("[WHCA*] Reserved stationary position ({},{}) for robot {} ({}ms window)", 
-            pos.0, pos.1, robot_id, duration_ms);
+        self.update_reservation_peak_metric();
+        // suppress per-tick stationary log (verbose builds may re-enable)
     }
 
     /// Reserve a short history of stationary positions (for large robots)
@@ -192,7 +313,37 @@ impl WHCAPathfinder {
     ///
     /// Called when a robot's task completes or times out
     pub fn clear_robot_reservations(&mut self, robot_id: u32) {
+        if let Some(keys) = self.robot_reservations.remove(&robot_id) {
+            for key in keys {
+                self.reservations.remove(&key);
+            }
+            return;
+        }
+        // fallback if index is missing (e.g., legacy state)
         self.reservations.retain(|_, &mut id| id != robot_id);
+        self.rebuild_robot_reservation_index();
+    }
+
+    fn robot_ids_in_window(
+        &self,
+        x: usize,
+        y: usize,
+        start_t: u64,
+        end_t: u64,
+        exclude_robot: Option<u32>,
+    ) -> HashSet<u32> {
+        let mut ids = HashSet::new();
+        for t in start_t..=end_t {
+            if let Some(robot_id) = self.reservations.get(&(x, y, t)) {
+                if let Some(exclude) = exclude_robot {
+                    if *robot_id == exclude {
+                        continue;
+                    }
+                }
+                ids.insert(*robot_id);
+            }
+        }
+        ids
     }
 
     /// Check if a cell is reserved at a given time (by another robot)
@@ -232,24 +383,23 @@ impl WHCAPathfinder {
 
     /// Check for edge collision (two robots swapping positions)
     fn has_edge_collision(&self, from: GridPos, to: GridPos, time_ms: u64, exclude_robot: Option<u32>) -> bool {
-        // Check if another robot is moving from 'to' to 'from' at the same time
-        // (Within ±tolerance window)
-        for offset in 0..=RESERVATION_TOLERANCE_MS {
-            let t_next = time_ms + offset as u64;
-            if let Some(reserved_by) = self.reservations.get(&(from.0, from.1, t_next)) {
-                if let Some(exclude) = exclude_robot {
-                    if *reserved_by != exclude {
-                        // Check if that robot was at 'to' at time_ms
-                        if let Some(prev_robot) = self.reservations.get(&(to.0, to.1, time_ms)) {
-                            if *prev_robot == *reserved_by {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
+        // Our move is from `from@time_ms` to `to@(time_ms + MOVE_TIME_MS)`.
+        // A swap conflict exists if the same robot is on `to` around departure and
+        // on `from` around our arrival.
+        let tolerance = RESERVATION_TOLERANCE_MS as u64;
+        let to_start = time_ms.saturating_sub(tolerance);
+        let to_end = time_ms;
+        let from_center = time_ms + MOVE_TIME_MS;
+        let from_start = from_center.saturating_sub(tolerance);
+        let from_end = from_center + tolerance;
+
+        let to_ids = self.robot_ids_in_window(to.0, to.1, to_start, to_end, exclude_robot);
+        if to_ids.is_empty() {
+            return false;
         }
-        false
+        let from_ids = self.robot_ids_in_window(from.0, from.1, from_start, from_end, exclude_robot);
+
+        to_ids.iter().any(|id| from_ids.contains(id))
     }
 
     /// Core WHCA* algorithm
@@ -260,13 +410,17 @@ impl WHCAPathfinder {
         goal: GridPos,
         robot_id: Option<u32>,
     ) -> Option<PathResult> {
+        let search_started = Instant::now();
+        let mut stats_delta = SearchStatsDelta::default();
         // Validate start and goal
         if !map.is_walkable(start.0, start.1) || !map.is_walkable(goal.0, goal.1) {
+            self.record_search_result(false, stats_delta, search_started.elapsed().as_micros() as u64);
             return None;
         }
 
         // Already at goal
         if start == goal {
+            self.record_search_result(true, stats_delta, search_started.elapsed().as_micros() as u64);
             return Some(PathResult {
                 grid_path: vec![start],
                 world_path: grid_to_world_path(&[start]),
@@ -287,6 +441,7 @@ impl WHCAPathfinder {
             g_cost: 0,
             f_cost: heuristic(start.0, start.1, goal.0, goal.1),
         });
+        stats_delta.open_set_peak = 1;
 
         while let Some(current) = open_set.pop() {
             let current_pos = current.pos;
@@ -295,6 +450,7 @@ impl WHCAPathfinder {
             if current_pos.x == goal.0 && current_pos.y == goal.1 {
                 let path = reconstruct_spacetime_path(&came_from, current_pos);
                 let grid_path: Vec<GridPos> = path.iter().map(|n| (n.x, n.y)).collect();
+                self.record_search_result(true, stats_delta, search_started.elapsed().as_micros() as u64);
                 return Some(PathResult {
                     world_path: grid_to_world_path(&grid_path),
                     grid_path,
@@ -311,6 +467,7 @@ impl WHCAPathfinder {
                 continue;
             }
             closed_set.insert(current_pos);
+            stats_delta.nodes_expanded += 1;
 
             let current_g = *g_scores.get(&current_pos).unwrap_or(&u32::MAX);
 
@@ -340,11 +497,13 @@ impl WHCAPathfinder {
                 let next_t = current_pos.t + MOVE_TIME_MS;
 
                 // Check vertex collision
+                stats_delta.reservation_probe_calls += 1;
                 if self.is_reserved(nx, ny, next_t, robot_id) {
                     continue;
                 }
 
                 // Check edge collision (swap)
+                stats_delta.edge_collision_checks += 1;
                 if self.has_edge_collision((current_pos.x, current_pos.y), (nx, ny), current_pos.t, robot_id) {
                     continue;
                 }
@@ -354,11 +513,13 @@ impl WHCAPathfinder {
 
             // Wait action (stay in place)
             let wait_t = current_pos.t + MOVE_TIME_MS;
+            stats_delta.reservation_probe_calls += 1;
             if !self.is_reserved(current_pos.x, current_pos.y, wait_t, robot_id) {
                 // Count consecutive waits to prevent infinite waiting
                 let wait_count = count_waits_in_path(&came_from, current_pos);
                 if wait_count < MAX_WAIT_TIME {
                     successors.push(SpaceTimeNode { x: current_pos.x, y: current_pos.y, t: wait_t });
+                    stats_delta.wait_actions_added += 1;
                 }
             }
 
@@ -379,9 +540,15 @@ impl WHCAPathfinder {
                         g_cost: tentative_g,
                         f_cost: f,
                     });
+                    let open_len = open_set.len() as u64;
+                    if open_len > stats_delta.open_set_peak {
+                        stats_delta.open_set_peak = open_len;
+                    }
                 }
             }
         }
+
+        self.record_search_result(false, stats_delta, search_started.elapsed().as_micros() as u64);
 
         None // No path found
     }
@@ -399,13 +566,17 @@ impl WHCAPathfinder {
         goal: GridPos,
         robot_id: u32,
     ) -> Option<PathResult> {
-        // Try WHCA* first (respects reservations, excludes self)
-        if let Some(result) = self.find_path_whca(map, start, goal, Some(robot_id)) {
-            return Some(result);
+        let result = self.find_path_whca(map, start, goal, Some(robot_id));
+        if result.is_none() {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* no-path for robot {} from ({},{}) to ({},{})",
+                    robot_id, start.0, start.1, goal.0, goal.1
+                ),
+            );
         }
-        // Fallback: plain A* ignoring reservations (better than no path)
-        println!("[WHCA*] Reservation-aware search failed for robot {}, falling back to A*", robot_id);
-        super::AStarPathfinder::new().find_path(map, start, goal)
+        result
     }
 
     /// Find path to non-walkable tile (e.g. shelf) with self-exclusion
@@ -458,10 +629,14 @@ impl WHCAPathfinder {
             }
         }
 
-        // Fallback: try plain A* if WHCA* couldn't find any path
         if best_path.is_none() {
-            println!("[WHCA*] Non-walkable search failed for robot {}, falling back to A*", robot_id);
-            best_path = super::AStarPathfinder::new().find_path_to_non_walkable(map, start, goal);
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* no-path to non-walkable goal for robot {} from ({},{}) to ({},{})",
+                    robot_id, start.0, start.1, goal.0, goal.1
+                ),
+            );
         }
 
         best_path
@@ -481,9 +656,17 @@ impl Pathfinder for WHCAPathfinder {
         start: GridPos,
         goal: GridPos,
     ) -> Option<PathResult> {
-        // Trait method has no robot_id context — try without exclusion, fallback to A*
-        self.find_path_whca(map, start, goal, None)
-            .or_else(|| super::AStarPathfinder::new().find_path(map, start, goal))
+        let result = self.find_path_whca(map, start, goal, None);
+        if result.is_none() {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* strict no-path (no robot context) from ({},{}) to ({},{})",
+                    start.0, start.1, goal.0, goal.1
+                ),
+            );
+        }
+        result
     }
 
     fn find_path_to_non_walkable(
@@ -506,8 +689,44 @@ impl Pathfinder for WHCAPathfinder {
                 cost: 0,
             });
         }
-        // Fallback: use A* for non-walkable since we have no robot_id
-        super::AStarPathfinder::new().find_path_to_non_walkable(map, start, goal)
+
+        let mut best_path: Option<PathResult> = None;
+        let mut best_cost = u32::MAX;
+
+        for (dx, dy) in DIRS {
+            let nx = goal.0 as i32 + dx;
+            let ny = goal.1 as i32 + dy;
+            if nx < 0 || ny < 0 {
+                continue;
+            }
+
+            let (nx, ny) = (nx as usize, ny as usize);
+            if nx >= map.width || ny >= map.height {
+                continue;
+            }
+            if !map.is_walkable(nx, ny) {
+                continue;
+            }
+
+            if let Some(path) = self.find_path_whca(map, start, (nx, ny), None) {
+                if path.cost < best_cost {
+                    best_cost = path.cost;
+                    best_path = Some(path);
+                }
+            }
+        }
+
+        if best_path.is_none() {
+            logs::save_log(
+                "Coordinator",
+                &format!(
+                    "WHCA* strict no-path to non-walkable goal (no robot context) from ({},{}) to ({},{})",
+                    start.0, start.1, goal.0, goal.1
+                ),
+            );
+        }
+
+        best_path
     }
 
     fn find_path_avoiding(
@@ -517,8 +736,8 @@ impl Pathfinder for WHCAPathfinder {
         goal: GridPos,
         _other_robots: &[(u32, GridPos)],
     ) -> Option<PathResult> {
-        // The reservation table already handles collision avoidance
-        // No robot_id available via trait — fallback included
+        // The reservation table already handles collision avoidance.
+        // This trait method has no robot_id, so strict behavior applies without fallback.
         self.find_path(map, start, goal)
     }
 
@@ -735,5 +954,191 @@ mod tests {
         // Should end adjacent to the shelf, not on it
         assert!(*last_pos != (1, 1));
         assert!(is_adjacent(*last_pos, (1, 1)));
+    }
+
+    #[test]
+    fn test_find_path_for_robot_strict_no_fallback_when_window_blocked() {
+        let map_str = ". .";
+        let map = GridMap::parse(map_str).unwrap();
+        let mut pathfinder = WHCAPathfinder::new(MOVE_TIME_MS);
+
+        // Robot 1 occupies both corridor cells for the full stationary window.
+        pathfinder.reserve_stationary(1, (0, 0));
+        pathfinder.reserve_stationary(1, (1, 0));
+
+        // Strict WHCA behavior: no A* fallback, so blocked window returns None.
+        let result = pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_edge_swap_conflict_blocks_unsafe_path() {
+        let map_str = ". .";
+        let map = GridMap::parse(map_str).unwrap();
+        let mut pathfinder = WHCAPathfinder::with_defaults();
+
+        // Reserve robot 1 crossing from left to right.
+        pathfinder.reserve_path(1, &[(0, 0), (1, 0)], [2.0, 0.0, 0.0]);
+
+        // Robot 2 attempting the opposite direction should not get an unsafe swap path.
+        let result = pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2);
+        // In a strict 2-cell corridor with conflicting reservation, returning None
+        // is preferred over dispatching a potentially colliding swap path.
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_tradeoff_strict_vs_trait_head_on_corridor() {
+        let map_str = ". .";
+        let map = GridMap::parse(map_str).unwrap();
+
+        let trials = 25;
+        let mut strict_success = 0;
+        let mut trait_success = 0;
+
+        for _ in 0..trials {
+            let mut pathfinder = WHCAPathfinder::with_defaults();
+            // Robot 1 reserves a left->right crossing through the only corridor.
+            pathfinder.reserve_path(1, &[(0, 0), (1, 0)], [2.0, 0.0, 0.0]);
+
+            if pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2).is_some() {
+                strict_success += 1;
+            }
+            // Trait pathfinder lacks robot_id context but now remains strict (no fallback).
+            if pathfinder.find_path(&map, (1, 0), (0, 0)).is_some() {
+                trait_success += 1;
+            }
+        }
+
+        println!(
+            "WHCA strict benchmark: strict_success={}/{} trait_success={}/{}",
+            strict_success, trials, trait_success, trials
+        );
+
+        assert_eq!(strict_success, 0);
+        assert_eq!(trait_success, 0);
+    }
+
+    #[test]
+    fn test_whca_stats_snapshot_and_reset() {
+        let map_str = ". . . . .";
+        let map = GridMap::parse(map_str).unwrap();
+        let pathfinder = WHCAPathfinder::with_defaults();
+
+        pathfinder.reset_stats();
+        let _ = pathfinder.find_path(&map, (0, 0), (4, 0));
+        let _ = pathfinder.find_path(&map, (0, 0), (0, 0));
+        let _ = pathfinder.find_path(&map, (0, 0), (99, 0)); // invalid goal -> failed search
+
+        let stats = pathfinder.stats_snapshot();
+        assert!(stats.searches_total >= 3);
+        assert!(stats.searches_succeeded >= 2);
+        assert!(stats.searches_failed >= 1);
+        assert!(stats.total_search_time_us >= stats.last_search_time_us);
+
+        pathfinder.reset_stats();
+        let reset = pathfinder.stats_snapshot();
+        assert_eq!(reset.searches_total, 0);
+        assert_eq!(reset.nodes_expanded_total, 0);
+        assert_eq!(reset.total_search_time_us, 0);
+    }
+
+    #[derive(Debug)]
+    struct ScenarioOutcome {
+        name: &'static str,
+        searches: u64,
+        success_rate_pct: f64,
+        avg_us: u64,
+        node_expansions: u64,
+        no_paths: u64,
+    }
+
+    fn build_outcome(name: &'static str, stats: WHCAStatsSnapshot, no_paths: u64) -> ScenarioOutcome {
+        let success_rate_pct = if stats.searches_total > 0 {
+            (stats.searches_succeeded as f64 * 100.0) / stats.searches_total as f64
+        } else {
+            0.0
+        };
+        let avg_us = if stats.searches_total > 0 {
+            stats.total_search_time_us / stats.searches_total
+        } else {
+            0
+        };
+
+        ScenarioOutcome {
+            name,
+            searches: stats.searches_total,
+            success_rate_pct,
+            avg_us,
+            node_expansions: stats.nodes_expanded_total,
+            no_paths,
+        }
+    }
+
+    #[test]
+    fn test_whca_scenario_metrics_table() {
+        let baseline_map = GridMap::parse(". . . . .").unwrap();
+        let head_on_map = GridMap::parse(". .").unwrap();
+        let intersection_map = GridMap::parse(". . .\n. . .\n. . .").unwrap();
+
+        let mut baseline_no_path = 0u64;
+        let mut head_on_no_path = 0u64;
+        let mut intersection_no_path = 0u64;
+
+        let mut baseline = WHCAPathfinder::with_defaults();
+        baseline.reset_stats();
+        for _ in 0..30 {
+            let result = baseline.find_path_for_robot(&baseline_map, (0, 0), (4, 0), 1);
+            if result.is_none() {
+                baseline_no_path += 1;
+            }
+            baseline.clear_robot_reservations(1);
+        }
+        let baseline_outcome = build_outcome("Baseline", baseline.stats_snapshot(), baseline_no_path);
+
+        let mut head_on = WHCAPathfinder::with_defaults();
+        head_on.reset_stats();
+        for _ in 0..30 {
+            head_on.clear_robot_reservations(1);
+            head_on.clear_robot_reservations(2);
+            head_on.reserve_path(1, &[(0, 0), (1, 0)], [2.0, 0.0, 0.0]);
+            if head_on.find_path_for_robot(&head_on_map, (1, 0), (0, 0), 2).is_none() {
+                head_on_no_path += 1;
+            }
+        }
+        let head_on_outcome = build_outcome("HeadOn", head_on.stats_snapshot(), head_on_no_path);
+
+        let mut intersection = WHCAPathfinder::with_defaults();
+        intersection.reset_stats();
+        for _ in 0..30 {
+            intersection.clear_robot_reservations(1);
+            intersection.clear_robot_reservations(2);
+            intersection.reserve_path(1, &[(0, 1), (1, 1), (2, 1)], [2.0, 0.0, 0.0]);
+            if intersection
+                .find_path_for_robot(&intersection_map, (1, 0), (1, 2), 2)
+                .is_none()
+            {
+                intersection_no_path += 1;
+            }
+        }
+        let intersection_outcome =
+            build_outcome("Intersection", intersection.stats_snapshot(), intersection_no_path);
+
+        println!("| Scenario | Searches | Success % | Avg us | Node Expansions | No-Path |\n| --- | ---: | ---: | ---: | ---: | ---: |");
+        for outcome in [&baseline_outcome, &head_on_outcome, &intersection_outcome] {
+            println!(
+                "| {} | {} | {:.1} | {} | {} | {} |",
+                outcome.name,
+                outcome.searches,
+                outcome.success_rate_pct,
+                outcome.avg_us,
+                outcome.node_expansions,
+                outcome.no_paths,
+            );
+        }
+
+        assert!(baseline_outcome.searches > 0);
+        assert!(head_on_outcome.no_paths > baseline_outcome.no_paths);
+        assert!(intersection_outcome.searches > 0);
     }
 }
