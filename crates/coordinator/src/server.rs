@@ -840,7 +840,7 @@ fn validate_robot_update(
     let max_delta = if let (Some(prev_tick), Some(current_tick)) = (prev_tick, current_tick) {
         let tick_delta = current_tick.saturating_sub(prev_tick).max(1);
         let dt_secs = tick_delta as f32
-            * (protocol::config::physics::TICK_INTERVAL_MS as f32 / 1000.0)
+            * (protocol::config::firmware::physics::TICK_INTERVAL_MS as f32 / 1000.0)
             * time_scale.clamp(0.1, 1000.0);
         (coord_config::DEFAULT_SPEED * dt_secs) + sensor_config::MAX_POSITION_DELTA
     } else {

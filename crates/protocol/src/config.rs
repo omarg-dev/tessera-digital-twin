@@ -1,67 +1,15 @@
 //! Central configuration constants for all Hyper-Twin crates
-//! 
+//!
 //! This module defines all configurable values in one place.
 //! All crates should reference these instead of hardcoding values.
 //!
-//! ## Layer Terminology
-//! 
-//! Configuration is organized by abstraction layer:
-//! - **physics** - Robot movement and simulation timing
-//! - **battery** - Battery drain and charging rates  
+//! ## Module Terminology
+//!
+//! Configuration is organized by runtime ownership:
+//! - **firmware** - Robot movement and battery simulation settings
 //! - **coordinator** - Path planning and task execution settings
 //! - **scheduler** - Task queue and allocation settings
-//! - **renderer** - Visualization dimensions and colors
-
-/// Default warehouse layout file (relative to workspace root)
-pub const LAYOUT_FILE_PATH: &str = "assets/data/layout.txt";
-
-/// Environment variable used to override the active layout at runtime.
-pub const LAYOUT_OVERRIDE_ENV: &str = "HYPER_TWIN_LAYOUT";
-
-/// Resolve a user-friendly layout selector to a concrete layout file path.
-///
-/// Accepted selectors include numeric IDs and aliases.
-pub fn layout_path_from_selector(selector: &str) -> Option<&'static str> {
-    let normalized = selector.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "0" | "default" | "layout" | "layout0" => Some("assets/data/layout.txt"),
-        "1" | "layout1" => Some("assets/data/layout1.txt"),
-        "2" | "layout2" => Some("assets/data/layout2.txt"),
-        "3" | "layout3" | "cinematic1" | "cinematic_ring" => {
-            Some("assets/data/layout3_cinematic_ring.txt")
-        }
-        "4" | "layout4" | "cinematic2" | "cinematic_crossroads" => {
-            Some("assets/data/layout4_cinematic_crossroads.txt")
-        }
-        "5" | "layout5" | "cinematic3" | "cinematic_runway" => {
-            Some("assets/data/layout5_cinematic_runway.txt")
-        }
-        "6" | "layout6" | "test1" | "test_bottleneck" => {
-            Some("assets/data/layout6_test_bottleneck.txt")
-        }
-        "7" | "layout7" | "test2" | "test_openfield" => {
-            Some("assets/data/layout7_test_openfield.txt")
-        }
-        "8" | "layout8" | "test3" | "test_lane_swap" => {
-            Some("assets/data/layout8_test_lane_swap.txt")
-        }
-        "9" | "layout9" | "mega" | "massive_factory" | "factory100" => {
-            Some("assets/data/layout9_massive_factory.txt")
-        }
-        _ => None,
-    }
-}
-
-/// Resolve the active layout path for runtime crates.
-///
-/// If the orchestrator set an override via environment variable, that path wins.
-/// Otherwise the global default layout is used.
-pub fn resolve_layout_path() -> String {
-    std::env::var(LAYOUT_OVERRIDE_ENV)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| LAYOUT_FILE_PATH.to_string())
-}
+//! - **visualizer** - Rendering and UI tuning
 
 /// Log directory path for storing timestamped log files
 /// Log directory - absolute path from workspace root
@@ -72,35 +20,37 @@ pub const LOG_DIR: &str = "logs";
 /// Crate log files to exclude when merging (lowercase crate names)
 pub const LOG_MERGE_EXCLUDE: &[&str] = &["firmware"];
 
-/// Physics simulation settings
-pub mod physics {
-    /// Physics tick interval in milliseconds (20 Hz)
-    pub const TICK_INTERVAL_MS: u64 = 50;
-    
-    /// Robot movement speed: units per second
-    pub const ROBOT_SPEED: f32 = 2.0;
-    
-    /// Arrival threshold: distance to consider "arrived" at target
-    pub const ARRIVAL_THRESHOLD: f32 = 0.1;
-    
-    /// Robot height offset (Y position above ground)
-    pub const ROBOT_HEIGHT: f32 = 0.25;
-}
+/// Firmware layer settings
+pub mod firmware {
+    /// Physics simulation settings
+    pub mod physics {
+        /// Physics tick interval in milliseconds (20 Hz)
+        pub const TICK_INTERVAL_MS: u64 = 50;
 
-/// Battery settings
-pub mod battery {
-    /// Battery drain rate: % per second while moving.
-    /// Deterministic by design for replayability and stable testing.
-    pub const DRAIN_RATE_PER_SEC: f32 = 0.05;
-    
-    /// Low battery warning threshold (percentage)
-    pub const LOW_THRESHOLD: f32 = 20.0;
+        /// Robot movement speed in world units per second
+        pub const ROBOT_SPEED: f32 = 2.0;
 
-    /// Minimum battery level for robot allocation (percentage)
-    pub const MIN_BATTERY_FOR_TASK: f32 = 50.0;
-    
-    /// Charge rate: % per second while at station
-    pub const CHARGE_RATE: f32 = 1.0;
+        /// Distance threshold to consider a robot arrived at target
+        pub const ARRIVAL_THRESHOLD: f32 = 0.1;
+
+        /// Robot height offset (Y position above ground)
+        pub const ROBOT_HEIGHT: f32 = 0.25;
+    }
+
+    /// Battery simulation settings
+    pub mod battery {
+        /// Battery drain rate (% per second while moving)
+        pub const DRAIN_RATE_PER_SEC: f32 = 0.05;
+
+        /// Low battery warning threshold (percentage)
+        pub const LOW_THRESHOLD: f32 = 20.0;
+
+        /// Minimum battery level for robot allocation (percentage)
+        pub const MIN_BATTERY_FOR_TASK: f32 = 50.0;
+
+        /// Charge rate (% per second while at station)
+        pub const CHARGE_RATE: f32 = 1.0;
+    }
 }
 
 /// Coordinator layer settings (path planning & task execution)
@@ -208,10 +158,6 @@ pub mod coordinator {
         /// Soft limit multiplier for position jumps (allow small overshoots)
         pub const POSITION_JUMP_SOFT_LIMIT_MULT: f32 = 2.0;
         
-        /// Tolerance for position validation against grid (world units)
-        /// Robot center can be this far from grid cell center
-        pub const GRID_VALIDATION_TOLERANCE: f32 = 0.6;
-
         /// Soft limit for grid validation (allow small overshoots)
         pub const GRID_VALIDATION_SOFT_LIMIT: f32 = 0.8;
     }
@@ -261,8 +207,8 @@ pub mod orchestrator {
     pub const RESTART_DELAY_MS: u64 = 500;
 }
 
-/// Renderer layer settings (visualization)
-pub mod visual {
+/// Visualizer layer settings (rendering and UI)
+pub mod visualizer {
     /// Tile size in world units
     pub const TILE_SIZE: f32 = 1.0;
 
@@ -363,34 +309,18 @@ pub mod visual {
         pub const MAX_FADE_SEGMENTS_PER_FRAME: usize = 700;
     }
 
-    /// Colors (RGB 0.0-1.0)
-    pub mod colors {
-        /// Ground tile color
-        pub const GROUND: (f32, f32, f32) = (0.9, 0.9, 0.9);
-        /// Wall color
-        pub const WALL: (f32, f32, f32) = (0.1, 0.1, 0.1);
-        /// Station color (pink)
-        pub const STATION: (f32, f32, f32) = (1.0, 0.4, 0.6);
-        /// Dropoff color (green)
-        pub const DROPOFF: (f32, f32, f32) = (0.0, 1.0, 0.4);
-        /// Shelf color (brown)
-        pub const SHELF: (f32, f32, f32) = (0.6, 0.4, 0.2);
-        /// Robot color (muted steel-blue)
-        pub const ROBOT: (f32, f32, f32) = (0.42, 0.56, 0.66);
-    }
-
     /// Semantic visual tokens used by both 3D scene and UI accents.
     pub mod semantic {
-        /// Neutral base color used for large static surfaces.
-        pub const NEUTRAL_BASE: (f32, f32, f32) = (0.84, 0.86, 0.89);
-        /// Muted steel-blue for robot body color.
-        pub const ROBOT_BODY: (f32, f32, f32) = (0.42, 0.56, 0.66);
         /// Bright cyan reserved for active selected path only.
         pub const FLOW_ACTIVE: (f32, f32, f32) = (0.25, 4.4, 5.1);
         /// Accent for selected entities and key interactive states.
         pub const SELECTION: (f32, f32, f32) = (3.8, 2.4, 0.45);
         /// Alert accent for fault or critical warnings.
         pub const ALERT: (f32, f32, f32) = (2.6, 0.25, 0.25);
+        /// Station placeholder marker color.
+        pub const STATION_MARKER: (f32, f32, f32) = (1.0, 0.4, 0.6);
+        /// Dropoff placeholder marker color.
+        pub const DROPOFF_MARKER: (f32, f32, f32) = (0.0, 1.0, 0.4);
     }
 
     /// Outline highlighting settings (hover and selection glow)

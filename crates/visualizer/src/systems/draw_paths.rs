@@ -10,7 +10,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::components::Robot;
 use crate::resources::{ActivePaths, RenderPerfCounters, RobotIndex, UiState};
-use protocol::config::visual::path::{
+use protocol::config::visualizer::path::{
     ACTIVE_OTHER_COLOR, COMPLETED_COLOR, COMPLETED_FADE_SECS, DEST_CIRCLE_RADIUS, LINE_WIDTH,
     MAX_FADE_SEGMENTS_PER_FRAME, MAX_SEGMENTS_PER_FRAME,
     OTHER_DEST_RADIUS_MULTIPLIER, PATH_Y_OFFSET, SELECTED_ACTIVE_COLOR, SELECTED_DEST_RADIUS_MULTIPLIER,

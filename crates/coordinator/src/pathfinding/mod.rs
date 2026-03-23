@@ -96,7 +96,7 @@ pub trait Pathfinder: Send + Sync {
 // Coordinate Conversion Utilities
 // ============================================================================
 
-use protocol::config::physics::ROBOT_HEIGHT;
+use protocol::config::firmware::physics::ROBOT_HEIGHT;
 
 /// Convert grid coordinates to world position
 /// Grid (x, y) → World (x, ROBOT_HEIGHT, y)

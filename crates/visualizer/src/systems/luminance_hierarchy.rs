@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use std::collections::HashSet;
 
 use crate::components::{BoxCargo, Ground, Shelf, Wall};
-use protocol::config::visual::luminance;
+use protocol::config::visualizer::luminance;
 
 #[derive(Resource, Default)]
 pub struct LuminanceMaterialState {

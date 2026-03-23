@@ -2,7 +2,7 @@
 //! This is the top bar, not a selectable tab — no LABEL constant.
 
 use bevy_egui::egui;
-use protocol::config::visual::bloom as bloom_cfg;
+use protocol::config::visualizer::bloom as bloom_cfg;
 
 use crate::resources::{CameraPreset, QueueStateData, RobotIndex, UiAction, UiState};
 

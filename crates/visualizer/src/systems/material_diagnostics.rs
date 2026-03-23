@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use crate::components::{Ground, Shelf};
 use crate::resources::LogBuffer;
-use protocol::config::visual::diagnostics;
+use protocol::config::visualizer::diagnostics;
 use protocol::save_log;
 
 #[derive(Resource, Default)]

@@ -129,7 +129,7 @@ pub fn draw(
                 if path.is_empty() {
                     "Arriving".to_string()
                 } else {
-                    let eta_secs = path.len() as f32 / protocol::config::physics::ROBOT_SPEED;
+                    let eta_secs = path.len() as f32 / protocol::config::firmware::physics::ROBOT_SPEED;
                     format!("~{:.0}s", eta_secs)
                 }
             } else {

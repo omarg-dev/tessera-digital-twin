@@ -67,7 +67,7 @@ async fn main() {
                 let layout = layout_selector
                     .as_deref()
                     .map(|selector| {
-                        protocol::config::layout_path_from_selector(selector)
+                        protocol::layout::layout_path_from_selector(selector)
                             .ok_or_else(|| format!("Unknown layout selector '{}'. Type 'help' for presets.", selector))
                     })
                     .transpose();
@@ -89,7 +89,7 @@ async fn main() {
                 let layout = layout
                     .as_deref()
                     .map(|selector| {
-                        protocol::config::layout_path_from_selector(selector)
+                        protocol::layout::layout_path_from_selector(selector)
                             .ok_or_else(|| format!("Unknown layout selector '{}'. Type 'help' for presets.", selector))
                     })
                     .transpose();

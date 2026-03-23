@@ -1,7 +1,7 @@
 //! Robot inspector panel: battery, state, position, and action buttons.
 
 use bevy_egui::egui;
-use protocol::config::battery;
+use protocol::config::firmware::battery;
 
 use crate::components::Robot;
 use crate::resources::UiAction;

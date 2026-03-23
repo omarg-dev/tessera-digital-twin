@@ -3,7 +3,7 @@
 use zenoh::Session;
 use tokio::time;
 use protocol::*;
-use protocol::config::physics::TICK_INTERVAL_MS;
+use protocol::config::firmware::physics::TICK_INTERVAL_MS;
 use std::time::Instant;
 
 use crate::robot::SimRobot;

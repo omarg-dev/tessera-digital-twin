@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts};
 use protocol::RobotState;
-use protocol::config::visual::{ROBOT_SIZE, labels as lbl, ui as ui_cfg, camera as cam_cfg};
+use protocol::config::visualizer::{ROBOT_SIZE, labels as lbl, ui as ui_cfg, camera as cam_cfg};
 use std::collections::HashMap;
 
 use crate::components::Robot;
@@ -224,7 +224,7 @@ pub fn draw_robot_labels(
     // sqrt smooths the curve. clamp range controls how extreme the size change is:
     //   lower bound: minimum scale at max zoom-out (e.g. 0.3 = 30% of base size)
     //   upper bound: maximum scale at max zoom-in  (e.g. 1.5 = 150% of base size)
-    // FONT_SIZE and ICON_SIZE in protocol::config::visual::labels set the base sizes.
+    // FONT_SIZE and ICON_SIZE in protocol::config::visualizer::labels set the base sizes.
     let zoom_scale = if let Ok(ctrl) = camera_ctrl.single() {
         (cam_cfg::DEFAULT_RADIUS / ctrl.radius).sqrt().clamp(0.3, 1.5)
     } else {

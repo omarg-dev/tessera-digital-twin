@@ -15,7 +15,7 @@
 
 use bevy::prelude::*;
 use crate::components::Robot;
-use protocol::config::visual::{ROBOT_LERP, ROBOT_TELEPORT_THRESHOLD};
+use protocol::config::visualizer::{ROBOT_LERP, ROBOT_TELEPORT_THRESHOLD};
 
 pub fn interpolate_robots(
     time: Res<Time>,

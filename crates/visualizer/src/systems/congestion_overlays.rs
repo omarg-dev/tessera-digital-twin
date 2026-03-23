@@ -3,7 +3,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::components::{Dropoff, Robot, Station};
 use crate::resources::{CongestionOverlayData, QueueStateData, RenderPerfCounters, TaskListData, UiState};
-use protocol::config::visual::{overlays as ov_cfg, path::PATH_Y_OFFSET, TILE_SIZE};
+use protocol::config::visualizer::{overlays as ov_cfg, path::PATH_Y_OFFSET, TILE_SIZE};
 
 /// Reset per-frame render counters before draw systems execute.
 pub fn reset_render_perf_counters(mut counters: ResMut<RenderPerfCounters>) {

@@ -11,7 +11,7 @@
 use bevy::prelude::*;
 use bevy::picking::pointer::PointerButton;
 use bevy_mod_outline::{OutlineVolume, OutlineStencil};
-use protocol::config::visual::outline as cfg;
+use protocol::config::visualizer::outline as cfg;
 use std::collections::HashMap;
 
 use crate::components::{Robot, Shelf, Station, Dropoff, Selected, SidebarHovered};

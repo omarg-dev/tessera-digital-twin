@@ -5,7 +5,7 @@
 //! Publishes control commands (pause/resume, robot control) from the UI.
 
 use bevy::prelude::*;
-use protocol::config::visual::{bloom as bloom_cfg, ui as ui_cfg};
+use protocol::config::visualizer::{bloom as bloom_cfg, ui as ui_cfg};
 use protocol::grid_map::GridMap;
 use protocol::{Priority, QueueState, RobotControl, RobotUpdate, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest, WhcaMetricsTelemetry};
 use std::collections::{HashMap, HashSet, VecDeque};

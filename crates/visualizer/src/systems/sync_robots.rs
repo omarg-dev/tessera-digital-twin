@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use crate::resources::{LogBuffer, RobotUpdates, RobotIndex, WarehouseMap};
 use crate::components::{Robot, Shelf};
 use crate::systems::models;
-use protocol::config::visual::{robot as robot_cfg, CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
+use protocol::config::visualizer::{robot as robot_cfg, CARGO_SHELF_DISTANCE_SQ, TILE_SIZE};
 use protocol::grid_map::TileType;
 
 fn world_to_grid_xy(pos: Vec3) -> Option<(usize, usize)> {

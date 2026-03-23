@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use protocol::config::visual::ui as ui_cfg;
+use protocol::config::visualizer::ui as ui_cfg;
 use protocol::grid_map::GridMap;
 
 use crate::components::{Dropoff, Robot, Shelf};

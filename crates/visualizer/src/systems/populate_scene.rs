@@ -4,7 +4,7 @@ use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
 use protocol::config::{
-    visual::{TILE_SIZE, shelf, lighting, colors},
+    visualizer::{TILE_SIZE, shelf, lighting, semantic},
     warehouse};
 use protocol::config::optimization as opt;
 use protocol::grid_map::{GridMap, TileType};
@@ -68,7 +68,7 @@ pub fn populate_environment(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // load map via protocol::GridMap (same parser as coordinator + scheduler)
-    let layout_path = protocol::config::resolve_layout_path();
+    let layout_path = protocol::layout::resolve_layout_path();
     let map = match GridMap::load_from_file(&layout_path) {
         Ok(m) => m,
         Err(e) => {
@@ -89,12 +89,20 @@ pub fn populate_environment(
     let placeholders = PlaceholderMeshes {
         station_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
         station_material: materials.add(StandardMaterial {
-            base_color: Color::srgb(colors::STATION.0, colors::STATION.1, colors::STATION.2),
+            base_color: Color::srgb(
+                semantic::STATION_MARKER.0,
+                semantic::STATION_MARKER.1,
+                semantic::STATION_MARKER.2,
+            ),
             ..default()
         }),
         dropoff_mesh: meshes.add(Plane3d::default().mesh().size(TILE_SIZE, TILE_SIZE)),
         dropoff_material: materials.add(StandardMaterial {
-            base_color: Color::srgb(colors::DROPOFF.0, colors::DROPOFF.1, colors::DROPOFF.2),
+            base_color: Color::srgb(
+                semantic::DROPOFF_MARKER.0,
+                semantic::DROPOFF_MARKER.1,
+                semantic::DROPOFF_MARKER.2,
+            ),
             ..default()
         }),
     };

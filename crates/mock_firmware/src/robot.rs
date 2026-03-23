@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use protocol::{RobotState, RobotUpdate, PathCommand, CommandStatus, GridMap};
-use protocol::config::{battery, physics};
+use protocol::config::firmware::{battery, physics};
 
 
 /// A simulated robot with physics state

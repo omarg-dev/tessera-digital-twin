@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use protocol::config::visual::TILE_SIZE;
+use protocol::config::visualizer::TILE_SIZE;
 use protocol::grid_map::GridMap;
 use protocol::{Priority, TaskRequest, TaskStatus, TaskType};
 use std::collections::{HashMap, HashSet};

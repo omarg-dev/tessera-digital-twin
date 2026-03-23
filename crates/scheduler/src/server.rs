@@ -23,7 +23,7 @@ use crate::queue::{QueueInstance, TaskQueue};
 /// Run the scheduler main loop
 pub async fn run(session: Session) {
     // Load warehouse map for location info
-    let layout_path = protocol::config::resolve_layout_path();
+    let layout_path = protocol::layout::resolve_layout_path();
     let map = GridMap::load_from_file(&layout_path)
         .expect("Failed to load warehouse layout");
     println!("[{}ms] ✓ Loaded map from {} ({}x{}, {} shelves, {} dropoffs)",

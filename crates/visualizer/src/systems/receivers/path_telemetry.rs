@@ -1,7 +1,7 @@
 //! Subscribe to coordinator path telemetry and update ActivePaths resource.
 
 use bevy::prelude::*;
-use protocol::config::visual::path::PATH_Y_OFFSET;
+use protocol::config::visualizer::path::PATH_Y_OFFSET;
 use protocol::{RobotPathTelemetry, topics};
 use serde_json::from_slice;
 use tokio::sync::mpsc;

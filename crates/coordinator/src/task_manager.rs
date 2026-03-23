@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use protocol::*;
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::collision as collision_config;
-use protocol::config::battery as battery_config;
+use protocol::config::firmware::battery as battery_config;
 use protocol::grid_map::ShelfInventory;
 use protocol::logs;
 

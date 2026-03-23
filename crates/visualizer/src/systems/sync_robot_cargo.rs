@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::components::{Robot, RobotCargoBox};
 use crate::systems::models;
-use protocol::config::visual::robot as robot_cfg;
+use protocol::config::visualizer::robot as robot_cfg;
 
 /// Sync robot cargo child visuals from Robot.carrying_cargo transitions.
 ///

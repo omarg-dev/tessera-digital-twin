@@ -18,8 +18,9 @@
 //! ## Modules
 //!
 //! - [`commands`] - Path commands (MoveTo, Stop) and system commands (Pause, Resume, Verbose)
-//! - [`config`] - Central configuration constants (physics, battery, coordinator, scheduler, renderer)
+//! - [`config`] - Central configuration constants (firmware, coordinator, scheduler, visualizer)
 //! - [`grid_map`] - Warehouse map parsing and tile types
+//! - [`layout`] - Runtime layout selector and path resolution helpers
 //! - [`robot`] - Robot state updates broadcast over Zenoh
 //! - [`tasks`] - Task definitions for inter-layer communication
 //! - [`topics`] - Zenoh topic string constants
@@ -44,6 +45,7 @@
 pub mod commands;
 pub mod config;
 pub mod grid_map;
+pub mod layout;
 pub mod robot;
 pub mod tasks;
 pub mod topics;
@@ -54,7 +56,7 @@ pub mod publish;
 
 // Re-export for convenience
 pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemCommandEffect, CommandResponse, CommandStatus};
-pub use config::LAYOUT_FILE_PATH;
+pub use layout::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV, layout_path_from_selector, resolve_layout_path};
 pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
 pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch, WhcaMetricsTelemetry};
 pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType, task_status_label};

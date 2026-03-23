@@ -1,7 +1,7 @@
 //! Closest idle robot allocator
 
 use super::{Allocator, RobotInfo};
-use protocol::config::battery::MIN_BATTERY_FOR_TASK;
+use protocol::config::firmware::battery::MIN_BATTERY_FOR_TASK;
 use protocol::{RobotState, Task, manhattan_distance_xz};
 use std::collections::HashMap;
 

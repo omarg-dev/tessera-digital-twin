@@ -23,7 +23,7 @@ async fn main() {
     println!("╚════════════════════════════════════════╝");
     
     // Load and validate map
-    let layout_path = protocol::config::resolve_layout_path();
+    let layout_path = protocol::layout::resolve_layout_path();
     let map = GridMap::load_from_file(&layout_path)
         .expect("Failed to load map");
     println!("✓ Map loaded from {}: {}x{} (hash: {:016x})", layout_path, map.width, map.height, map.hash);

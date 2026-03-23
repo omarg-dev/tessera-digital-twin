@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::thread;
 use std::collections::HashSet;
 use protocol::config::orchestrator as orch_config;
-use protocol::config::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV};
+use protocol::layout::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV};
 
 /// List of all manageable crates in startup order
 pub const CRATE_ORDER: &[&str] = &["coordinator", "mock_firmware", "scheduler", "visualizer"];

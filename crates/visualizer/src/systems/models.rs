@@ -9,9 +9,9 @@ use bevy::picking::prelude::Pickable;
 use rand::Rng;
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
-use protocol::config::visual::{GROUND_Y_OFFSET, PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
+use protocol::config::visualizer::{GROUND_Y_OFFSET, PLACEHOLDER_Y_OFFSET, WALL_SEAM_SCALE};
 use protocol::config::warehouse::SHELF_MAX_CAPACITY;
-use protocol::config::visual::shelf::{SHELF_LEVEL_HEIGHTS,
+use protocol::config::visualizer::shelf::{SHELF_LEVEL_HEIGHTS,
     BOX_X_OFFSETS, BOX_Z_OFFSETS,BOX_SCALE};
 use protocol::config::optimization as opt;
 
@@ -504,7 +504,7 @@ mod tests {
     fn layout_wall_diagnostic() {
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap();
-        let layout_path = workspace_root.join(protocol::config::LAYOUT_FILE_PATH);
+        let layout_path = workspace_root.join(protocol::layout::LAYOUT_FILE_PATH);
 
         let contents = std::fs::read_to_string(&layout_path)
             .unwrap_or_else(|e| panic!("failed to read layout file {:?}: {}", layout_path, e));
@@ -520,7 +520,7 @@ mod tests {
             .collect();
 
         println!("\n=== Wall Classification Diagnostic ===");
-        println!("Layout: {}", protocol::config::LAYOUT_FILE_PATH);
+        println!("Layout: {}", protocol::layout::LAYOUT_FILE_PATH);
         println!("Grid size: {} rows x {} cols\n", wall_grid.len(),
             wall_grid.first().map_or(0, |r| r.len()));
 

@@ -2,8 +2,8 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use protocol::config::visual::TILE_SIZE;
-use protocol::config::visual::ui::minimap as minimap_cfg;
+use protocol::config::visualizer::TILE_SIZE;
+use protocol::config::visualizer::ui::minimap as minimap_cfg;
 use protocol::grid_map::{GridMap, TileType};
 use protocol::{Priority, TaskRequest, TaskType};
 use std::collections::{HashMap, HashSet};

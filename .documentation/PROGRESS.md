@@ -204,6 +204,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Minimap consistency pass 12: shared minimap palette tokens, context-aware legends, and capacity-overlay alignment across task/shelf flows
 - [x] Layout preset pack + orchestrator run-time layout selector (`-l`, `--layout`) with shared default fallback and map-load consistency
 - [x] Outline stale-entity hardening pass 13: guarded outline insertions and mesh-cache invalidation to prevent mid-run `EntityMutableFetchError` crashes
+- [x] Protocol config ownership pass 14: extracted layout logic to `protocol::layout`, renamed visual config namespace to `visualizer`, grouped battery/physics under `firmware`, and removed stale constants
 
 **Pending Features:**
 
@@ -301,6 +302,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-23: Protocol config ownership pass 14 (Phase 5)
+
+- Extracted non-constant layout helpers out of `crates/protocol/src/config.rs` into new `crates/protocol/src/layout.rs`:
+  - Moved `LAYOUT_FILE_PATH`, `LAYOUT_OVERRIDE_ENV`, `layout_path_from_selector`, and `resolve_layout_path`.
+  - Exported the new module via `protocol::layout` and re-exported layout helpers in `protocol::lib`.
+- Reshaped protocol config ownership to match crate domains:
+  - Renamed `protocol::config::visual` to `protocol::config::visualizer`.
+  - Grouped simulation modules as `protocol::config::firmware::{physics,battery}`.
+  - Removed stale/unused constants and removed function-bearing config responsibilities.
+- Updated all runtime crate consumers (orchestrator, coordinator, scheduler, mock_firmware, visualizer) to new module paths.
+- Added `visualizer::semantic::{STATION_MARKER, DROPOFF_MARKER}` to replace legacy placeholder color usage after colors-module cleanup.
+- Why: keep `config.rs` constants-only, clarify ownership boundaries, and reduce cross-crate drift during future refactors.
+- Validation: `cargo check --workspace` and `cargo test --workspace` both pass after migration.
 
 ### 2026-03-23: Outline stale-entity hardening pass 13 (Phase 5)
 
