@@ -203,6 +203,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visual contrast pass 11: neon path emphasis and task-minimap shelf contrast tuning
 - [x] Minimap consistency pass 12: shared minimap palette tokens, context-aware legends, and capacity-overlay alignment across task/shelf flows
 - [x] Layout preset pack + orchestrator run-time layout selector (`-l`, `--layout`) with shared default fallback and map-load consistency
+- [x] Outline stale-entity hardening pass 13: guarded outline insertions and mesh-cache invalidation to prevent mid-run `EntityMutableFetchError` crashes
 
 **Pending Features:**
 
@@ -300,6 +301,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-23: Outline stale-entity hardening pass 13 (Phase 5)
+
+- Re-checked the reported mid-run visualizer crash using the captured panic (`EntityMutableFetchError` during outline insert) and confirmed the fault path still existed after minimap visual changes.
+- Hardened `crates/visualizer/src/systems/outline.rs` to avoid panic-prone direct insertions on potentially despawned entities:
+  - Replaced direct `commands.entity(...).insert(...)` calls in pointer hover/select paths with guarded `commands.get_entity(...)` insertion.
+  - Replaced direct insertion in sidebar/programmatic outline sync loops with guarded insertion and tracked only successfully-applied mesh entities.
+- Added stale mesh cache invalidation in `cached_mesh_descendants`:
+  - Clears cache when logical root no longer exists.
+  - Rebuilds cache when any cached mesh descendant was despawned.
+- Why: shelf/scene child churn can despawn mesh descendants between selection/hover transitions, and stale outline targets previously crashed the process on the main thread.
+- Validation: editor diagnostics clean for changed Rust file; full `cargo check --workspace` and `cargo test --workspace` could not be executed in this environment because configured shell path `C:\Program Files\PowerShell\7\pwsh.exe` is missing.
 
 ### 2026-03-23: Minimap consistency pass 12 (palette + legends + context rules) (Phase 5)
 

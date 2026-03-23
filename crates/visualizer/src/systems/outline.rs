@@ -81,14 +81,16 @@ pub fn on_pointer_over(
         return;
     }
 
-    commands.entity(target).insert((
-        OutlineVolume {
-            visible: true,
-            width: cfg::WIDTH,
-            colour: hover_color(),
-        },
-        OutlineStencil::default(),
-    ));
+    if let Ok(mut ec) = commands.get_entity(target) {
+        ec.insert((
+            OutlineVolume {
+                visible: true,
+                width: cfg::WIDTH,
+                colour: hover_color(),
+            },
+            OutlineStencil::default(),
+        ));
+    }
 }
 
 /// observer: pointer leaves entity - remove hover outline (unless selected or sidebar-hovered)
@@ -187,15 +189,17 @@ pub fn on_pointer_click(
     }
 
     // select the new entity
-    commands.entity(target).insert((
-        Selected,
-        OutlineVolume {
-            visible: true,
-            width: cfg::WIDTH,
-            colour: select_color(),
-        },
-        OutlineStencil::default(),
-    ));
+    if let Ok(mut ec) = commands.get_entity(target) {
+        ec.insert((
+            Selected,
+            OutlineVolume {
+                visible: true,
+                width: cfg::WIDTH,
+                colour: select_color(),
+            },
+            OutlineStencil::default(),
+        ));
+    }
     ui_state.selected_entity = Some(logical);
     ui_state.camera_following = true;
     ui_state.entity_picked_this_frame = true;
@@ -243,8 +247,20 @@ fn cached_mesh_descendants(
     children_q: &Query<&Children>,
     meshes_q: &Query<(), With<Mesh3d>>,
 ) -> Vec<Entity> {
+    // if root no longer exists, clear stale cache entry
+    if children_q.get(root).is_err() && meshes_q.get(root).is_err() {
+        state.mesh_cache.remove(&root);
+        return Vec::new();
+    }
+
     if let Some(cached) = state.mesh_cache.get(&root) {
-        return cached.clone();
+        // if every cached mesh still exists, reuse cache
+        if cached.iter().all(|&mesh_e| meshes_q.get(mesh_e).is_ok()) {
+            return cached.clone();
+        }
+
+        // cached meshes went stale due to despawn/spawn churn
+        state.mesh_cache.remove(&root);
     }
 
     let meshes = collect_mesh_descendants(root, children_q, meshes_q);
@@ -284,18 +300,22 @@ pub fn sync_programmatic_outlines(
 
         if let Some(logical) = ui_state.selected_entity {
             let meshes = cached_mesh_descendants(logical, &mut state, &children_q, &meshes_q);
+            let mut applied = Vec::new();
             for &mesh_e in &meshes {
-                commands.entity(mesh_e).insert((
-                    Selected,
-                    OutlineVolume {
-                        visible: true,
-                        width: cfg::WIDTH,
-                        colour: select_color(),
-                    },
-                    OutlineStencil::default(),
-                ));
+                if let Ok(mut ec) = commands.get_entity(mesh_e) {
+                    ec.insert((
+                        Selected,
+                        OutlineVolume {
+                            visible: true,
+                            width: cfg::WIDTH,
+                            colour: select_color(),
+                        },
+                        OutlineStencil::default(),
+                    ));
+                    applied.push(mesh_e);
+                }
             }
-            state.selected_meshes = meshes;
+            state.selected_meshes = applied;
         }
         state.selected_entity = ui_state.selected_entity;
     }
@@ -315,18 +335,22 @@ pub fn sync_programmatic_outlines(
             let is_selected = ui_state.selected_entity == Some(logical);
             if !is_selected {
                 let meshes = cached_mesh_descendants(logical, &mut state, &children_q, &meshes_q);
+                let mut applied = Vec::new();
                 for &mesh_e in &meshes {
-                    commands.entity(mesh_e).insert((
-                        SidebarHovered,
-                        OutlineVolume {
-                            visible: true,
-                            width: cfg::WIDTH,
-                            colour: hover_color(),
-                        },
-                        OutlineStencil::default(),
-                    ));
+                    if let Ok(mut ec) = commands.get_entity(mesh_e) {
+                        ec.insert((
+                            SidebarHovered,
+                            OutlineVolume {
+                                visible: true,
+                                width: cfg::WIDTH,
+                                colour: hover_color(),
+                            },
+                            OutlineStencil::default(),
+                        ));
+                        applied.push(mesh_e);
+                    }
                 }
-                state.hovered_meshes = meshes;
+                state.hovered_meshes = applied;
             }
         }
         state.hovered_entity = ui_state.hovered_entity;
