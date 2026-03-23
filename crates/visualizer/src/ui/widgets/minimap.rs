@@ -3,12 +3,105 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use protocol::config::visual::TILE_SIZE;
+use protocol::config::visual::ui::minimap as minimap_cfg;
 use protocol::grid_map::{GridMap, TileType};
 use protocol::{Priority, TaskRequest, TaskType};
 use std::collections::{HashMap, HashSet};
 
 use crate::resources::{UiAction, UiState};
 use super::common::{color_swatch, shelf_fill_band_label, shelf_fill_color_egui};
+
+fn rgb(color: (u8, u8, u8)) -> egui::Color32 {
+    egui::Color32::from_rgb(color.0, color.1, color.2)
+}
+
+fn base_tile_color(tile: Option<TileType>) -> egui::Color32 {
+    match tile {
+        Some(TileType::Wall) => egui::Color32::from_gray(minimap_cfg::WALL_GRAY),
+        Some(TileType::Ground) => egui::Color32::from_gray(minimap_cfg::GROUND_GRAY),
+        Some(TileType::Station) => rgb(minimap_cfg::STATION),
+        Some(TileType::Dropoff) => rgb(minimap_cfg::DROPOFF),
+        Some(TileType::Shelf(_)) => rgb(minimap_cfg::SHELF_BASE),
+        Some(TileType::Empty) | None => egui::Color32::from_gray(minimap_cfg::EMPTY_GRAY),
+    }
+}
+
+fn pickup_fill_color() -> egui::Color32 {
+    rgb(minimap_cfg::PICKUP_FILL)
+}
+
+fn dropoff_fill_color() -> egui::Color32 {
+    rgb(minimap_cfg::DROPOFF_FILL)
+}
+
+fn pickup_outline_color() -> egui::Color32 {
+    rgb(minimap_cfg::PICKUP_OUTLINE)
+}
+
+fn dropoff_outline_color() -> egui::Color32 {
+    rgb(minimap_cfg::DROPOFF_OUTLINE)
+}
+
+fn source_shelf_color() -> egui::Color32 {
+    egui::Color32::from_gray(minimap_cfg::SOURCE_SHELF_GRAY)
+}
+
+fn unknown_shelf_color() -> egui::Color32 {
+    egui::Color32::from_gray(minimap_cfg::SHELF_UNKNOWN_GRAY)
+}
+
+fn empty_shelf_color() -> egui::Color32 {
+    egui::Color32::from_gray(minimap_cfg::SHELF_EMPTY_GRAY)
+}
+
+pub fn wizard_minimap_legend(ui: &mut egui::Ui) {
+    ui.horizontal_wrapped(|ui| {
+        color_swatch(ui, pickup_fill_color());
+        ui.label(egui::RichText::new("pickup").small());
+        color_swatch(ui, dropoff_fill_color());
+        ui.label(egui::RichText::new("dropoff").small());
+        color_swatch(ui, rgb(minimap_cfg::DROPOFF));
+        ui.label(egui::RichText::new("drop zone").small());
+        color_swatch(ui, empty_shelf_color());
+        ui.label(egui::RichText::new("empty shelf").small());
+        color_swatch(ui, shelf_fill_color_egui(2, 16));
+        ui.label(egui::RichText::new("low").small());
+        color_swatch(ui, shelf_fill_color_egui(8, 16));
+        ui.label(egui::RichText::new("ok").small());
+        color_swatch(ui, shelf_fill_color_egui(15, 16));
+        ui.label(egui::RichText::new("full").small());
+    });
+}
+
+fn task_detail_minimap_legend(ui: &mut egui::Ui) {
+    ui.horizontal_wrapped(|ui| {
+        color_swatch(ui, pickup_fill_color());
+        ui.label(egui::RichText::new("pickup").small());
+        color_swatch(ui, dropoff_fill_color());
+        ui.label(egui::RichText::new("dropoff").small());
+        color_swatch(ui, rgb(minimap_cfg::SHELF_BASE));
+        ui.label(egui::RichText::new("shelf").small());
+        color_swatch(ui, rgb(minimap_cfg::DROPOFF));
+        ui.label(egui::RichText::new("drop zone").small());
+        color_swatch(ui, egui::Color32::from_gray(minimap_cfg::GROUND_GRAY));
+        ui.label(egui::RichText::new("ground").small());
+    });
+}
+
+pub fn shelf_minimap_legend(ui: &mut egui::Ui) {
+    ui.horizontal_wrapped(|ui| {
+        color_swatch(ui, shelf_fill_color_egui(0, 16));
+        ui.label(egui::RichText::new("empty").small());
+        color_swatch(ui, shelf_fill_color_egui(2, 16));
+        ui.label(egui::RichText::new("low").small());
+        color_swatch(ui, shelf_fill_color_egui(8, 16));
+        ui.label(egui::RichText::new("ok").small());
+        color_swatch(ui, shelf_fill_color_egui(15, 16));
+        ui.label(egui::RichText::new("full").small());
+        color_swatch(ui, source_shelf_color());
+        ui.label(egui::RichText::new("src").small());
+    });
+}
 
 fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
     protocol::world_to_grid([
@@ -29,6 +122,7 @@ pub fn wizard_minimap_widget(
     clickable_shelves: bool,
     clickable_dropoffs: bool,
     empty_positions: Option<&HashSet<(usize, usize)>>,
+    shelf_capacity: Option<&HashMap<(usize, usize), (u32, u32)>>,
     id_salt: &str,
 ) -> Option<(usize, usize)> {
     const CELL: f32 = 8.0;
@@ -54,23 +148,23 @@ pub fn wizard_minimap_widget(
                         egui::Vec2::splat(CELL),
                     );
                     let bg = if Some(gpos) == highlight_a {
-                        egui::Color32::from_rgb(60, 120, 220) // blue: pickup
+                        pickup_fill_color()
                     } else if Some(gpos) == highlight_b {
-                        egui::Color32::from_rgb(50, 190, 100) // green: dropoff
+                        dropoff_fill_color()
                     } else {
                         match grid.get_tile(col, row).map(|t| t.tile_type) {
-                            Some(TileType::Wall) => egui::Color32::from_gray(35),
-                            Some(TileType::Ground) => egui::Color32::from_gray(70),
-                            Some(TileType::Station) => egui::Color32::from_rgb(100, 40, 60),
-                            Some(TileType::Dropoff) => egui::Color32::from_rgb(20, 130, 70),
                             Some(TileType::Shelf(_)) => {
-                                if empty_positions.map_or(false, |s| s.contains(&gpos)) {
-                                    egui::Color32::from_gray(45) // empty shelf
+                                if empty_positions.is_some_and(|s| s.contains(&gpos)) {
+                                    empty_shelf_color()
+                                } else if let Some(&(cargo, max)) =
+                                    shelf_capacity.and_then(|m| m.get(&gpos))
+                                {
+                                    shelf_fill_color_egui(cargo, max)
                                 } else {
-                                    egui::Color32::from_rgb(60, 100, 60)
+                                    rgb(minimap_cfg::SHELF_BASE)
                                 }
                             }
-                            Some(TileType::Empty) | None => egui::Color32::from_gray(15),
+                            other => base_tile_color(other),
                         }
                     };
                     painter.rect_filled(cell_rect, 1.5, bg);
@@ -99,7 +193,7 @@ pub fn wizard_minimap_widget(
                     if resp.hovered() {
                         painter.rect_stroke(
                             cell_rect, 1.5,
-                            egui::Stroke::new(1.5, egui::Color32::WHITE),
+                            egui::Stroke::new(1.5, rgb(minimap_cfg::HOVER_OUTLINE)),
                             egui::StrokeKind::Middle,
                         );
                     }
@@ -141,18 +235,11 @@ pub fn task_detail_minimap(
                         egui::Vec2::splat(CELL),
                     );
                     let bg = if Some(gpos) == pickup {
-                        egui::Color32::from_rgb(60, 120, 220)
+                        pickup_fill_color()
                     } else if Some(gpos) == dropoff {
-                        egui::Color32::from_rgb(50, 190, 100)
+                        dropoff_fill_color()
                     } else {
-                        match grid.get_tile(col, row).map(|t| t.tile_type) {
-                            Some(TileType::Wall) => egui::Color32::from_gray(35),
-                            Some(TileType::Ground) => egui::Color32::from_gray(70),
-                            Some(TileType::Station) => egui::Color32::from_rgb(100, 40, 60),
-                            Some(TileType::Dropoff) => egui::Color32::from_rgb(20, 130, 70),
-                            Some(TileType::Shelf(_)) => egui::Color32::from_rgb(132, 100, 62),
-                            Some(TileType::Empty) | None => egui::Color32::from_gray(15),
-                        }
+                        base_tile_color(grid.get_tile(col, row).map(|t| t.tile_type))
                     };
                     painter.rect_filled(cell_rect, 1.5, bg);
                 }
@@ -160,8 +247,8 @@ pub fn task_detail_minimap(
 
             // colored outline on highlighted cells
             for &(cell, color) in &[
-                (pickup, egui::Color32::from_rgb(120, 180, 255)),
-                (dropoff, egui::Color32::from_rgb(100, 240, 150)),
+                (pickup, pickup_outline_color()),
+                (dropoff, dropoff_outline_color()),
             ] {
                 if let Some((col, row)) = cell {
                     let cell_rect = egui::Rect::from_min_size(
@@ -177,13 +264,7 @@ pub fn task_detail_minimap(
             }
         });
 
-    // legend
-    ui.horizontal(|ui| {
-        color_swatch(ui, egui::Color32::from_rgb(60, 120, 220));
-        ui.label(egui::RichText::new("pickup").small());
-        color_swatch(ui, egui::Color32::from_rgb(50, 190, 100));
-        ui.label(egui::RichText::new("dropoff").small());
-    });
+    task_detail_minimap_legend(ui);
 }
 
 /// Render the compact warehouse mini-map for shelf destination picking.
@@ -224,20 +305,16 @@ pub fn shelf_minimap_widget(
                     );
 
                     let bg = match grid.get_tile(col, row).map(|t| t.tile_type) {
-                        Some(TileType::Wall) => egui::Color32::from_gray(35),
-                        Some(TileType::Ground) => egui::Color32::from_gray(70),
-                        Some(TileType::Station) => egui::Color32::from_rgb(100, 40, 60),
-                        Some(TileType::Dropoff) => egui::Color32::from_rgb(20, 120, 60),
                         Some(TileType::Shelf(_)) => {
                             if Some(gpos) == source_grid {
-                                egui::Color32::from_gray(90) // source: neutral grey
+                                source_shelf_color()
                             } else if let Some(&(_, cargo, max)) = entity_map.get(&gpos) {
                                 shelf_fill_color_egui(cargo, max)
                             } else {
-                                egui::Color32::from_gray(55)
+                                unknown_shelf_color()
                             }
                         }
-                        Some(TileType::Empty) | None => egui::Color32::from_gray(15),
+                        other => base_tile_color(other),
                     };
                     painter.rect_filled(cell_rect, 1.5, bg);
                 }
@@ -275,7 +352,7 @@ pub fn shelf_minimap_widget(
                     painter.rect_stroke(
                         cell_rect,
                         1.5,
-                        egui::Stroke::new(1.5, egui::Color32::WHITE),
+                        egui::Stroke::new(1.5, rgb(minimap_cfg::HOVER_OUTLINE)),
                         egui::StrokeKind::Middle,
                     );
                     ui_state.hovered_entity = Some(dest_entity);

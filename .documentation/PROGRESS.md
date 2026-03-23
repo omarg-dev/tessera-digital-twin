@@ -201,6 +201,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Robot cargo visual pass 9: persistent child cargo entity with visibility toggling (no churn)
 - [x] Robot visual alignment pass 10: configurable robot model Y-offset control
 - [x] Visual contrast pass 11: neon path emphasis and task-minimap shelf contrast tuning
+- [x] Minimap consistency pass 12: shared minimap palette tokens, context-aware legends, and capacity-overlay alignment across task/shelf flows
 - [x] Layout preset pack + orchestrator run-time layout selector (`-l`, `--layout`) with shared default fallback and map-load consistency
 
 **Pending Features:**
@@ -299,6 +300,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-23: Minimap consistency pass 12 (palette + legends + context rules) (Phase 5)
+
+- Added shared minimap palette tokens under `protocol::config::visual::ui::minimap` and removed duplicated hardcoded minimap color values in visualizer widgets.
+- Refactored `ui/widgets/minimap.rs` to use shared tile/highlight color helpers across wizard, task inspector, and shelf inspector minimaps.
+- Unified base shelf color across non-capacity contexts and normalized dropoff tile color usage across minimaps.
+- Updated add-task wizard minimaps (pickup and dropoff) to render shelf capacity bands from live shelf cargo state while preserving pickup-step empty-shelf disabling.
+- Expanded minimap legend consistency:
+  - Added shared wizard minimap legend (pickup, dropoff, drop zone, empty shelf, low/ok/full bands).
+  - Added richer task inspector minimap legend for visible semantics.
+  - Replaced shelf inspector inline legend with shared shelf minimap legend helper.
+- Maintained context-specific behavior by design: dispatched task inspector minimap does not use capacity coloring; shelf relocation and add-task minimaps do.
+- Why: ensure minimaps communicate consistent state semantics and differ only when workflow context requires it.
+- Validation: attempted `cargo check --workspace` and `cargo test --workspace`, but both are blocked in this environment because the configured PowerShell executable path is missing.
 
 ### 2026-03-23: Experimental layout pack + orchestrator layout selector, robot-control cleanup (Phase 5)
 

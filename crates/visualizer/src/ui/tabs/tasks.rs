@@ -5,11 +5,11 @@ use bevy_egui::egui;
 use protocol::config::visual::TILE_SIZE;
 use protocol::grid_map::GridMap;
 use protocol::{Priority, TaskRequest, TaskStatus, TaskType};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::components::{Dropoff, Shelf};
 use crate::resources::{QueueStateData, RightTab, TaskListData, UiAction, UiState};
-use crate::ui::widgets::wizard_minimap_widget;
+use crate::ui::widgets::{wizard_minimap_legend, wizard_minimap_widget};
 
 pub const LABEL: &str = "Tasks";
 
@@ -236,6 +236,18 @@ fn wizard_view(
         .filter_map(transform_to_grid)
         .collect();
 
+    // track shelf fill levels so wizard minimaps can use the same capacity colors
+    let shelf_capacity: HashMap<(usize, usize), (u32, u32)> = all_shelves
+        .iter()
+        .filter_map(|(e, sh)| {
+            transforms
+                .get(e)
+                .ok()
+                .and_then(transform_to_grid)
+                .map(|g| (g, (sh.cargo, sh.max_capacity)))
+        })
+        .collect();
+
     // ── Step 1: Pickup ──
     let pickup_done = ui_state.wizard_pickup.is_some();
     let step1_text = if let Some((x, y)) = ui_state.wizard_pickup {
@@ -253,10 +265,13 @@ fn wizard_view(
                 ui_state.wizard_dropoff,
                 true, false, // shelves clickable, dropoffs not
                 Some(&empty_shelves),
+                Some(&shelf_capacity),
                 "wzrd_pickup",
             ) {
                 ui_state.wizard_pickup = Some(clicked);
             }
+            ui.add_space(3.0);
+            wizard_minimap_legend(ui);
         } else {
             ui.weak("Map not loaded yet.");
         }
@@ -281,7 +296,8 @@ fn wizard_view(
                     ui_state.wizard_pickup,
                     ui_state.wizard_dropoff,
                     true, true, // shelves + dropoffs clickable
-                    None, // no empty-shelf filter for dropoff destination
+                    None,
+                    Some(&shelf_capacity),
                     "wzrd_dropoff",
                 ) {
                     // don't let them pick the same cell as pickup
@@ -289,6 +305,8 @@ fn wizard_view(
                         ui_state.wizard_dropoff = Some(clicked);
                     }
                 }
+                ui.add_space(3.0);
+                wizard_minimap_legend(ui);
             } else {
                 ui.weak("Map not loaded yet.");
             }

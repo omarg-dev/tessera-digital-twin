@@ -9,7 +9,12 @@ use std::collections::HashMap;
 
 use crate::components::{Dropoff, Shelf};
 use crate::resources::{UiAction, UiState};
-use crate::ui::widgets::{color_swatch, shelf_fill_band_label, shelf_fill_color_egui, shelf_minimap_widget};
+use crate::ui::widgets::{
+    shelf_fill_band_label,
+    shelf_fill_color_egui,
+    shelf_minimap_legend,
+    shelf_minimap_widget,
+};
 
 fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
     protocol::world_to_grid([
@@ -155,19 +160,7 @@ pub fn draw(
                 ui.add_space(4.0);
             }
 
-            // legend
-            ui.horizontal(|ui| {
-                color_swatch(ui, egui::Color32::from_rgb(30, 160, 50));
-                ui.label(egui::RichText::new("empty").small());
-                color_swatch(ui, egui::Color32::from_rgb(220, 185, 40));
-                ui.label(egui::RichText::new("low").small());
-                color_swatch(ui, egui::Color32::from_rgb(128, 180, 52));
-                ui.label(egui::RichText::new("ok").small());
-                color_swatch(ui, egui::Color32::from_rgb(210, 50, 30));
-                ui.label(egui::RichText::new("full").small());
-                color_swatch(ui, egui::Color32::from_gray(90));
-                ui.label(egui::RichText::new("src").small());
-            });
+            shelf_minimap_legend(ui);
             ui.add_space(4.0);
 
             // ── Scrollable list ──

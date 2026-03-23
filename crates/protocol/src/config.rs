@@ -570,6 +570,40 @@ pub mod visual {
         pub const BOTTOM_PANEL_MAX_HEIGHT: f32 = 400.0;
         /// Log buffer ring capacity
         pub const LOG_BUFFER_CAPACITY: usize = 512;
+
+        /// Minimap palette and highlight tokens used by visualizer inspector/task widgets.
+        pub mod minimap {
+            /// base wall tile gray value.
+            pub const WALL_GRAY: u8 = 35;
+            /// base ground tile gray value.
+            pub const GROUND_GRAY: u8 = 70;
+            /// base empty tile gray value.
+            pub const EMPTY_GRAY: u8 = 15;
+            /// gray for empty shelf tiles in pickup mode.
+            pub const SHELF_EMPTY_GRAY: u8 = 45;
+            /// gray for shelf fallback when fill data is missing.
+            pub const SHELF_UNKNOWN_GRAY: u8 = 55;
+            /// gray for source shelf marker in relocation minimap.
+            pub const SOURCE_SHELF_GRAY: u8 = 90;
+
+            /// station tile RGB color.
+            pub const STATION: (u8, u8, u8) = (100, 40, 60);
+            /// dropoff tile RGB color.
+            pub const DROPOFF: (u8, u8, u8) = (20, 130, 70);
+            /// base shelf tile RGB color used when capacity overlay is disabled.
+            pub const SHELF_BASE: (u8, u8, u8) = (60, 100, 60);
+
+            /// pickup selection fill RGB color.
+            pub const PICKUP_FILL: (u8, u8, u8) = (60, 120, 220);
+            /// dropoff selection fill RGB color.
+            pub const DROPOFF_FILL: (u8, u8, u8) = (50, 190, 100);
+            /// pickup outline RGB color.
+            pub const PICKUP_OUTLINE: (u8, u8, u8) = (120, 180, 255);
+            /// dropoff outline RGB color.
+            pub const DROPOFF_OUTLINE: (u8, u8, u8) = (100, 240, 150);
+            /// hover outline RGB color.
+            pub const HOVER_OUTLINE: (u8, u8, u8) = (255, 255, 255);
+        }
     }
 
     /// Overhead robot label settings
