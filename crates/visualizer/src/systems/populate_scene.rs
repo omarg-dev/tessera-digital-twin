@@ -3,7 +3,7 @@ use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use crate::components::*;
 use crate::resources::PlaceholderMeshes;
 use crate::systems::models;
-use protocol::config::{LAYOUT_FILE_PATH,
+use protocol::config::{
     visual::{TILE_SIZE, shelf, lighting, colors},
     warehouse};
 use protocol::config::optimization as opt;
@@ -68,10 +68,11 @@ pub fn populate_environment(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // load map via protocol::GridMap (same parser as coordinator + scheduler)
-    let map = match GridMap::load_from_file(LAYOUT_FILE_PATH) {
+    let layout_path = protocol::config::resolve_layout_path();
+    let map = match GridMap::load_from_file(&layout_path) {
         Ok(m) => m,
         Err(e) => {
-            warn!("Failed to load layout file via GridMap: {}", e);
+            warn!("Failed to load layout file via GridMap ({}): {}", layout_path, e);
             return;
         }
     };
@@ -129,7 +130,7 @@ pub fn populate_environment(
         }
     }
 
-    info!("Warehouse layout loaded: {}x{} (GridMap)", map.width, map.height);
+    info!("Warehouse layout loaded from {}: {}x{} (GridMap)", layout_path, map.width, map.height);
 
     // store resources for other systems
     commands.insert_resource(placeholders);

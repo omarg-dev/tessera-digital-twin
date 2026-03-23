@@ -1,0 +1,15 @@
+/ cinematic layout: four-quad crossroads with framed station lane for dramatic intersection traffic
+/ best for recording: high-contrast central crossing where robots naturally converge on camera
+
+# # # # # # # # # # # # # # # # # # # #
+# _ . . . . . . . . . . . . . . . . . #
+# . x8 x6 . . x7 x5 . . . . x5 x7 . . x6 x8 . #
+# . x6 x4 . . x5 x4 . . . . x4 x5 . . x4 x6 . #
+# . . . . . . . . # # . . . . . . . . #
+# . . . # # # . . # # . . # # # . . . #
+# . . . # . . . . . . . . . . # . . . #
+# . . . # # # . . # # . . # # # . . . #
+# . . . . . . . . # # . . . . . . . . #
+# . x7 x5 . . x6 x4 . . . . x4 x6 . . x5 x7 . #
+# v . . . . . . . . . . . . . . . . _ #
+# # # # # # # # # # # # # # # # # # # #

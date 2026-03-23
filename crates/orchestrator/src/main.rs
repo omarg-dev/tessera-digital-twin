@@ -18,7 +18,7 @@ mod processes;
 
 use cli::Command;
 use processes::Processes;
-use protocol::{topics, SystemCommand, RobotControl, logs, publish_json_logged};
+use protocol::{topics, SystemCommand, logs, publish_json_logged};
 use std::time::Duration;
 
 #[tokio::main]
@@ -39,11 +39,6 @@ async fn main() {
         .declare_publisher(topics::ADMIN_CONTROL)
         .await
         .expect("Failed to declare ADMIN_CONTROL publisher");
-
-    let robot_publisher = session
-        .declare_publisher(topics::ROBOT_CONTROL)
-        .await
-        .expect("Failed to declare ROBOT_CONTROL publisher");
 
     println!("✓ Zenoh session established");
     println!();
@@ -67,15 +62,47 @@ async fn main() {
 
         match Command::parse(&line) {
             // Process management
-            Command::RunAll => {
+            Command::RunAll(layout_selector) => {
                 logs::start_run_session();
-                if let Err(e) = processes.start_all() {
+                let layout = layout_selector
+                    .as_deref()
+                    .map(|selector| {
+                        protocol::config::layout_path_from_selector(selector)
+                            .ok_or_else(|| format!("Unknown layout selector '{}'. Type 'help' for presets.", selector))
+                    })
+                    .transpose();
+
+                let layout_path = match layout {
+                    Ok(path) => path,
+                    Err(e) => {
+                        println!("✗ {}", e);
+                        continue;
+                    }
+                };
+
+                if let Err(e) = processes.start_all(layout_path) {
                     println!("✗ Failed to run: {}", e);
                 }
             }
-            Command::Run(name) => {
+            Command::Run { name, layout } => {
                 logs::start_run_session();
-                if let Err(e) = processes.start(&name) {
+                let layout = layout
+                    .as_deref()
+                    .map(|selector| {
+                        protocol::config::layout_path_from_selector(selector)
+                            .ok_or_else(|| format!("Unknown layout selector '{}'. Type 'help' for presets.", selector))
+                    })
+                    .transpose();
+
+                let layout_path = match layout {
+                    Ok(path) => path,
+                    Err(e) => {
+                        println!("✗ {}", e);
+                        continue;
+                    }
+                };
+
+                if let Err(e) = processes.start(&name, layout_path) {
                     println!("✗ Failed to run {}: {}", name, e);
                 }
             }
@@ -153,38 +180,6 @@ async fn main() {
                 }
             }
 
-            // Robot control
-            Command::RobotEnable(id) => {
-                logs::save_log("Orchestrator", &format!("Robot control: ENABLE robot {}", id));
-                if !publish_json_logged("Orchestrator", "robot enable", &RobotControl::Up(id), |payload| {
-                    async { robot_publisher.put(payload).await.map(|_| ()) }
-                }).await {
-                    println!("✗ Failed to enable robot {}", id);
-                } else {
-                    println!("🤖 Robot {} ENABLE", id);
-                }
-            }
-            Command::RobotDisable(id) => {
-                logs::save_log("Orchestrator", &format!("Robot control: DISABLE robot {}", id));
-                if !publish_json_logged("Orchestrator", "robot disable", &RobotControl::Down(id), |payload| {
-                    async { robot_publisher.put(payload).await.map(|_| ()) }
-                }).await {
-                    println!("✗ Failed to disable robot {}", id);
-                } else {
-                    println!("🔻 Robot {} DISABLE", id);
-                }
-            }
-            Command::RobotRestart(id) => {
-                logs::save_log("Orchestrator", &format!("Robot control: RESTART robot {}", id));
-                if !publish_json_logged("Orchestrator", "robot restart", &RobotControl::Restart(id), |payload| {
-                    async { robot_publisher.put(payload).await.map(|_| ()) }
-                }).await {
-                    println!("✗ Failed to restart robot {}", id);
-                } else {
-                    println!("🔄 Robot {} RESTART", id);
-                }
-            }
-
             // Meta
             Command::Help => cli::print_help(),
             Command::Quit => {
@@ -194,7 +189,6 @@ async fn main() {
                 logs::merge_logs();
 
                 // close Zenoh cleanly before tokio runtime shuts down
-                drop(robot_publisher);
                 drop(publisher);
                 session.close().await.ok();
 

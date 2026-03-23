@@ -6,8 +6,8 @@ use crate::processes::CRATE_ORDER;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     // Process management
-    RunAll,
-    Run(String),
+    RunAll(Option<String>),
+    Run { name: String, layout: Option<String> },
     KillAll,
     Kill(String),
     Restart,
@@ -21,11 +21,6 @@ pub enum Command {
     Resume,
     Verbose(bool),
     Chaos(bool),
-
-    // Robot control (individual robots)
-    RobotEnable(u32),
-    RobotDisable(u32),
-    RobotRestart(u32),
 
     // Meta
     Help,
@@ -41,12 +36,13 @@ impl Command {
     pub fn parse(input: &str) -> Self {
         let input = input.trim().to_ascii_lowercase();
         let parts: Vec<&str> = input.split_whitespace().collect();
+
+        if matches!(parts.first(), Some(&"run") | Some(&"up")) {
+            return Self::parse_run_command(&parts, &input);
+        }
         
         match parts.as_slice() {
             // Process management
-            ["run"] | ["run", "all"] | ["up"] | ["up", "all"] => Command::RunAll,
-            ["run", name] | ["up", name] => Command::Run(name.to_string()),
-            
             ["kill"] | ["kill", "all"] | ["down"] | ["down", "all"] => Command::KillAll,
             ["kill", name] | ["down", name] => Command::Kill(name.to_string()),
             
@@ -67,23 +63,51 @@ impl Command {
             ["chaos", "on"] => Command::Chaos(true),
             ["chaos", "off"] => Command::Chaos(false),
             
-            // Robot control (use enable/disable to avoid conflict with up/down crate)
-            ["enable", "robot", id] | ["robot", "enable", id] => {
-                id.parse().map(Command::RobotEnable).unwrap_or(Command::Unknown(input))
-            }
-            ["disable", "robot", id] | ["robot", "disable", id] => {
-                id.parse().map(Command::RobotDisable).unwrap_or(Command::Unknown(input))
-            }
-            ["restart", "robot", id] | ["robot", "restart", id] => {
-                id.parse().map(Command::RobotRestart).unwrap_or(Command::Unknown(input))
-            }
-            
             // Meta
             ["help"] | ["h"] | ["?"] => Command::Help,
             ["quit"] | ["exit"] | ["q"] => Command::Quit,
             
             [] => Command::Empty,
             _ => Command::Unknown(input),
+        }
+    }
+
+    fn parse_run_command(parts: &[&str], input: &str) -> Self {
+        let mut layout = None;
+        let mut target = None;
+        let mut i = 1;
+
+        while i < parts.len() {
+            match parts[i] {
+                "-l" | "--layout" => {
+                    i += 1;
+                    let Some(selector) = parts.get(i) else {
+                        return Command::Unknown(input.to_string());
+                    };
+                    layout = Some((*selector).to_string());
+                }
+                "all" => {
+                    if target.is_some() {
+                        return Command::Unknown(input.to_string());
+                    }
+                    target = Some("all".to_string());
+                }
+                value => {
+                    if target.is_some() {
+                        return Command::Unknown(input.to_string());
+                    }
+                    target = Some(value.to_string());
+                }
+            }
+            i += 1;
+        }
+
+        match target.as_deref() {
+            None | Some("all") => Command::RunAll(layout),
+            Some(name) => Command::Run {
+                name: name.to_string(),
+                layout,
+            },
         }
     }
 }
@@ -95,6 +119,8 @@ pub fn print_help() {
     println!("├─────────────────────────────────────────────────┤");
     println!("│  run, up        - Run all crates                │");
     println!("│  run <crate>    - Run specific crate            │");
+    println!("│  run -l <id>    - Run all with layout preset    │");
+    println!("│  run <crate> --layout <id> - Run crate layout   │");
     println!("│  kill, down     - Kill all crates               │");
     println!("│  kill <crate>   - Kill specific crate           │");
     println!("│  restart        - Kill + run all                │");
@@ -114,17 +140,22 @@ pub fn print_help() {
     println!("│  verbose on/off - Toggle verbose output         │");
     println!("│  chaos on/off   - Toggle chaos engineering      │");
     println!("├─────────────────────────────────────────────────┤");
-    println!("│  ROBOT CONTROL                                  │");
-    println!("├─────────────────────────────────────────────────┤");
-    println!("│  enable robot <id>      - Enable robot          │");
-    println!("│  disable robot <id>    - Disable robot          │");
-    println!("│  restart robot <id> - Reset robot to station    │");
-    println!("├─────────────────────────────────────────────────┤");
     println!("│  quit, q        - Kill all and exit             │");
     println!("│  help, h        - Show this help                │");
     println!("╰─────────────────────────────────────────────────╯");
     println!();
     println!("Available crates: {:?}", CRATE_ORDER);
+    println!("Available layout presets:");
+    println!("  0/default/layout           -> assets/data/layout.txt");
+    println!("  1/layout1                  -> assets/data/layout1.txt");
+    println!("  2/layout2                  -> assets/data/layout2.txt");
+    println!("  3/cinematic1/cinematic_ring -> assets/data/layout3_cinematic_ring.txt");
+    println!("  4/cinematic2/cinematic_crossroads -> assets/data/layout4_cinematic_crossroads.txt");
+    println!("  5/cinematic3/cinematic_runway -> assets/data/layout5_cinematic_runway.txt");
+    println!("  6/test1/test_bottleneck    -> assets/data/layout6_test_bottleneck.txt");
+    println!("  7/test2/test_openfield     -> assets/data/layout7_test_openfield.txt");
+    println!("  8/test3/test_lane_swap     -> assets/data/layout8_test_lane_swap.txt");
+    println!("  9/mega/massive_factory     -> assets/data/layout9_massive_factory.txt");
 }
 
 /// Print process status table
@@ -155,16 +186,41 @@ mod tests {
 
     #[test]
     fn test_parse_run_all() {
-        assert_eq!(Command::parse("run"), Command::RunAll);
-        assert_eq!(Command::parse("run all"), Command::RunAll);
-        assert_eq!(Command::parse("up"), Command::RunAll);
-        assert_eq!(Command::parse("UP ALL"), Command::RunAll);
+        assert_eq!(Command::parse("run"), Command::RunAll(None));
+        assert_eq!(Command::parse("run all"), Command::RunAll(None));
+        assert_eq!(Command::parse("up"), Command::RunAll(None));
+        assert_eq!(Command::parse("UP ALL"), Command::RunAll(None));
+        assert_eq!(Command::parse("run -l 3"), Command::RunAll(Some("3".to_string())));
+        assert_eq!(
+            Command::parse("run --layout cinematic1"),
+            Command::RunAll(Some("cinematic1".to_string()))
+        );
+        assert_eq!(Command::parse("run --layout 9"), Command::RunAll(Some("9".to_string())));
     }
 
     #[test]
     fn test_parse_run_specific() {
-        assert_eq!(Command::parse("run mock_firmware"), Command::Run("mock_firmware".to_string()));
-        assert_eq!(Command::parse("run visualizer"), Command::Run("visualizer".to_string()));
+        assert_eq!(
+            Command::parse("run mock_firmware"),
+            Command::Run {
+                name: "mock_firmware".to_string(),
+                layout: None,
+            }
+        );
+        assert_eq!(
+            Command::parse("run visualizer --layout 2"),
+            Command::Run {
+                name: "visualizer".to_string(),
+                layout: Some("2".to_string()),
+            }
+        );
+        assert_eq!(
+            Command::parse("run -l test1 scheduler"),
+            Command::Run {
+                name: "scheduler".to_string(),
+                layout: Some("test1".to_string()),
+            }
+        );
     }
 
     #[test]
@@ -185,16 +241,6 @@ mod tests {
         assert_eq!(Command::parse("verbose off"), Command::Verbose(false));
         assert_eq!(Command::parse("chaos on"), Command::Chaos(true));
         assert_eq!(Command::parse("chaos off"), Command::Chaos(false));
-    }
-
-    #[test]
-    fn test_parse_robot_control() {
-        assert_eq!(Command::parse("enable robot 1"), Command::RobotEnable(1));
-        assert_eq!(Command::parse("robot enable 2"), Command::RobotEnable(2));
-        assert_eq!(Command::parse("disable robot 3"), Command::RobotDisable(3));
-        assert_eq!(Command::parse("robot disable 4"), Command::RobotDisable(4));
-        assert_eq!(Command::parse("restart robot 5"), Command::RobotRestart(5));
-        assert_eq!(Command::parse("robot restart 6"), Command::RobotRestart(6));
     }
 
     #[test]

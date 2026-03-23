@@ -201,6 +201,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Robot cargo visual pass 9: persistent child cargo entity with visibility toggling (no churn)
 - [x] Robot visual alignment pass 10: configurable robot model Y-offset control
 - [x] Visual contrast pass 11: neon path emphasis and task-minimap shelf contrast tuning
+- [x] Layout preset pack + orchestrator run-time layout selector (`-l`, `--layout`) with shared default fallback and map-load consistency
 
 **Pending Features:**
 
@@ -298,6 +299,25 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-23: Experimental layout pack + orchestrator layout selector, robot-control cleanup (Phase 5)
+
+- Added six new warehouse layouts in `assets/data` with top-of-file scenario comments:
+  - Cinematic: `layout3_cinematic_ring`, `layout4_cinematic_crossroads`, `layout5_cinematic_runway`
+  - Testing: `layout6_test_bottleneck`, `layout7_test_openfield`, `layout8_test_lane_swap`
+- Added `layout9_massive_factory` as an extra large-scale preset with a 100-station launch apron for 100-robot scenarios.
+- Switched global default layout to `assets/data/layout.txt` in protocol config.
+- Added shared layout selection helpers in protocol config:
+  - Selector-to-path resolver supporting numeric IDs and aliases
+  - Runtime active-layout resolver with environment override fallback
+- Updated coordinator, mock_firmware, scheduler, and visualizer map loading to use shared runtime layout resolution so all runtime crates stay aligned.
+- Extended orchestrator run parsing with CLI-safe layout flags:
+  - `run -l <selector>` / `run --layout <selector>`
+  - `run <crate> --layout <selector>`
+- Updated orchestrator process spawning to pass a single layout override to all spawned binaries and persist selected layout across `restart`.
+- Removed robot control from orchestrator CLI and command handling (no robot enable/disable/restart commands or publisher path).
+- Why: improve demo recording flexibility with cinematic maps, strengthen test scenario coverage, and make layout selection quick and reproducible from orchestrator.
+- Validation: targeted diagnostics clean on changed Rust files via editor error checks; `cargo check --workspace` and `cargo test --workspace` are currently blocked in this environment because the configured PowerShell executable path is missing.
 
 ### 2026-03-20: Visual contrast pass 11 (path gizmo + task-minimap shelf contrast) (Phase 5)
 

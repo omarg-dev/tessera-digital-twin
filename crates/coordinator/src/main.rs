@@ -18,7 +18,7 @@ mod commands;
 mod task_manager;
 
 use zenoh::*;
-use protocol::{GridMap, LAYOUT_FILE_PATH};
+use protocol::GridMap;
 
 #[tokio::main]
 async fn main() {
@@ -27,9 +27,10 @@ async fn main() {
     println!("╚═════════════════════════════════════════════╝");
     
     // Load and validate map
-    let map = GridMap::load_from_file(LAYOUT_FILE_PATH)
+    let layout_path = protocol::config::resolve_layout_path();
+    let map = GridMap::load_from_file(&layout_path)
         .expect("Failed to load map");
-    println!("✓ Map loaded: {}x{} (hash: {:016x})", map.width, map.height, map.hash);
+    println!("✓ Map loaded from {}: {}x{} (hash: {:016x})", layout_path, map.width, map.height, map.hash);
     
     let session = open(Config::default())
         .await

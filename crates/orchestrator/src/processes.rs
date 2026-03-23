@@ -7,6 +7,7 @@ use std::time::Duration;
 use std::thread;
 use std::collections::HashSet;
 use protocol::config::orchestrator as orch_config;
+use protocol::config::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV};
 
 /// List of all manageable crates in startup order
 pub const CRATE_ORDER: &[&str] = &["coordinator", "mock_firmware", "scheduler", "visualizer"];
@@ -17,6 +18,8 @@ pub struct Processes {
     running: Vec<String>,
     /// Crates whose output should be shown in a window (others run silently)
     show_output: HashSet<String>,
+    /// Active layout path used for spawning crates.
+    active_layout: String,
 }
 
 impl Processes {
@@ -24,6 +27,7 @@ impl Processes {
         Self {
             running: Vec::new(),
             show_output: HashSet::new(), // all crates silent by default
+            active_layout: LAYOUT_FILE_PATH.to_string(),
         }
     }
 
@@ -71,9 +75,13 @@ impl Processes {
     }
 
     /// Start a specific crate
-    pub fn start(&mut self, name: &str) -> Result<(), String> {
+    pub fn start(&mut self, name: &str, layout_path: Option<&str>) -> Result<(), String> {
         if !CRATE_ORDER.contains(&name) {
             return Err(format!("Unknown crate: '{}'. Valid: {:?}", name, CRATE_ORDER));
+        }
+
+        if let Some(path) = layout_path {
+            self.active_layout = path.to_string();
         }
         
         if self.running.contains(&name.to_string()) {
@@ -94,16 +102,22 @@ impl Processes {
             return Err(format!("Build failed for {}", name));
         }
 
-        spawn_binary(name, self.show_output.contains(name))?;
+        spawn_binary(name, self.show_output.contains(name), &self.active_layout)?;
         self.running.push(name.to_string());
         println!("✓ {} started", name);
+        println!("  Layout: {}", self.active_layout);
         protocol::logs::save_log("Orchestrator", &format!("Process started: {}", name));
         Ok(())
     }
 
     /// Start all crates in order
-    pub fn start_all(&mut self) -> Result<(), String> {
+    pub fn start_all(&mut self, layout_path: Option<&str>) -> Result<(), String> {
         protocol::logs::save_log("Orchestrator", "Startup sequence initiated");
+
+        if let Some(path) = layout_path {
+            self.active_layout = path.to_string();
+        }
+
         // First kill any existing processes
         if !self.running.is_empty() {
             self.kill_all();
@@ -127,31 +141,32 @@ impl Processes {
         }
 
         println!("✓ Build complete");
+        println!("📦 Active layout: {}", self.active_layout);
         // play in background without risking startup failure
         play_startup_sound();
         println!("🚀 Starting all crates in order...");
 
         // 1. Coordinator - must start first, broadcasts map hash
         println!("  1/4 Starting coordinator...");
-        spawn_binary("coordinator", self.show_output.contains("coordinator"))?;
+        spawn_binary("coordinator", self.show_output.contains("coordinator"), &self.active_layout)?;
         self.running.push("coordinator".to_string());
         thread::sleep(Duration::from_millis(orch_config::COORDINATOR_STARTUP_DELAY_MS));
 
         // 2. Firmware (mock_firmware) - validates map hash, starts physics
         println!("  2/4 Starting mock_firmware (firmware)...");
-        spawn_binary("mock_firmware", self.show_output.contains("mock_firmware"))?;
+        spawn_binary("mock_firmware", self.show_output.contains("mock_firmware"), &self.active_layout)?;
         self.running.push("mock_firmware".to_string());
         thread::sleep(Duration::from_millis(orch_config::FIRMWARE_STARTUP_DELAY_MS));
 
         // 3. Scheduler - task queue
         println!("  3/4 Starting scheduler...");
-        spawn_binary("scheduler", self.show_output.contains("scheduler"))?;
+        spawn_binary("scheduler", self.show_output.contains("scheduler"), &self.active_layout)?;
         self.running.push("scheduler".to_string());
         thread::sleep(Duration::from_millis(orch_config::SCHEDULER_STARTUP_DELAY_MS));
 
         // 4. Renderer (visualizer) - Bevy window
         println!("  4/4 Starting visualizer (renderer)...");
-        spawn_binary("visualizer", self.show_output.contains("visualizer"))?;
+        spawn_binary("visualizer", self.show_output.contains("visualizer"), &self.active_layout)?;
         self.running.push("visualizer".to_string());
 
         println!("✓ All crates started successfully");
@@ -206,7 +221,8 @@ impl Processes {
         println!("🔄 Restarting all crates...");
         self.kill_all();
         thread::sleep(Duration::from_millis(orch_config::RESTART_DELAY_MS));
-        self.start_all()?;
+        let layout = self.active_layout.clone();
+        self.start_all(Some(&layout))?;
         protocol::logs::save_log("Orchestrator", "Restart completed");
         Ok(())
     }
@@ -294,7 +310,7 @@ pub fn is_process_running(name: &str) -> bool {
 /// Spawn a pre-built binary, optionally in a visible window.
 /// When `windowed` is true, opens in a new console window (user can see output).
 /// When false, runs silently in the background with no window.
-fn spawn_binary(name: &str, windowed: bool) -> Result<(), String> {
+fn spawn_binary(name: &str, windowed: bool, layout_path: &str) -> Result<(), String> {
     #[cfg(debug_assertions)]
     let profile = "debug";
     #[cfg(not(debug_assertions))]
@@ -307,6 +323,7 @@ fn spawn_binary(name: &str, windowed: bool) -> Result<(), String> {
             // open in a new console window so the user can see output
             Command::new("cmd")
                 .args(["/c", "start", name, &binary])
+                .env(LAYOUT_OVERRIDE_ENV, layout_path)
                 .spawn()
                 .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
         } else {
@@ -317,6 +334,7 @@ fn spawn_binary(name: &str, windowed: bool) -> Result<(), String> {
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
+                .env(LAYOUT_OVERRIDE_ENV, layout_path)
                 .creation_flags(CREATE_NO_WINDOW)
                 .spawn()
                 .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
@@ -332,6 +350,7 @@ fn spawn_binary(name: &str, windowed: bool) -> Result<(), String> {
                 .stdin(Stdio::null())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
+                .env(LAYOUT_OVERRIDE_ENV, layout_path)
                 .spawn()
                 .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
         } else {
@@ -339,6 +358,7 @@ fn spawn_binary(name: &str, windowed: bool) -> Result<(), String> {
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
+                .env(LAYOUT_OVERRIDE_ENV, layout_path)
                 .spawn()
                 .map_err(|e| format!("Failed to start {} ({}): {}", name, binary, e))?;
         }
