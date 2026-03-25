@@ -203,6 +203,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Visual contrast pass 11: neon path emphasis and task-minimap shelf contrast tuning
 - [x] Minimap consistency pass 12: shared minimap palette tokens, context-aware legends, and capacity-overlay alignment across task/shelf flows
 - [x] Layout preset pack + orchestrator run-time layout selector (`-l`, `--layout`) with shared default fallback and map-load consistency
+- [x] Orchestrator run-mode selector: default release launches with opt binaries, optional dev override via `run -d` / `run -dev`
 - [x] Outline stale-entity hardening pass 13: guarded outline insertions and mesh-cache invalidation to prevent mid-run `EntityMutableFetchError` crashes
 - [x] Protocol config ownership pass 14: extracted layout logic to `protocol::layout`, renamed visual config namespace to `visualizer`, grouped battery/physics under `firmware`, and removed stale constants
 
@@ -302,6 +303,20 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-25: Orchestrator run-mode default release + dev flag (Phase 5)
+
+- Updated orchestrator `run` command parsing to support explicit run mode:
+  - Default mode is now `release` for `run`, `run all`, and `run <crate>`.
+  - Added dev override flags: `-d`, `-dev` (also accepts `--dev`).
+- Extended `Command` payloads with run mode and passed mode through orchestrator command handling into process start paths.
+- Refactored process management build/spawn pipeline to be mode-driven instead of tied to orchestrator compile profile:
+  - Release mode builds with `cargo build --release` and launches from `target/release/*`.
+  - Dev mode builds with `cargo build` and launches from `target/debug/*`.
+  - `restart` now persists both active layout and active run mode.
+- Updated CLI help output to document release default and dev override flags.
+- Why: keep high-FPS capture runs on optimized binaries by default while retaining an explicit debug/dev workflow for fast iteration.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-23: Protocol config ownership pass 14 (Phase 5)
 

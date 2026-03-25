@@ -62,7 +62,7 @@ async fn main() {
 
         match Command::parse(&line) {
             // Process management
-            Command::RunAll(layout_selector) => {
+            Command::RunAll { layout: layout_selector, mode } => {
                 logs::start_run_session();
                 let layout = layout_selector
                     .as_deref()
@@ -80,11 +80,11 @@ async fn main() {
                     }
                 };
 
-                if let Err(e) = processes.start_all(layout_path) {
+                if let Err(e) = processes.start_all(layout_path, mode) {
                     println!("✗ Failed to run: {}", e);
                 }
             }
-            Command::Run { name, layout } => {
+            Command::Run { name, layout, mode } => {
                 logs::start_run_session();
                 let layout = layout
                     .as_deref()
@@ -102,7 +102,7 @@ async fn main() {
                     }
                 };
 
-                if let Err(e) = processes.start(&name, layout_path) {
+                if let Err(e) = processes.start(&name, layout_path, mode) {
                     println!("✗ Failed to run {}: {}", name, e);
                 }
             }

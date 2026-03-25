@@ -704,9 +704,8 @@ pub mod chaos {
 /// visuals when hardware allows.
 pub mod optimization {
     /// Disable shadow map generation on the directional light.
-    /// This is the single largest GPU cost in the warehouse scene — the shadow map
-    /// must re-render every tile on every frame. The top-down camera angle makes
-    /// cast shadows barely visible, so this is safe to leave off by default.
+    /// the shadow map must re-render every tile on every frame.
+    /// costly but improves visuals tenfold by adding depth.
     pub const DISABLE_DIRECTIONAL_SHADOWS: bool = false;
 
     /// Mark floor and wall SceneRoot entities with `Pickable::IGNORE` so the

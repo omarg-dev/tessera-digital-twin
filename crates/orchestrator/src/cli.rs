@@ -2,12 +2,32 @@
 
 use crate::processes::CRATE_ORDER;
 
+/// Build/run mode for spawned crates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunMode {
+    Release,
+    Dev,
+}
+
+impl RunMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Release => "release",
+            Self::Dev => "dev",
+        }
+    }
+}
+
 /// Parsed command from user input
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     // Process management
-    RunAll(Option<String>),
-    Run { name: String, layout: Option<String> },
+    RunAll { layout: Option<String>, mode: RunMode },
+    Run {
+        name: String,
+        layout: Option<String>,
+        mode: RunMode,
+    },
     KillAll,
     Kill(String),
     Restart,
@@ -75,6 +95,7 @@ impl Command {
     fn parse_run_command(parts: &[&str], input: &str) -> Self {
         let mut layout = None;
         let mut target = None;
+        let mut mode = RunMode::Release;
         let mut i = 1;
 
         while i < parts.len() {
@@ -85,6 +106,9 @@ impl Command {
                         return Command::Unknown(input.to_string());
                     };
                     layout = Some((*selector).to_string());
+                }
+                "-d" | "-dev" | "--dev" => {
+                    mode = RunMode::Dev;
                 }
                 "all" => {
                     if target.is_some() {
@@ -103,10 +127,11 @@ impl Command {
         }
 
         match target.as_deref() {
-            None | Some("all") => Command::RunAll(layout),
+            None | Some("all") => Command::RunAll { layout, mode },
             Some(name) => Command::Run {
                 name: name.to_string(),
                 layout,
+                mode,
             },
         }
     }
@@ -119,6 +144,8 @@ pub fn print_help() {
     println!("├─────────────────────────────────────────────────┤");
     println!("│  run, up        - Run all crates                │");
     println!("│  run <crate>    - Run specific crate            │");
+    println!("│  run (default)  - release mode                  │");
+    println!("│  run -d|-dev    - dev mode (debug binaries)     │");
     println!("│  run -l <id>    - Run all with layout preset    │");
     println!("│  run <crate> --layout <id> - Run crate layout   │");
     println!("│  kill, down     - Kill all crates               │");
@@ -186,16 +213,69 @@ mod tests {
 
     #[test]
     fn test_parse_run_all() {
-        assert_eq!(Command::parse("run"), Command::RunAll(None));
-        assert_eq!(Command::parse("run all"), Command::RunAll(None));
-        assert_eq!(Command::parse("up"), Command::RunAll(None));
-        assert_eq!(Command::parse("UP ALL"), Command::RunAll(None));
-        assert_eq!(Command::parse("run -l 3"), Command::RunAll(Some("3".to_string())));
+        assert_eq!(
+            Command::parse("run"),
+            Command::RunAll {
+                layout: None,
+                mode: RunMode::Release,
+            }
+        );
+        assert_eq!(
+            Command::parse("run all"),
+            Command::RunAll {
+                layout: None,
+                mode: RunMode::Release,
+            }
+        );
+        assert_eq!(
+            Command::parse("up"),
+            Command::RunAll {
+                layout: None,
+                mode: RunMode::Release,
+            }
+        );
+        assert_eq!(
+            Command::parse("UP ALL"),
+            Command::RunAll {
+                layout: None,
+                mode: RunMode::Release,
+            }
+        );
+        assert_eq!(
+            Command::parse("run -l 3"),
+            Command::RunAll {
+                layout: Some("3".to_string()),
+                mode: RunMode::Release,
+            }
+        );
         assert_eq!(
             Command::parse("run --layout cinematic1"),
-            Command::RunAll(Some("cinematic1".to_string()))
+            Command::RunAll {
+                layout: Some("cinematic1".to_string()),
+                mode: RunMode::Release,
+            }
         );
-        assert_eq!(Command::parse("run --layout 9"), Command::RunAll(Some("9".to_string())));
+        assert_eq!(
+            Command::parse("run -d"),
+            Command::RunAll {
+                layout: None,
+                mode: RunMode::Dev,
+            }
+        );
+        assert_eq!(
+            Command::parse("run -dev all"),
+            Command::RunAll {
+                layout: None,
+                mode: RunMode::Dev,
+            }
+        );
+        assert_eq!(
+            Command::parse("run --layout 9"),
+            Command::RunAll {
+                layout: Some("9".to_string()),
+                mode: RunMode::Release,
+            }
+        );
     }
 
     #[test]
@@ -205,6 +285,7 @@ mod tests {
             Command::Run {
                 name: "mock_firmware".to_string(),
                 layout: None,
+                mode: RunMode::Release,
             }
         );
         assert_eq!(
@@ -212,6 +293,7 @@ mod tests {
             Command::Run {
                 name: "visualizer".to_string(),
                 layout: Some("2".to_string()),
+                mode: RunMode::Release,
             }
         );
         assert_eq!(
@@ -219,6 +301,15 @@ mod tests {
             Command::Run {
                 name: "scheduler".to_string(),
                 layout: Some("test1".to_string()),
+                mode: RunMode::Release,
+            }
+        );
+        assert_eq!(
+            Command::parse("run -d scheduler"),
+            Command::Run {
+                name: "scheduler".to_string(),
+                layout: None,
+                mode: RunMode::Dev,
             }
         );
     }

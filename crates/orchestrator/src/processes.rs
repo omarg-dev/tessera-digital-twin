@@ -8,6 +8,7 @@ use std::thread;
 use std::collections::HashSet;
 use protocol::config::orchestrator as orch_config;
 use protocol::layout::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV};
+use crate::cli::RunMode;
 
 /// List of all manageable crates in startup order
 pub const CRATE_ORDER: &[&str] = &["coordinator", "mock_firmware", "scheduler", "visualizer"];
@@ -20,6 +21,8 @@ pub struct Processes {
     show_output: HashSet<String>,
     /// Active layout path used for spawning crates.
     active_layout: String,
+    /// Active build profile used for spawning crates.
+    active_mode: RunMode,
 }
 
 impl Processes {
@@ -28,6 +31,7 @@ impl Processes {
             running: Vec::new(),
             show_output: HashSet::new(), // all crates silent by default
             active_layout: LAYOUT_FILE_PATH.to_string(),
+            active_mode: RunMode::Release,
         }
     }
 
@@ -75,7 +79,7 @@ impl Processes {
     }
 
     /// Start a specific crate
-    pub fn start(&mut self, name: &str, layout_path: Option<&str>) -> Result<(), String> {
+    pub fn start(&mut self, name: &str, layout_path: Option<&str>, mode: RunMode) -> Result<(), String> {
         if !CRATE_ORDER.contains(&name) {
             return Err(format!("Unknown crate: '{}'. Valid: {:?}", name, CRATE_ORDER));
         }
@@ -83,6 +87,7 @@ impl Processes {
         if let Some(path) = layout_path {
             self.active_layout = path.to_string();
         }
+        self.active_mode = mode;
         
         if self.running.contains(&name.to_string()) {
             println!("⚠ {} is already running", name);
@@ -90,9 +95,15 @@ impl Processes {
         }
 
         // build first
-        println!("🔨 Building {}...", name);
+        println!("🔨 Building {} ({})...", name, mode.label());
+        let mut build_args = vec!["build"];
+        if mode == RunMode::Release {
+            build_args.push("--release");
+        }
+        build_args.extend(["-p", name]);
+
         let build_status = Command::new("cargo")
-            .args(["build", "-p", name])
+            .args(build_args)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
@@ -102,35 +113,43 @@ impl Processes {
             return Err(format!("Build failed for {}", name));
         }
 
-        spawn_binary(name, self.show_output.contains(name), &self.active_layout)?;
+        spawn_binary(name, self.show_output.contains(name), &self.active_layout, mode)?;
         self.running.push(name.to_string());
         println!("✓ {} started", name);
         println!("  Layout: {}", self.active_layout);
+        println!("  Mode: {}", mode.label());
         protocol::logs::save_log("Orchestrator", &format!("Process started: {}", name));
         Ok(())
     }
 
     /// Start all crates in order
-    pub fn start_all(&mut self, layout_path: Option<&str>) -> Result<(), String> {
+    pub fn start_all(&mut self, layout_path: Option<&str>, mode: RunMode) -> Result<(), String> {
         protocol::logs::save_log("Orchestrator", "Startup sequence initiated");
 
         if let Some(path) = layout_path {
             self.active_layout = path.to_string();
         }
+        self.active_mode = mode;
 
         // First kill any existing processes
         if !self.running.is_empty() {
             self.kill_all();
         }
 
-        println!("🔨 Building all crates...");
+        println!("🔨 Building all crates ({})...", mode.label());
 
         // build all four crates in a single invocation so Cargo can unify the dependency
         // graph (ring/rustls/quinn) in one pass. two separate `cargo build` calls cause
         // ring's build script to re-run on the second call because the target/ directory
         // was modified by the first, marking its fingerprint dirty.
+        let mut build_args = vec!["build"];
+        if mode == RunMode::Release {
+            build_args.push("--release");
+        }
+        build_args.extend(["-p", "coordinator", "-p", "mock_firmware", "-p", "scheduler", "-p", "visualizer"]);
+
         let build_status = Command::new("cargo")
-            .args(["build", "-p", "coordinator", "-p", "mock_firmware", "-p", "scheduler", "-p", "visualizer"])
+            .args(build_args)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
@@ -142,31 +161,32 @@ impl Processes {
 
         println!("✓ Build complete");
         println!("📦 Active layout: {}", self.active_layout);
+        println!("⚙ Active mode: {}", mode.label());
         // play in background without risking startup failure
         play_startup_sound();
         println!("🚀 Starting all crates in order...");
 
         // 1. Coordinator - must start first, broadcasts map hash
         println!("  1/4 Starting coordinator...");
-        spawn_binary("coordinator", self.show_output.contains("coordinator"), &self.active_layout)?;
+        spawn_binary("coordinator", self.show_output.contains("coordinator"), &self.active_layout, mode)?;
         self.running.push("coordinator".to_string());
         thread::sleep(Duration::from_millis(orch_config::COORDINATOR_STARTUP_DELAY_MS));
 
         // 2. Firmware (mock_firmware) - validates map hash, starts physics
         println!("  2/4 Starting mock_firmware (firmware)...");
-        spawn_binary("mock_firmware", self.show_output.contains("mock_firmware"), &self.active_layout)?;
+        spawn_binary("mock_firmware", self.show_output.contains("mock_firmware"), &self.active_layout, mode)?;
         self.running.push("mock_firmware".to_string());
         thread::sleep(Duration::from_millis(orch_config::FIRMWARE_STARTUP_DELAY_MS));
 
         // 3. Scheduler - task queue
         println!("  3/4 Starting scheduler...");
-        spawn_binary("scheduler", self.show_output.contains("scheduler"), &self.active_layout)?;
+        spawn_binary("scheduler", self.show_output.contains("scheduler"), &self.active_layout, mode)?;
         self.running.push("scheduler".to_string());
         thread::sleep(Duration::from_millis(orch_config::SCHEDULER_STARTUP_DELAY_MS));
 
         // 4. Renderer (visualizer) - Bevy window
         println!("  4/4 Starting visualizer (renderer)...");
-        spawn_binary("visualizer", self.show_output.contains("visualizer"), &self.active_layout)?;
+        spawn_binary("visualizer", self.show_output.contains("visualizer"), &self.active_layout, mode)?;
         self.running.push("visualizer".to_string());
 
         println!("✓ All crates started successfully");
@@ -222,7 +242,8 @@ impl Processes {
         self.kill_all();
         thread::sleep(Duration::from_millis(orch_config::RESTART_DELAY_MS));
         let layout = self.active_layout.clone();
-        self.start_all(Some(&layout))?;
+        let mode = self.active_mode;
+        self.start_all(Some(&layout), mode)?;
         protocol::logs::save_log("Orchestrator", "Restart completed");
         Ok(())
     }
@@ -310,11 +331,11 @@ pub fn is_process_running(name: &str) -> bool {
 /// Spawn a pre-built binary, optionally in a visible window.
 /// When `windowed` is true, opens in a new console window (user can see output).
 /// When false, runs silently in the background with no window.
-fn spawn_binary(name: &str, windowed: bool, layout_path: &str) -> Result<(), String> {
-    #[cfg(debug_assertions)]
-    let profile = "debug";
-    #[cfg(not(debug_assertions))]
-    let profile = "release";
+fn spawn_binary(name: &str, windowed: bool, layout_path: &str, mode: RunMode) -> Result<(), String> {
+    let profile = match mode {
+        RunMode::Release => "release",
+        RunMode::Dev => "debug",
+    };
 
     #[cfg(windows)]
     {
