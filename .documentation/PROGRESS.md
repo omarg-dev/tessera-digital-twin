@@ -206,6 +206,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Orchestrator run-mode selector: default release launches with opt binaries, optional dev override via `run -d` / `run -dev`
 - [x] Outline stale-entity hardening pass 13: guarded outline insertions and mesh-cache invalidation to prevent mid-run `EntityMutableFetchError` crashes
 - [x] Protocol config ownership pass 14: extracted layout logic to `protocol::layout`, renamed visual config namespace to `visualizer`, grouped battery/physics under `firmware`, and removed stale constants
+- [x] Compact layout format pass 15: removed whitespace-separated map rows, adopted single-char hexadecimal shelf stock tokens (1..F, 0=16), and aligned parser support for compact + legacy layout inputs
 
 **Pending Features:**
 
@@ -303,6 +304,19 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-25: Compact Hex Layout Encoding (Phase 5)
+
+- Updated `GridMap` parsing to support compact no-whitespace map rows while preserving legacy whitespace token parsing.
+- Added single-character hexadecimal shelf stock tokens in parser and docs:
+  - `1..F` map to stock 1..15
+  - `0` maps to stock 16 (full shelf)
+  - legacy `xN` shelf tokens remain accepted for backward compatibility.
+- Added parser regression coverage for compact hex layouts and legacy token compatibility.
+- Converted `assets/data/layout*.txt` maps to compact one-character tiles with hex shelf tokens for easier editing and consistent sizing.
+- Updated layout legends and shelf-token comments in protocol/visualizer docs.
+- Why: remove whitespace-heavy editing friction and keep shelf markers single-character like other tiles.
+- Validation: `cargo check --workspace` and `cargo test --workspace` pass.
 
 ### 2026-03-25: Orchestrator run-mode default release + dev flag (Phase 5)
 

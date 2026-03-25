@@ -14,7 +14,7 @@ pub enum TileType {
     Empty,      // ~ in layout
     Ground,     // .
     Wall,       // #
-    Shelf(u8),  // xN (N = initial stock; max capacity is warehouse::SHELF_MAX_CAPACITY)
+    Shelf(u8),  // single hex token (1..F, 0=16) or legacy xN
     Station,    // _ (charging station)
     Dropoff,    // v
 }
@@ -58,10 +58,11 @@ impl GridMap {
                 continue;
             }
 
-            let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-            width = width.max(tokens.len());
+            let token_vec = Self::tokenize_line(trimmed);
 
-            for (x, token) in tokens.iter().enumerate() {
+            width = width.max(token_vec.len());
+
+            for (x, token) in token_vec.iter().enumerate() {
                 let tile_type = Self::parse_token(token);
                 tiles.push(Tile {
                     x,
@@ -82,7 +83,36 @@ impl GridMap {
         Ok(map)
     }
 
+    fn tokenize_line(line: &str) -> Vec<String> {
+        if line.chars().any(char::is_whitespace) {
+            return line.split_whitespace().map(str::to_string).collect();
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        let mut tokens = Vec::with_capacity(chars.len());
+        let mut i = 0;
+
+        while i < chars.len() {
+            if chars[i] == 'x' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].is_ascii_digit() {
+                    j += 1;
+                }
+                tokens.push(chars[i..j].iter().collect());
+                i = j;
+                continue;
+            }
+
+            tokens.push(chars[i].to_string());
+            i += 1;
+        }
+
+        tokens
+    }
+
     fn parse_token(token: &str) -> TileType {
+        let max_stock = SHELF_MAX_CAPACITY as u8;
+
         match token {
             "~" => TileType::Empty,
             "." => TileType::Ground,
@@ -94,8 +124,18 @@ impl GridMap {
                 let stock = parsed_stock
                     .filter(|value| *value > 0)
                     .unwrap_or(DEFAULT_SHELF_STOCK)
-                    .min(SHELF_MAX_CAPACITY as u8);
+                    .min(max_stock);
                 TileType::Shelf(stock)
+            }
+            t if t.len() == 1 => {
+                let ch = t.chars().next().unwrap_or_default();
+                if ch.is_ascii_hexdigit() {
+                    let hex = ch.to_digit(16).unwrap_or(DEFAULT_SHELF_STOCK as u32) as u8;
+                    let stock = if hex == 0 { max_stock } else { hex.min(max_stock) };
+                    TileType::Shelf(stock)
+                } else {
+                    TileType::Empty
+                }
             }
             _ => TileType::Empty,
         }
@@ -171,7 +211,8 @@ pub struct ShelfInventory {
 
 impl ShelfInventory {
     /// Initialize from a GridMap. Each shelf starts with the stock defined by
-    /// its layout token (xN = N items). Max capacity is warehouse::SHELF_MAX_CAPACITY.
+    /// its layout token (hex: 1..F, 0=16; or legacy xN). Max capacity is
+    /// warehouse::SHELF_MAX_CAPACITY.
     pub fn from_map(map: &GridMap) -> Self {
         let mut shelves = HashMap::new();
         for tile in &map.tiles {
@@ -263,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_parse_all_tile_types() {
-        let layout = "# . ~ _ v x5";
+        let layout = "# . ~ _ v A";
         let map = GridMap::parse(layout).unwrap();
         
         assert_eq!(map.tiles[0].tile_type, TileType::Wall);
@@ -271,7 +312,28 @@ mod tests {
         assert_eq!(map.tiles[2].tile_type, TileType::Empty);
         assert_eq!(map.tiles[3].tile_type, TileType::Station);
         assert_eq!(map.tiles[4].tile_type, TileType::Dropoff);
-        assert_eq!(map.tiles[5].tile_type, TileType::Shelf(5));
+        assert_eq!(map.tiles[5].tile_type, TileType::Shelf(10));
+    }
+
+    #[test]
+    fn test_parse_compact_hex_layout() {
+        let layout = "#._vA0";
+        let map = GridMap::parse(layout).unwrap();
+
+        assert_eq!(map.width, 6);
+        assert_eq!(map.height, 1);
+        assert_eq!(map.tiles[0].tile_type, TileType::Wall);
+        assert_eq!(map.tiles[1].tile_type, TileType::Ground);
+        assert_eq!(map.tiles[2].tile_type, TileType::Station);
+        assert_eq!(map.tiles[3].tile_type, TileType::Dropoff);
+        assert_eq!(map.tiles[4].tile_type, TileType::Shelf(10));
+        assert_eq!(map.tiles[5].tile_type, TileType::Shelf(16));
+    }
+
+    #[test]
+    fn test_parse_legacy_shelf_token() {
+        let map = GridMap::parse("x7").unwrap();
+        assert_eq!(map.tiles[0].tile_type, TileType::Shelf(7));
     }
 
     #[test]
@@ -371,8 +433,8 @@ mod tests {
 
     #[test]
     fn inventory_cannot_dropoff_full_shelf() {
-        // x16 starts at capacity (SHELF_MAX_CAPACITY = 16)
-        let map = GridMap::parse("x16").unwrap();
+        // 0 starts at capacity (SHELF_MAX_CAPACITY = 16)
+        let map = GridMap::parse("0").unwrap();
         let inv = ShelfInventory::from_map(&map);
         assert!(!inv.can_dropoff((0, 0))); // starts full
     }

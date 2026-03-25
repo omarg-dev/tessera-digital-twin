@@ -37,7 +37,7 @@ pub struct Wall;
 pub struct Shelf {
     /// Number of cargo items currently on this shelf
     pub cargo: u32,
-    /// Maximum cargo items this shelf can hold (from layout xN token)
+    /// Maximum cargo items this shelf can hold (from layout shelf token)
     pub max_capacity: u32,
 }
 

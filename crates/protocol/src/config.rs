@@ -187,7 +187,8 @@ pub mod scheduler {
 /// Warehouse simulation constants (shared by scheduler, coordinator, and visualizer)
 pub mod warehouse {
     /// Maximum number of cargo items any shelf can hold.
-    /// 4 levels x 4 boxes per level = 16. Shelf tokens in the layout file (xN)
+    /// 4 levels x 4 boxes per level = 16. Shelf tokens in the layout file
+    /// use single-char hex (1..F, 0=16), with legacy xN still accepted.
     /// define the *initial stock*, not the maximum capacity.
     pub const SHELF_MAX_CAPACITY: u32 = 16;
 }

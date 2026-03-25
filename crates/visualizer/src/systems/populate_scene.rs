@@ -128,7 +128,7 @@ pub fn populate_environment(
             }
             TileType::Shelf(initial_stock) => {
                 models::spawn_floor(&mut commands, &asset_server, pos);
-                // initial_stock from layout token (xN); max from global warehouse config
+                // initial_stock from layout shelf token; max from global warehouse config
                 models::spawn_shelf(&mut commands, &asset_server, pos,
                     initial_stock as u32, warehouse::SHELF_MAX_CAPACITY);
             }
