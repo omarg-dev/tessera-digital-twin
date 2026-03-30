@@ -153,6 +153,22 @@ pub fn bridge_ui_commands(
                 })),
                 format!("[UI] Transport task: {:?}", req.task_type),
             ),
+            UiAction::MassAddTasks {
+                count,
+                dropoff_probability,
+            } => (
+                Some(OutboundCommand::Task(TaskCommand::MassAdd {
+                    count: *count,
+                    dropoff_probability: *dropoff_probability,
+                })),
+                format!(
+                    "[UI] Mass-add: {} tasks (dropoff {})",
+                    count,
+                    dropoff_probability
+                        .map(|p| format!("{:.1}%", p * 100.0))
+                        .unwrap_or_else(|| "default".to_string())
+                ),
+            ),
             UiAction::CancelTask(id) => (
                 Some(OutboundCommand::Task(TaskCommand::Cancel(*id))),
                 format!("[UI] Cancel task #{id}"),

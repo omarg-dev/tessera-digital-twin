@@ -7,6 +7,7 @@ use zenoh::Session;
 use serde_json::from_slice;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use rand::Rng;
 
 use protocol::config::scheduler as sched_config;
 use protocol::{
@@ -60,7 +61,10 @@ pub async fn run(session: Session) {
     spawn_stdin_reader(tx);
 
     println!("[{}ms] ✓ Scheduler running", timestamp());
-    println!("[{}ms] Commands: status, add <px> <py> <dx> <dy>, help", timestamp());
+    println!(
+        "[{}ms] Commands: status, add <px> <py> <dx> <dy>, mass_add <count> [dropoff_%], help",
+        timestamp()
+    );
     println!("[{}ms] (System commands: run orchestrator)", timestamp());
 
     let mut last_broadcast = std::time::Instant::now();
@@ -74,7 +78,7 @@ pub async fn run(session: Session) {
         handle_stdin(&mut rx, &mut queue, &robots, &map, paused, verbose).await;
         
         // Task requests (from other crates)
-        handle_task_requests(&task_sub, &mut queue, &inventory);
+        handle_task_requests(&task_sub, &mut queue, &inventory, &map);
         
         // Robot updates (from firmware)
         handle_robot_updates(&robot_sub, &mut robots);
@@ -173,6 +177,46 @@ async fn handle_stdin(
                 );
                 queue.enqueue(task);
             }
+            StdinCmd::MassAdd {
+                count,
+                dropoff_probability,
+            } => {
+                let probability = effective_dropoff_probability(dropoff_probability);
+                let (created, skipped) = enqueue_mass_add_tasks(queue, map, count, probability);
+
+                if created > 0 {
+                    println!(
+                        "[{}ms] ✓ Mass-add queued {} tasks (dropoff {:.1}%)",
+                        timestamp(),
+                        created,
+                        probability * 100.0
+                    );
+                    logs::save_log(
+                        "Scheduler",
+                        &format!(
+                            "Mass-add queued {} tasks via CLI (dropoff {:.1}%, requested {})",
+                            created,
+                            probability * 100.0,
+                            count
+                        ),
+                    );
+                }
+
+                if skipped > 0 {
+                    println!(
+                        "[{}ms] ⚠ Mass-add skipped {} tasks (insufficient destination candidates)",
+                        timestamp(),
+                        skipped
+                    );
+                }
+
+                if created == 0 {
+                    println!(
+                        "[{}ms] ✗ Mass-add created no tasks (check map shelves/dropoffs)",
+                        timestamp()
+                    );
+                }
+            }
             StdinCmd::ListShelves => print_shelves(map),
             StdinCmd::ListDropoffs => print_dropoffs(map),
             StdinCmd::ListStations => print_stations(map),
@@ -244,10 +288,82 @@ fn resolve_location(loc: (usize, usize), map: &GridMap) -> Option<(usize, usize)
     }
 }
 
+fn effective_dropoff_probability(dropoff_probability: Option<f32>) -> f32 {
+    dropoff_probability
+        .unwrap_or(sched_config::MASS_ADD_DROPOFF_PROBABILITY)
+        .clamp(0.0, 1.0)
+}
+
+fn enqueue_mass_add_tasks(
+    queue: &mut dyn TaskQueue,
+    map: &GridMap,
+    count: u32,
+    dropoff_probability: f32,
+) -> (u32, u32) {
+    let shelves = map.get_shelves();
+    let dropoffs = map.get_dropoffs();
+
+    if shelves.is_empty() {
+        return (0, count);
+    }
+
+    let mut rng = thread_rng();
+    let mut created = 0;
+    let mut skipped = 0;
+
+    for _ in 0..count {
+        let Some(pickup_tile) = shelves.choose(&mut rng).copied() else {
+            skipped += 1;
+            continue;
+        };
+        let pickup = (pickup_tile.x, pickup_tile.y);
+
+        let target = if !dropoffs.is_empty() && rng.gen_bool(dropoff_probability as f64) {
+            dropoffs
+                .choose(&mut rng)
+                .copied()
+                .map(|dropoff| (dropoff.x, dropoff.y))
+        } else {
+            shelves
+                .choose(&mut rng)
+                .copied()
+                .filter(|candidate| (candidate.x, candidate.y) != pickup)
+                .or_else(|| {
+                    shelves
+                        .iter()
+                        .copied()
+                        .find(|candidate| (candidate.x, candidate.y) != pickup)
+                })
+                .map(|candidate| (candidate.x, candidate.y))
+        };
+
+        let Some(dropoff) = target else {
+            skipped += 1;
+            continue;
+        };
+
+        let id = queue.next_task_id();
+        let task = Task::new(
+            id,
+            TaskType::PickAndDeliver {
+                pickup,
+                dropoff,
+                cargo_id: None,
+            },
+            Priority::Normal,
+        );
+        queue.enqueue(task);
+        created += 1;
+    }
+
+    (created, skipped)
+}
+
 fn handle_task_requests(
     sub: &zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
     queue: &mut dyn TaskQueue,
     inventory: &ShelfInventory,
+    map: &GridMap,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
         let payload = sample.payload().to_bytes();
@@ -294,6 +410,46 @@ fn handle_task_requests(
                             println!("[{}ms] \u{2713} Task #{} priority: {:?} \u{2192} {:?}", timestamp(), task_id, old, priority);
                             logs::save_log("Scheduler", &format!("Task {} priority changed to {:?}", task_id, priority));
                         }
+                    }
+                }
+                TaskCommand::MassAdd {
+                    count,
+                    dropoff_probability,
+                } => {
+                    if count == 0 {
+                        logs::save_log("Scheduler", "Mass-add command ignored: count=0");
+                        continue;
+                    }
+
+                    let probability = effective_dropoff_probability(dropoff_probability);
+                    let (created, skipped) = enqueue_mass_add_tasks(queue, map, count, probability);
+
+                    if created > 0 {
+                        println!(
+                            "[{}ms] + Mass-add queued {} tasks via UI (dropoff {:.1}%)",
+                            timestamp(),
+                            created,
+                            probability * 100.0
+                        );
+                        logs::save_log(
+                            "Scheduler",
+                            &format!(
+                                "Mass-add queued {} tasks via UI (dropoff {:.1}%, requested {})",
+                                created,
+                                probability * 100.0,
+                                count
+                            ),
+                        );
+                    }
+
+                    if skipped > 0 {
+                        logs::save_log(
+                            "Scheduler",
+                            &format!(
+                                "Mass-add skipped {} tasks due to unavailable destination candidates",
+                                skipped
+                            ),
+                        );
                     }
                 }
             }

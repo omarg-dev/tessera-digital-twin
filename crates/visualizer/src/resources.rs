@@ -288,6 +288,12 @@ pub struct UiState {
     pub wizard_dropoff: Option<(usize, usize)>,
     /// wizard priority selection
     pub wizard_priority: Priority,
+    /// whether the mass-add form is visible in the tasks panel
+    pub mass_add_form_open: bool,
+    /// text input for requested mass-add task count
+    pub mass_add_count_input: String,
+    /// text input for optional mass-add dropoff percentage
+    pub mass_add_dropoff_pct_input: String,
     /// selected task ID for the Details inspector (None = no task selected)
     pub selected_task_id: Option<u64>,
     /// the user scrolled the scroll wheel this frame (set by camera_controls, read by follow systems)
@@ -349,6 +355,9 @@ impl Default for UiState {
             wizard_pickup: None,
             wizard_dropoff: None,
             wizard_priority: Priority::default(),
+            mass_add_form_open: false,
+            mass_add_count_input: String::new(),
+            mass_add_dropoff_pct_input: String::new(),
             selected_task_id: None,
             camera_scroll_this_frame: false,
             camera_pan_this_frame: false,
@@ -477,6 +486,11 @@ pub enum UiAction {
     SetTimeScale(f32),
     /// Submit a transport task to the scheduler
     SubmitTransportTask(TaskRequest),
+    /// Submit a mass-add request to the scheduler
+    MassAddTasks {
+        count: u32,
+        dropoff_probability: Option<f32>,
+    },
     /// Cancel a task by ID
     CancelTask(u64),
     /// Change task priority

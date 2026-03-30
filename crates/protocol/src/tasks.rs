@@ -171,6 +171,14 @@ pub struct TaskRequest {
 pub enum TaskCommand {
     /// Create a new task
     New { task_type: TaskType, priority: Priority },
+    /// Create many tasks in one request.
+    ///
+    /// `count` is required. `dropoff_probability` is optional and uses 0.0..=1.0 scale.
+    /// When omitted, the scheduler uses `config::scheduler::MASS_ADD_DROPOFF_PROBABILITY`.
+    MassAdd {
+        count: u32,
+        dropoff_probability: Option<f32>,
+    },
     /// Cancel an existing pending task
     Cancel(TaskId),
     /// Change the priority of an existing pending task
@@ -291,5 +299,27 @@ mod tests {
         assert_eq!(task_status_label(&TaskStatus::Completed), "Completed");
         assert_eq!(task_status_label(&TaskStatus::Failed { reason: "x".to_string() }), "Failed");
         assert_eq!(task_status_label(&TaskStatus::Cancelled), "Cancelled");
+    }
+
+    #[test]
+    fn test_task_command_mass_add_serialization() {
+        let cmd = TaskCommand::MassAdd {
+            count: 120,
+            dropoff_probability: Some(0.6),
+        };
+
+        let json = serde_json::to_string(&cmd).expect("TaskCommand::MassAdd should serialize");
+        let parsed: TaskCommand = serde_json::from_str(&json).expect("TaskCommand::MassAdd should deserialize");
+
+        match parsed {
+            TaskCommand::MassAdd {
+                count,
+                dropoff_probability,
+            } => {
+                assert_eq!(count, 120);
+                assert_eq!(dropoff_probability, Some(0.6));
+            }
+            _ => panic!("Expected TaskCommand::MassAdd"),
+        }
     }
 }

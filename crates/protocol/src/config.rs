@@ -176,6 +176,11 @@ pub mod scheduler {
     
     /// Queue state broadcast interval in seconds
     pub const QUEUE_BROADCAST_SECS: u64 = 2;
+
+    /// Default probability for mass-add tasks to target dropoff zones.
+    ///
+    /// Uses 0.0..=1.0 scale where 0.60 means 60%.
+    pub const MASS_ADD_DROPOFF_PROBABILITY: f32 = 0.60;
     
     /// Location marker base for shelf encoding (S1 = SHELF_MARKER_BASE + 1)
     pub const SHELF_MARKER_BASE: usize = 10000;

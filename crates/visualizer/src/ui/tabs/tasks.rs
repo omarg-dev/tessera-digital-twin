@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use protocol::config::visualizer::TILE_SIZE;
+use protocol::config::{scheduler as sched_cfg, visualizer::TILE_SIZE};
 use protocol::grid_map::GridMap;
 use protocol::{Priority, TaskRequest, TaskStatus, TaskType};
 use std::collections::{HashMap, HashSet};
@@ -94,12 +94,16 @@ pub fn draw(
     if ui_state.task_wizard_active {
         wizard_view(ui, ui_state, all_shelves, dropoffs, transforms, warehouse_map, actions);
     } else {
+        render_mass_add_controls(ui, ui_state, actions);
+        ui.add_space(6.0);
+
         // render button BEFORE the scroll area so the scroll area doesn't consume all
         // remaining vertical space and hide the button below the visible region
         let add_btn = egui::Button::new(egui::RichText::new("+ Add New Task").strong())
             .min_size(egui::Vec2::new(ui.available_width(), 28.0));
         if ui.add(add_btn).clicked() {
             ui_state.task_wizard_active = true;
+            ui_state.mass_add_form_open = false;
             ui_state.wizard_pickup = None;
             ui_state.wizard_dropoff = None;
             ui_state.wizard_priority = Priority::default();
@@ -207,6 +211,94 @@ fn transform_to_grid(transform: &Transform) -> Option<(usize, usize)> {
         0.0,
         transform.translation.z / TILE_SIZE,
     ])
+}
+
+fn parse_optional_dropoff_percentage(input: &str) -> Option<Option<f32>> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Some(None);
+    }
+
+    let pct = trimmed.parse::<f32>().ok()?;
+    if !pct.is_finite() || !(0.0..=100.0).contains(&pct) {
+        return None;
+    }
+
+    Some(Some((pct / 100.0).clamp(0.0, 1.0)))
+}
+
+fn parse_mass_add_inputs(count_input: &str, dropoff_pct_input: &str) -> Option<(u32, Option<f32>)> {
+    let count = count_input.trim().parse::<u32>().ok().filter(|count| *count > 0)?;
+    let dropoff_probability = parse_optional_dropoff_percentage(dropoff_pct_input)?;
+    Some((count, dropoff_probability))
+}
+
+fn reset_mass_add_form(ui_state: &mut UiState) {
+    ui_state.mass_add_form_open = false;
+    ui_state.mass_add_count_input.clear();
+    ui_state.mass_add_dropoff_pct_input.clear();
+}
+
+fn render_mass_add_controls(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    actions: &mut Vec<UiAction>,
+) {
+    let toggle_btn = egui::Button::new(egui::RichText::new("Mass-Add Tasks").strong())
+        .fill(egui::Color32::from_rgb(38, 76, 122))
+        .min_size(egui::Vec2::new(ui.available_width(), 32.0));
+
+    if ui.add(toggle_btn).clicked() {
+        ui_state.mass_add_form_open = !ui_state.mass_add_form_open;
+        if !ui_state.mass_add_form_open {
+            ui_state.mass_add_count_input.clear();
+            ui_state.mass_add_dropoff_pct_input.clear();
+        }
+    }
+
+    if !ui_state.mass_add_form_open {
+        return;
+    }
+
+    let default_pct = sched_cfg::MASS_ADD_DROPOFF_PROBABILITY * 100.0;
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.label(egui::RichText::new("Mass-Add Traffic").strong());
+        ui.add_space(4.0);
+
+        ui.label("Amount of Tasks");
+        ui.add(
+            egui::TextEdit::singleline(&mut ui_state.mass_add_count_input)
+                .hint_text("e.g. 250"),
+        );
+
+        ui.add_space(4.0);
+        ui.label("Drop-off %");
+        ui.add(
+            egui::TextEdit::singleline(&mut ui_state.mass_add_dropoff_pct_input)
+                .hint_text(format!("{default_pct:.0}")),
+        );
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let execute_btn = egui::Button::new(egui::RichText::new("Execute").strong());
+            if ui.add(execute_btn).clicked() {
+                if let Some((count, dropoff_probability)) = parse_mass_add_inputs(
+                    &ui_state.mass_add_count_input,
+                    &ui_state.mass_add_dropoff_pct_input,
+                ) {
+                    actions.push(UiAction::MassAddTasks {
+                        count,
+                        dropoff_probability,
+                    });
+                    reset_mass_add_form(ui_state);
+                }
+            }
+
+            if ui.button("Cancel").clicked() {
+                reset_mass_add_form(ui_state);
+            }
+        });
+    });
 }
 
 /// Inline wizard that replaces the task list when `wizard_active`.
@@ -346,5 +438,33 @@ fn wizard_view(
             }));
             ui_state.task_wizard_active = false;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_optional_dropoff_percentage() {
+        assert_eq!(parse_optional_dropoff_percentage(""), Some(None));
+        assert_eq!(parse_optional_dropoff_percentage("60"), Some(Some(0.6)));
+        assert_eq!(parse_optional_dropoff_percentage("0"), Some(Some(0.0)));
+        assert_eq!(parse_optional_dropoff_percentage("100"), Some(Some(1.0)));
+    }
+
+    #[test]
+    fn test_parse_optional_dropoff_percentage_invalid() {
+        assert_eq!(parse_optional_dropoff_percentage("abc"), None);
+        assert_eq!(parse_optional_dropoff_percentage("-1"), None);
+        assert_eq!(parse_optional_dropoff_percentage("101"), None);
+    }
+
+    #[test]
+    fn test_parse_mass_add_inputs() {
+        assert_eq!(parse_mass_add_inputs("250", "60"), Some((250, Some(0.6))));
+        assert_eq!(parse_mass_add_inputs("10", ""), Some((10, None)));
+        assert_eq!(parse_mass_add_inputs("0", "60"), None);
+        assert_eq!(parse_mass_add_inputs("abc", "60"), None);
     }
 }

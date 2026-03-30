@@ -140,7 +140,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 
 ---
 
-## Phase 5: Polish & Presentation 🔄
+## Phase 5: Polish & Presentation ✅
 
 **Goal:** Production-ready demo for portfolio/internship showcase.
 
@@ -207,14 +207,9 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Outline stale-entity hardening pass 13: guarded outline insertions and mesh-cache invalidation to prevent mid-run `EntityMutableFetchError` crashes
 - [x] Protocol config ownership pass 14: extracted layout logic to `protocol::layout`, renamed visual config namespace to `visualizer`, grouped battery/physics under `firmware`, and removed stale constants
 - [x] Compact layout format pass 15: removed whitespace-separated map rows, adopted single-char hexadecimal shelf stock tokens (1..F, 0=16), and aligned parser support for compact + legacy layout inputs
+- [x] Mass-add traffic generation flow: shared `TaskCommand::MassAdd`, scheduler-side random generation logic + CLI command, and visualizer tasks-panel trigger form
 
-**Pending Features:**
-
-- [x] 3D gizmos: traffic heatmap overlay
-- [x] 3D gizmos: debug grid
-- [x] Robot ID labels rendered in 3D viewport
-- [x] Analytics dashboard (throughput graphs, battery histograms)
-- [x] Cargo/package entity tracking (visual cargo on robots)
+**Pending Features:** None - Phase 5 Complete! ✅
 
 ## MVP Showcase
 
@@ -304,6 +299,30 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-03-30: Mass-add task generation command flow (Phase 5)
+
+- Added `scheduler::MASS_ADD_DROPOFF_PROBABILITY` (0.60) to central protocol config as the default dropoff targeting ratio for bulk task generation.
+- Extended `TaskCommand` with `MassAdd { count, dropoff_probability }` so remote clients can request scheduler-side mass generation without embedding randomization logic in the UI.
+- Implemented scheduler mass-add handling in both input paths:
+  - local CLI command: `mass_add <count> [dropoff_%]`
+  - Zenoh request path: `TaskCommand::MassAdd`
+- Implemented scheduler random generation rules:
+  - pickup is always a random shelf from layout data
+  - dropoff destination is selected via probability check
+  - non-dropoff branch selects a different shelf (never same as pickup)
+  - generated tasks are enqueued through the normal queue/assignment pipeline
+- Added visualizer Tasks tab Mass-Add form:
+  - prominent toggle button
+  - amount input
+  - dropoff % input with default placeholder from protocol config
+  - execute path validates inputs, broadcasts `TaskCommand::MassAdd`, then clears and closes form
+- Added fallback-safe parsing guards in scheduler CLI and visualizer UI so invalid numeric inputs are ignored without panics.
+- Why: enables fast traffic stress setup for demo capture while preserving clean architecture boundaries (scheduler owns generation logic, visualizer is command-only).
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` ran; protocol/scheduler tests passed including new mass-add tests, while visualizer suite still has unrelated pre-existing abnormal exit behavior on this environment
+  - `cargo test -p visualizer --bin visualizer ui::tabs::tasks::tests:: -- --nocapture` passed for new Tasks tab parser tests
 
 ### 2026-03-25: Compact Hex Layout Encoding (Phase 5)
 

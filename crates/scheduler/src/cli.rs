@@ -15,6 +15,10 @@ pub enum StdinCmd {
         dropoff: (usize, usize),
     },
     RandomTask,
+    MassAdd {
+        count: u32,
+        dropoff_probability: Option<f32>,
+    },
     CancelTask { task_id: u64 },
     SetPriority { task_id: u64, priority: protocol::Priority },
     History,
@@ -87,6 +91,33 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                     None
                 }
                 "random" | "rand" => Some(StdinCmd::RandomTask),
+                "mass_add" | "massadd" | "mass" if parts.len() == 2 || parts.len() == 3 => {
+                    let count = parts[1].parse::<u32>().ok().filter(|count| *count > 0);
+                    let dropoff_probability = if parts.len() == 3 {
+                        parse_dropoff_percentage(parts[2]).map(Some)
+                    } else {
+                        Some(None)
+                    };
+
+                    match (count, dropoff_probability) {
+                        (Some(count), Some(dropoff_probability)) => {
+                            Some(StdinCmd::MassAdd {
+                                count,
+                                dropoff_probability,
+                            })
+                        }
+                        _ => {
+                            println!("Usage: mass_add <count> [dropoff_%]");
+                            println!("  Example: mass_add 250 60");
+                            None
+                        }
+                    }
+                }
+                "mass_add" | "massadd" | "mass" => {
+                    println!("Usage: mass_add <count> [dropoff_%]");
+                    println!("  Example: mass_add 250 60");
+                    None
+                }
                 "cancel" if parts.len() == 2 => {
                     if let Ok(task_id) = parts[1].parse::<u64>() {
                         Some(StdinCmd::CancelTask { task_id })
@@ -137,9 +168,11 @@ pub fn print_help() {
     println!("║   add S1 S2             - Add task (shelf→shelf)   ║");
     println!("║   add <px> <py> <dx> <dy> - Add task by coords     ║");
     println!("║   random, rand          - Add random shelf→dropoff ║");
+    println!("║   mass_add <n> [pct]    - Add n random tasks       ║");
+    println!("║                           (pct = dropoff %, def 60)║");
     println!("║   cancel <id>           - Cancel pending task      ║");
     println!("║   priority <id> <level> - Set task priority        ║");
-    println!("║                           (low/normal/high/critical)║");
+    println!("║                          (low/normal/high/critical)║");
     println!("║   status, s             - Show full status         ║");
     println!("║   history               - Show completed tasks     ║");
     println!("╠════════════════════════════════════════════════════╣");
@@ -395,6 +428,14 @@ pub fn parse_named_location(name: &str) -> Option<(usize, usize)> {
     }
 }
 
+fn parse_dropoff_percentage(input: &str) -> Option<f32> {
+    let pct = input.parse::<f32>().ok()?;
+    if !pct.is_finite() || !(0.0..=100.0).contains(&pct) {
+        return None;
+    }
+    Some((pct / 100.0).clamp(0.0, 1.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,5 +468,19 @@ mod tests {
         let d1 = parse_named_location("D1").expect("D1 should parse as a dropoff marker");
         assert!(s1.0 < protocol::config::scheduler::DROPOFF_MARKER_BASE);  // Shelf range
         assert!(d1.0 >= protocol::config::scheduler::DROPOFF_MARKER_BASE); // Dropoff range
+    }
+
+    #[test]
+    fn test_parse_dropoff_percentage_valid() {
+        assert_eq!(parse_dropoff_percentage("0"), Some(0.0));
+        assert_eq!(parse_dropoff_percentage("60"), Some(0.6));
+        assert_eq!(parse_dropoff_percentage("100"), Some(1.0));
+    }
+
+    #[test]
+    fn test_parse_dropoff_percentage_invalid() {
+        assert_eq!(parse_dropoff_percentage("-1"), None);
+        assert_eq!(parse_dropoff_percentage("101"), None);
+        assert_eq!(parse_dropoff_percentage("abc"), None);
     }
 }
