@@ -20,7 +20,7 @@ pub fn draw(
 
     // Search
     ui.horizontal(|ui| {
-        ui.label("\u{1F50D}"); // 🔍
+        ui.label("🔍");
         egui::TextEdit::singleline(&mut ui_state.filter_query)
             .hint_text("Search...")
             .desired_width(ui.available_width())
@@ -138,13 +138,13 @@ fn refresh_object_caches(
 fn state_icon(robot: &Robot) -> &'static str {
     use protocol::RobotState::*;
     match robot.state {
-        Idle => "\u{25CF}",           // ●  idle
-        Charging => "\u{26A1}",       // ⚡ charging
-        MovingToPickup | MovingToDrop | MovingToStation => "\u{25B6}", // ▶ moving
-        Picking => "\u{2B06}",        // ⬆ picking
-        LowBattery => "\u{1F50B}",    // 🔋 low battery
-        Blocked => "\u{26D4}",        // ⛔ blocked
-        Faulted => "\u{26A0}",        // ⚠ faulted
+        Idle => "●",           // ●  idle
+        Charging => "⚡",       // ⚡ charging
+        MovingToPickup | MovingToDrop | MovingToStation => "▶", // ▶ moving
+        Picking => "⬆",        // ⬆ picking
+        LowBattery => "🔋",    // 🔋 low battery
+        Blocked => "⛔",        // ⛔ blocked
+        Faulted => "⚠",        // ⚠ faulted
     }
 }
 

@@ -213,6 +213,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
+- [x] Visualizer UI icon glyph pass: replaced escaped Unicode icon literals with direct icon characters for robust egui rendering
 
 **Pending Features:** None - Phase 5 Complete! ✅
 
@@ -304,6 +305,15 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Visualizer UI icon glyph normalization (Phase 5)
+
+- Replaced escaped Unicode icon literals with direct glyphs across visualizer UI tabs (`objects`, `control_bar`, `tasks`, `shelf_inspector`).
+- Updated search, robot-state chips, pause/play control, task wizard completion marks, and dropoff action labels to use direct icon characters.
+- Why: avoid encoding/display drift from escaped sequences and ensure icon glyphs are rendered consistently in the UI.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Mass-add backpressure guardrails and bounded allocation (Phase 5)
 

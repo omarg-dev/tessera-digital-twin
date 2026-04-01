@@ -380,7 +380,7 @@ fn wizard_view(
     // ── Step 1: Pickup ──
     let pickup_done = ui_state.wizard_pickup.is_some();
     let step1_text = if let Some((x, y)) = ui_state.wizard_pickup {
-        format!("Step 1: Pickup \u{2713} ({x},{y})")
+        format!("Step 1: Pickup ✓ ({x},{y})")
     } else {
         "Step 1: Select Pickup Point".to_string()
     };
@@ -411,7 +411,7 @@ fn wizard_view(
         ui.add_space(4.0);
         let dropoff_done = ui_state.wizard_dropoff.is_some();
         let step2_text = if let Some((x, y)) = ui_state.wizard_dropoff {
-            format!("Step 2: Drop-off \u{2713} ({x},{y})")
+            format!("Step 2: Drop-off ✓ ({x},{y})")
         } else {
             "Step 2: Select Drop-off Point".to_string()
         };

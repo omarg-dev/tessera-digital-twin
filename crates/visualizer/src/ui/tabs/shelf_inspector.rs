@@ -107,7 +107,7 @@ pub fn draw(
 
             // Option 1: Dropoff
             let has_dropoff = !dropoffs.is_empty();
-            if ui.add_enabled(has_dropoff, egui::Button::new("\u{1F4E6} Dropoff zone")).clicked() {
+            if ui.add_enabled(has_dropoff, egui::Button::new("📦 Dropoff zone")).clicked() {
                 if let (Some(from_t), Some((_, drop_t))) = (
                     shelf_pos,
                     dropoffs.iter().next().and_then(|(e, _)| {

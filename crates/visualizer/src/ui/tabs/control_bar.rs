@@ -110,7 +110,7 @@ pub fn draw(
 fn sim_controls(ui: &mut egui::Ui, ui_state: &mut UiState, actions: &mut Vec<UiAction>) {
     let controls_enabled = !ui_state.is_realtime;
 
-    let pause_label = if ui_state.is_paused { "\u{25B6}" } else { "\u{23F8}" }; // ▶ / ⏸
+    let pause_label = if ui_state.is_paused { "▶" } else { "⏸" }; // ▶ / ⏸
     if ui.add_enabled(controls_enabled, egui::Button::new(pause_label)).clicked() {
         ui_state.is_paused = !ui_state.is_paused;
         actions.push(UiAction::SetPaused(ui_state.is_paused));
