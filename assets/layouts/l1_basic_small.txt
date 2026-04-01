@@ -5,6 +5,7 @@
 / 0     shelf   brown (full: 16)
 / _     station reddish-pink
 / v     dropoff cyan
+/ ~     null    n/a
 / shelf stock is encoded directly in one hex character
 
 #################

@@ -1,3 +1,13 @@
+/ id    type    color
+/ #     wall    black
+/ .     ground  white
+/ 1..F  shelf   brown (initial stock)
+/ 0     shelf   brown (full: 16)
+/ _     station reddish-pink
+/ v     dropoff cyan
+/ ~     null    n/a
+/ shelf stock is encoded directly in one hex character
+
 / cinematic layout: long runway corridor with side depots for sweeping pan shots and speed emphasis
 / best for recording: central lane keeps robot motion readable while side shelves add depth
 

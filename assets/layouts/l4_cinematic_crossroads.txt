@@ -1,8 +1,18 @@
+/ id    type    color
+/ #     wall    black
+/ .     ground  white
+/ 1..F  shelf   brown (initial stock)
+/ 0     shelf   brown (full: 16)
+/ _     station reddish-pink
+/ v     dropoff cyan
+/ ~     null    n/a
+/ shelf stock is encoded directly in one hex character
+
 / cinematic layout: four-quad crossroads with framed station lane for dramatic intersection traffic
 / best for recording: high-contrast central crossing where robots naturally converge on camera
 
 ####################
-#_.................#
+#_................v#
 #.86..75....57..68.#
 #.64..54....45..46.#
 #........##........#

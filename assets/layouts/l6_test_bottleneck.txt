@@ -1,3 +1,13 @@
+/ id    type    color
+/ #     wall    black
+/ .     ground  white
+/ 1..F  shelf   brown (initial stock)
+/ 0     shelf   brown (full: 16)
+/ _     station reddish-pink
+/ v     dropoff cyan
+/ ~     null    n/a
+/ shelf stock is encoded directly in one hex character
+
 / testing layout: repeated single-cell chokepoints to stress reservation timing and queue contention
 / best for testing: forces frequent right-of-way conflicts and exposes deadlock prevention behavior
 
