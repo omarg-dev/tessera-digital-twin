@@ -62,8 +62,9 @@ pub async fn run(session: Session) {
 
     println!("[{}ms] ✓ Scheduler running", timestamp());
     println!(
-        "[{}ms] Commands: status, add <px> <py> <dx> <dy>, mass_add <count> [dropoff_%], help",
-        timestamp()
+        "[{}ms] Commands: status, add <px> <py> <dx> <dy>, mass_add <count<= {}> [dropoff_%], help",
+        timestamp(),
+        sched_config::MASS_ADD_MAX_COUNT
     );
     println!("[{}ms] (System commands: run orchestrator)", timestamp());
 
@@ -181,8 +182,27 @@ async fn handle_stdin(
                 count,
                 dropoff_probability,
             } => {
+                let requested = count;
+                let count = clamp_mass_add_count(requested);
                 let probability = effective_dropoff_probability(dropoff_probability);
                 let (created, skipped) = enqueue_mass_add_tasks(queue, map, count, probability);
+
+                if requested > count {
+                    println!(
+                        "[{}ms] ⚠ Mass-add capped from {} to {} tasks",
+                        timestamp(),
+                        requested,
+                        count
+                    );
+                    logs::save_log(
+                        "Scheduler",
+                        &format!(
+                            "Mass-add capped from {} to {} tasks via CLI",
+                            requested,
+                            count
+                        ),
+                    );
+                }
 
                 if created > 0 {
                     println!(
@@ -197,7 +217,7 @@ async fn handle_stdin(
                             "Mass-add queued {} tasks via CLI (dropoff {:.1}%, requested {})",
                             created,
                             probability * 100.0,
-                            count
+                            requested
                         ),
                     );
                 }
@@ -292,6 +312,10 @@ fn effective_dropoff_probability(dropoff_probability: Option<f32>) -> f32 {
     dropoff_probability
         .unwrap_or(sched_config::MASS_ADD_DROPOFF_PROBABILITY)
         .clamp(0.0, 1.0)
+}
+
+fn clamp_mass_add_count(requested: u32) -> u32 {
+    requested.min(sched_config::MASS_ADD_MAX_COUNT)
 }
 
 fn enqueue_mass_add_tasks(
@@ -421,8 +445,21 @@ fn handle_task_requests(
                         continue;
                     }
 
+                    let requested = count;
+                    let count = clamp_mass_add_count(requested);
                     let probability = effective_dropoff_probability(dropoff_probability);
                     let (created, skipped) = enqueue_mass_add_tasks(queue, map, count, probability);
+
+                    if requested > count {
+                        logs::save_log(
+                            "Scheduler",
+                            &format!(
+                                "Mass-add capped from {} to {} tasks via UI",
+                                requested,
+                                count
+                            ),
+                        );
+                    }
 
                     if created > 0 {
                         println!(
@@ -437,7 +474,7 @@ fn handle_task_requests(
                                 "Mass-add queued {} tasks via UI (dropoff {:.1}%, requested {})",
                                 created,
                                 probability * 100.0,
-                                count
+                                requested
                             ),
                         );
                     }
@@ -600,7 +637,7 @@ async fn allocate_tasks(
     publisher: &zenoh::pubsub::Publisher<'_>,
     verbose: bool,
 ) {
-    let pending_ids: Vec<u64> = queue.pending_tasks().iter().map(|t| t.id).collect();
+    let pending_ids = queue.pending_task_ids_limited(sched_config::ALLOCATION_TASK_BUDGET_PER_TICK);
 
     for task_id in pending_ids {
         let Some(task) = queue.get(task_id).cloned() else { continue };

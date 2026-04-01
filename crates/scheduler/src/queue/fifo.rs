@@ -75,8 +75,6 @@ impl TaskQueue for FifoQueue {
     }
 
     fn enqueue(&mut self, task: Task) {
-        println!("+ Task {} queued: {:?} (priority: {:?})", 
-            task.id, task.task_type, task.priority);
         self.tasks.push_back(task);
     }
 
@@ -113,6 +111,24 @@ impl TaskQueue for FifoQueue {
 
     fn pending_tasks(&self) -> Vec<&Task> {
         self.tasks.iter().filter(|t| t.status == TaskStatus::Pending).collect()
+    }
+
+    fn pending_task_ids_limited(&self, limit: usize) -> Vec<TaskId> {
+        let mut ids = Vec::with_capacity(limit);
+        if limit == 0 {
+            return ids;
+        }
+
+        for task in &self.tasks {
+            if task.status == TaskStatus::Pending {
+                ids.push(task.id);
+                if ids.len() == limit {
+                    break;
+                }
+            }
+        }
+
+        ids
     }
 
     fn all_tasks(&self) -> Vec<&Task> {
@@ -255,5 +271,21 @@ mod tests {
         assert_eq!(removed, 2);
         assert_eq!(queue.total_count(), 1); // Only task3 remains
         assert!(queue.get(3).is_some()); // task3 should still be there
+    }
+
+    #[test]
+    fn test_pending_task_ids_limited_respects_limit() {
+        let mut queue = FifoQueue::new();
+        queue.enqueue(make_task(1, Priority::Normal));
+        queue.enqueue(make_task(2, Priority::High));
+        queue.enqueue(make_task(3, Priority::Low));
+
+        if let Some(task) = queue.get_mut(2) {
+            task.status = TaskStatus::Assigned { robot_id: 7 };
+        }
+
+        assert_eq!(queue.pending_task_ids_limited(0), Vec::<TaskId>::new());
+        assert_eq!(queue.pending_task_ids_limited(1), vec![1]);
+        assert_eq!(queue.pending_task_ids_limited(5), vec![1, 3]);
     }
 }

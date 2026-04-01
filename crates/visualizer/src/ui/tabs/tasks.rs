@@ -228,7 +228,11 @@ fn parse_optional_dropoff_percentage(input: &str) -> Option<Option<f32>> {
 }
 
 fn parse_mass_add_inputs(count_input: &str, dropoff_pct_input: &str) -> Option<(u32, Option<f32>)> {
-    let count = count_input.trim().parse::<u32>().ok().filter(|count| *count > 0)?;
+    let count = count_input
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|count| *count > 0 && *count <= sched_cfg::MASS_ADD_MAX_COUNT)?;
     let dropoff_probability = parse_optional_dropoff_percentage(dropoff_pct_input)?;
     Some((count, dropoff_probability))
 }
@@ -268,7 +272,7 @@ fn render_mass_add_controls(
         ui.label("Amount of Tasks");
         ui.add(
             egui::TextEdit::singleline(&mut ui_state.mass_add_count_input)
-                .hint_text("e.g. 250"),
+                .hint_text(format!("1-{}", sched_cfg::MASS_ADD_MAX_COUNT)),
         );
 
         let count_is_valid = ui_state
@@ -276,7 +280,7 @@ fn render_mass_add_controls(
             .trim()
             .parse::<u32>()
             .ok()
-            .filter(|count| *count > 0)
+            .filter(|count| *count > 0 && *count <= sched_cfg::MASS_ADD_MAX_COUNT)
             .is_some();
 
         ui.add_space(4.0);
@@ -325,7 +329,10 @@ fn render_mass_add_controls(
         {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 80, 80),
-                "Enter a valid positive whole number for Amount of Tasks.",
+                format!(
+                    "Enter a valid whole number between 1 and {} for Amount of Tasks.",
+                    sched_cfg::MASS_ADD_MAX_COUNT
+                ),
             );
         }
     });
@@ -495,6 +502,7 @@ mod tests {
         assert_eq!(parse_mass_add_inputs("250", "60"), Some((250, Some(0.6))));
         assert_eq!(parse_mass_add_inputs("10", ""), Some((10, None)));
         assert_eq!(parse_mass_add_inputs("0", "60"), None);
+        assert_eq!(parse_mass_add_inputs("10001", "60"), None);
         assert_eq!(parse_mass_add_inputs("abc", "60"), None);
     }
 }

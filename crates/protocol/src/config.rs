@@ -181,6 +181,17 @@ pub mod scheduler {
     ///
     /// Uses 0.0..=1.0 scale where 0.60 means 60%.
     pub const MASS_ADD_DROPOFF_PROBABILITY: f32 = 0.60;
+
+    /// Upper bound for a single mass-add request.
+    ///
+    /// Protects scheduler and renderer from pathological task floods.
+    pub const MASS_ADD_MAX_COUNT: u32 = 10_000;
+
+    /// Maximum number of pending tasks the allocator evaluates per scheduler tick.
+    ///
+    /// Keeps loop latency bounded so state broadcasts and UI updates remain responsive
+    /// under very large backlogs.
+    pub const ALLOCATION_TASK_BUDGET_PER_TICK: usize = 20;
     
     /// Location marker base for shelf encoding (S1 = SHELF_MARKER_BASE + 1)
     pub const SHELF_MARKER_BASE: usize = 10000;

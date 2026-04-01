@@ -85,6 +85,12 @@ impl TaskQueue for QueueInstance {
         }
     }
 
+    fn pending_task_ids_limited(&self, limit: usize) -> Vec<TaskId> {
+        match self {
+            QueueInstance::Fifo(queue) => queue.pending_task_ids_limited(limit),
+        }
+    }
+
     fn all_tasks(&self) -> Vec<&Task> {
         match self {
             QueueInstance::Fifo(queue) => queue.all_tasks(),

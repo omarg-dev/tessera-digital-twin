@@ -52,7 +52,13 @@ pub trait TaskQueue: Send + Sync {
     fn total_count(&self) -> usize;
 
     /// Get all pending tasks
+    #[allow(dead_code)]
     fn pending_tasks(&self) -> Vec<&Task>;
+
+    /// Get up to `limit` pending task IDs.
+    ///
+    /// Implementations should stop scanning once enough IDs are collected.
+    fn pending_task_ids_limited(&self, limit: usize) -> Vec<TaskId>;
 
     /// Get all tasks
     fn all_tasks(&self) -> Vec<&Task>;

@@ -2,6 +2,7 @@
 
 use crate::allocator::RobotInfo;
 use crate::queue::TaskQueue;
+use protocol::config::scheduler as sched_cfg;
 use protocol::GridMap;
 use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -108,6 +109,7 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                         }
                         _ => {
                             println!("Usage: mass_add <count> [dropoff_%]");
+                            println!("  count range: 1-{}", sched_cfg::MASS_ADD_MAX_COUNT);
                             println!("  Example: mass_add 250 60");
                             None
                         }
@@ -115,6 +117,7 @@ pub fn spawn_stdin_reader(tx: mpsc::Sender<StdinCmd>) {
                 }
                 "mass_add" | "massadd" | "mass" => {
                     println!("Usage: mass_add <count> [dropoff_%]");
+                    println!("  count range: 1-{}", sched_cfg::MASS_ADD_MAX_COUNT);
                     println!("  Example: mass_add 250 60");
                     None
                 }
@@ -169,6 +172,7 @@ pub fn print_help() {
     println!("║   add <px> <py> <dx> <dy> - Add task by coords     ║");
     println!("║   random, rand          - Add random shelf→dropoff ║");
     println!("║   mass_add <n> [pct]    - Add n random tasks       ║");
+    println!("║                           (n max {:<5})       ║", sched_cfg::MASS_ADD_MAX_COUNT);
     println!("║                           (pct = dropoff %, def 60)║");
     println!("║   cancel <id>           - Cancel pending task      ║");
     println!("║   priority <id> <level> - Set task priority        ║");
