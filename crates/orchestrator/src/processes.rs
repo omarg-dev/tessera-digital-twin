@@ -1,6 +1,6 @@
 //! Process management for orchestrator
 //!
-//! Handles spawning, killing, and monitoring of Hyper-Twin crates.
+//! Handles spawning, killing, and monitoring of Tessera crates.
 
 use std::process::{Command, Stdio};
 use std::time::Duration;

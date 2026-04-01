@@ -1,4 +1,4 @@
-//! Hyper-Twin Visualizer - Digital Twin Command Center
+//! Tessera Visualizer - Digital Twin Command Center
 //!
 //! This crate only visualizes the warehouse and robots.
 //! All physics and logic happen in firmware and coordinator.

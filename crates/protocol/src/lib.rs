@@ -1,4 +1,4 @@
-//! # Protocol Crate - Shared Types for Hyper-Twin
+//! # Protocol Crate - Shared Types for Tessera
 //!
 //! This crate defines all types used for inter-layer communication via Zenoh.
 //! It ensures all layers agree on message formats and configuration constants.

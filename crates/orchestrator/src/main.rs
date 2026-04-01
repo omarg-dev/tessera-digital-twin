@@ -1,4 +1,4 @@
-//! Orchestrator - System Controller for Hyper-Twin
+//! Orchestrator - System Controller for Tessera
 //!
 //! This is the ONLY crate that can issue system commands (pause/resume/reset/kill).
 //! All other crates LISTEN for these commands but never originate them.

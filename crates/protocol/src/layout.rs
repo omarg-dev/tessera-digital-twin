@@ -15,7 +15,7 @@ pub const LAYOUTS_DIR: &str = "assets/layouts";
 pub const LAYOUT_FILE_EXTENSION: &str = "layout";
 
 /// Environment variable used to override the active layout at runtime.
-pub const LAYOUT_OVERRIDE_ENV: &str = "HYPER_TWIN_LAYOUT";
+pub const LAYOUT_OVERRIDE_ENV: &str = "TESSERA_LAYOUT";
 
 /// Discoverable layout metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,7 +132,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock before unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("hyper_twin_{prefix}_{unique}"))
+        std::env::temp_dir().join(format!("tessera_{prefix}_{unique}"))
     }
 
     #[test]

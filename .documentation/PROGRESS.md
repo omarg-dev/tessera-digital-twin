@@ -1,4 +1,4 @@
-# Hyper-Twin Development Progress
+# Tessera Development Progress
 
 > **⚠️ MAINTENANCE RULE:** Update this file after every significant change, feature completion, or refactoring session.
 > This document serves as the living record of project evolution for portfolio/internship purposes.
@@ -7,7 +7,7 @@
 
 ## Project Summary
 
-**Hyper-Twin** is a high-performance Discrete Event Simulation (DES) and Digital Twin for warehouse logistics.
+**Tessera** is a high-performance Discrete Event Simulation (DES) and Digital Twin for warehouse logistics.
 Demonstrates advanced Rust skills: async programming, ECS architecture, distributed systems, and clean code practices.
 
 **Tech Stack:**
@@ -209,6 +209,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Compact layout format pass 15: removed whitespace-separated map rows, adopted single-char hexadecimal shelf stock tokens (1..F, 0=16), and aligned parser support for compact + legacy layout inputs
 - [x] Mass-add traffic generation flow: shared `TaskCommand::MassAdd`, scheduler-side random generation logic + CLI command, and visualizer tasks-panel trigger form
 - [x] Mass-add UI polish: 0-100 drop-off slider control, ASCII back button label (`<- Back`), and inline form validation hint for invalid task count input
+- [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 
 **Pending Features:** None - Phase 5 Complete! ✅
 
@@ -300,6 +301,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Tessera project rename alignment (Phase 5)
+
+- Renamed project identity references to Tessera in source-level documentation and crate headers.
+- Updated protocol layout override identifier to `TESSERA_LAYOUT` and aligned temp artifact naming prefix to `tessera_`.
+- Updated internal copilot instructions branding and workspace root example to `tessera/`.
+- Why: keep product naming consistent across runtime-facing comments, docs, and config-facing identifiers after the project rebrand.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Dynamic layout discovery and orchestrator layout command cleanup (Phase 5)
 

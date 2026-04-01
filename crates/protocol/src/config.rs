@@ -1,4 +1,4 @@
-//! Central configuration constants for all Hyper-Twin crates
+//! Central configuration constants for all Tessera crates
 //!
 //! This module defines all configurable values in one place.
 //! All crates should reference these instead of hardcoding values.
