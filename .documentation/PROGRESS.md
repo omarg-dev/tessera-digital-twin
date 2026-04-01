@@ -211,6 +211,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Mass-add UI polish: 0-100 drop-off slider control, ASCII back button label (`<- Back`), and inline form validation hint for invalid task count input
 - [x] Mass-add scalability guardrails: capped mass-add request size, removed per-task enqueue console spam, and bounded scheduler assignment scan budget per tick
 - [x] Retryable no-path congestion handling: scheduler retry lane with bounded exponential backoff + jitter and coordinator no-path reason normalization
+- [x] Coordinator collision scaling pass: replaced O(R^2) all-pairs collision scan with spatial-bucket candidate pruning plus helper tests
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -306,6 +307,19 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Coordinator spatial collision candidate pruning (Phase 5)
+
+- Replaced coordinator all-pairs inter-robot collision candidate scan with spatial bucket candidate generation keyed by collision radius.
+- Kept existing collision semantics intact (head-on and speed-based fault attribution) while reducing pair checks to local neighbors.
+- Added safe fallback to all-pairs when collision radius is non-positive.
+- Added coordinator unit tests validating:
+  - nearby robots become candidates while distant robots are pruned
+  - zero-radius fallback still enumerates all unique robot pairs
+- Why: remove the dominant O(R^2) collision-loop hotspot that causes severe coordinator slowdown in high-robot scenarios.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Scheduler retry lane for congestion no-path failures (Phase 5)
 

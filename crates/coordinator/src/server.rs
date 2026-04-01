@@ -11,7 +11,7 @@ use protocol::config::coordinator::{collision as collision_config, sensor as sen
 use protocol::logs;
 use protocol::grid_map::ShelfInventory;
 use serde_json::{to_vec, from_slice};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::state::{TrackedRobot, TaskStage};
 use crate::pathfinding::{self, Pathfinder, PathfinderInstance};
@@ -869,6 +869,76 @@ fn validate_robot_update(
     Ok(())
 }
 
+/// Build collision candidate pairs using spatial buckets.
+///
+/// Robots can only collide with robots in the same or adjacent bucket when the
+/// bucket size equals the collision radius.
+fn collect_collision_candidate_pairs(
+    robots: &HashMap<u32, TrackedRobot>,
+    collision_radius: f32,
+) -> Vec<(u32, u32)> {
+    let mut ids: Vec<u32> = robots
+        .iter()
+        .filter_map(|(id, robot)| (robot.faulted_since.is_none()).then_some(*id))
+        .collect();
+
+    if ids.len() < 2 {
+        return Vec::new();
+    }
+
+    if collision_radius <= f32::EPSILON {
+        ids.sort_unstable();
+        let mut pairs = Vec::new();
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                pairs.push((ids[i], ids[j]));
+            }
+        }
+        return pairs;
+    }
+
+    const NEIGHBOR_OFFSETS: [(i32, i32); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
+
+    let mut buckets: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+    for id in ids {
+        let Some(robot) = robots.get(&id) else { continue; };
+        let x = (robot.last_update.position[0] / collision_radius).floor() as i32;
+        let z = (robot.last_update.position[2] / collision_radius).floor() as i32;
+        buckets.entry((x, z)).or_default().push(id);
+    }
+
+    let mut pairs = Vec::new();
+    for (&bucket, bucket_ids) in &buckets {
+        // intra-bucket candidates
+        for i in 0..bucket_ids.len() {
+            for j in (i + 1)..bucket_ids.len() {
+                let a = bucket_ids[i];
+                let b = bucket_ids[j];
+                pairs.push((a.min(b), a.max(b)));
+            }
+        }
+
+        // adjacent-bucket candidates (single-direction offsets avoid duplicates)
+        for (dx, dz) in NEIGHBOR_OFFSETS {
+            let neighbor_bucket = (bucket.0 + dx, bucket.1 + dz);
+            let Some(neighbor_ids) = buckets.get(&neighbor_bucket) else {
+                continue;
+            };
+
+            for &a in bucket_ids {
+                for &b in neighbor_ids {
+                    if a == b {
+                        continue;
+                    }
+                    pairs.push((a.min(b), a.max(b)));
+                }
+            }
+        }
+    }
+
+    pairs
+}
+
 /// Detect inter-robot collisions, fault offenders, and immediately stop any other
 /// robot whose remaining path overlaps the collision zone.
 ///
@@ -886,44 +956,40 @@ async fn detect_inter_robot_collisions(
 ) {
     // pass 1: determine which robots need to be faulted (read-only)
     let mut to_fault: Vec<(u32, String)> = Vec::new();
-    let ids: Vec<u32> = robots.keys().cloned().collect();
-    for i in 0..ids.len() {
-        for j in (i + 1)..ids.len() {
-            let id_a = ids[i];
-            let id_b = ids[j];
-            let (Some(robot_a), Some(robot_b)) = (robots.get(&id_a), robots.get(&id_b)) else { continue; };
+    let candidate_pairs = collect_collision_candidate_pairs(robots, collision_config::ROBOT_COLLISION_RADIUS);
+    for (id_a, id_b) in candidate_pairs {
+        let (Some(robot_a), Some(robot_b)) = (robots.get(&id_a), robots.get(&id_b)) else { continue; };
 
-            // skip already-faulted robots to avoid re-faulting in subsequent ticks
-            if robot_a.faulted_since.is_some() || robot_b.faulted_since.is_some() {
-                continue;
-            }
+        // skip already-faulted robots to avoid re-faulting in subsequent ticks
+        if robot_a.faulted_since.is_some() || robot_b.faulted_since.is_some() {
+            continue;
+        }
 
-            let dx = robot_a.last_update.position[0] - robot_b.last_update.position[0];
-            let dz = robot_a.last_update.position[2] - robot_b.last_update.position[2];
-            let dist = (dx * dx + dz * dz).sqrt();
+        let dx = robot_a.last_update.position[0] - robot_b.last_update.position[0];
+        let dz = robot_a.last_update.position[2] - robot_b.last_update.position[2];
+        let dist = (dx * dx + dz * dz).sqrt();
 
-            if dist > collision_config::ROBOT_COLLISION_RADIUS {
-                continue;
-            }
+        if dist > collision_config::ROBOT_COLLISION_RADIUS {
+            continue;
+        }
 
-            let speed_a = (robot_a.last_update.velocity[0].powi(2) + robot_a.last_update.velocity[2].powi(2)).sqrt();
-            let speed_b = (robot_b.last_update.velocity[0].powi(2) + robot_b.last_update.velocity[2].powi(2)).sqrt();
+        let speed_a = (robot_a.last_update.velocity[0].powi(2) + robot_a.last_update.velocity[2].powi(2)).sqrt();
+        let speed_b = (robot_b.last_update.velocity[0].powi(2) + robot_b.last_update.velocity[2].powi(2)).sqrt();
 
-            let head_on = speed_a > 0.1 && speed_b > 0.1 &&
-                (robot_a.last_update.velocity[0] * robot_b.last_update.velocity[0] +
-                 robot_a.last_update.velocity[2] * robot_b.last_update.velocity[2]) < 0.0;
+        let head_on = speed_a > 0.1 && speed_b > 0.1 &&
+            (robot_a.last_update.velocity[0] * robot_b.last_update.velocity[0] +
+                robot_a.last_update.velocity[2] * robot_b.last_update.velocity[2]) < 0.0;
 
-            if head_on {
-                to_fault.push((id_a, "Head-on collision".to_string()));
-                to_fault.push((id_b, "Head-on collision".to_string()));
-            } else if speed_a > speed_b {
-                to_fault.push((id_a, format!("Collision with robot {}", id_b)));
-            } else if speed_b > speed_a {
-                to_fault.push((id_b, format!("Collision with robot {}", id_a)));
-            } else {
-                to_fault.push((id_a, format!("Collision with robot {}", id_b)));
-                to_fault.push((id_b, format!("Collision with robot {}", id_a)));
-            }
+        if head_on {
+            to_fault.push((id_a, "Head-on collision".to_string()));
+            to_fault.push((id_b, "Head-on collision".to_string()));
+        } else if speed_a > speed_b {
+            to_fault.push((id_a, format!("Collision with robot {}", id_b)));
+        } else if speed_b > speed_a {
+            to_fault.push((id_b, format!("Collision with robot {}", id_a)));
+        } else {
+            to_fault.push((id_a, format!("Collision with robot {}", id_b)));
+            to_fault.push((id_b, format!("Collision with robot {}", id_a)));
         }
     }
 
@@ -933,8 +999,8 @@ async fn detect_inter_robot_collisions(
 
     // pass 2: fault the identified robots, collect their grid positions so we
     // can stop other robots routing through the same cells
-    let mut faulted_cells: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
-    let faulted_ids: std::collections::HashSet<u32> = to_fault.iter().map(|(id, _)| *id).collect();
+    let mut faulted_cells: HashSet<(usize, usize)> = HashSet::new();
+    let faulted_ids: HashSet<u32> = to_fault.iter().map(|(id, _)| *id).collect();
     for (robot_id, _) in &to_fault {
         if let Some(robot) = robots.get(robot_id) {
             faulted_cells.insert(pathfinding::world_to_grid(robot.last_update.position));
@@ -999,4 +1065,54 @@ fn log_deserialize_failure(expected_type: &str, topic: &str, payload: &[u8], err
             err
         ),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::{RobotState, RobotUpdate};
+
+    fn tracked_robot(id: u32, x: f32, z: f32) -> TrackedRobot {
+        TrackedRobot::new(RobotUpdate {
+            id,
+            position: [x, 0.25, z],
+            velocity: [0.0, 0.0, 0.0],
+            state: RobotState::Idle,
+            battery: 100.0,
+            carrying_cargo: None,
+            station_position: [0.0, 0.25, 0.0],
+            enabled: true,
+        })
+    }
+
+    fn pair_set(pairs: Vec<(u32, u32)>) -> HashSet<(u32, u32)> {
+        pairs.into_iter().collect()
+    }
+
+    #[test]
+    fn collision_candidates_limit_far_pairs() {
+        let mut robots = HashMap::new();
+        robots.insert(1, tracked_robot(1, 0.00, 0.00));
+        robots.insert(2, tracked_robot(2, 0.20, 0.10));
+        robots.insert(3, tracked_robot(3, 20.0, 20.0));
+
+        let pairs = pair_set(collect_collision_candidate_pairs(&robots, 0.4));
+        assert!(pairs.contains(&(1, 2)));
+        assert!(!pairs.contains(&(1, 3)));
+        assert!(!pairs.contains(&(2, 3)));
+    }
+
+    #[test]
+    fn collision_candidates_fallback_when_radius_is_zero() {
+        let mut robots = HashMap::new();
+        robots.insert(10, tracked_robot(10, 0.0, 0.0));
+        robots.insert(20, tracked_robot(20, 50.0, 50.0));
+        robots.insert(30, tracked_robot(30, -8.0, -8.0));
+
+        let pairs = pair_set(collect_collision_candidate_pairs(&robots, 0.0));
+        assert_eq!(pairs.len(), 3);
+        assert!(pairs.contains(&(10, 20)));
+        assert!(pairs.contains(&(10, 30)));
+        assert!(pairs.contains(&(20, 30)));
+    }
 }
