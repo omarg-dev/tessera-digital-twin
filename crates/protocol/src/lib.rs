@@ -29,18 +29,7 @@
 //!
 //! This crate has minimal dependencies (`serde`, `chrono`, `rand`) to keep it lightweight.
 //! All other crates depend on this one for shared types.
-//!
-//! ## Example
-//!
-//! ```rust,ignore
-//! use protocol::{GridMap, RobotUpdate, SystemCommand, topics};
-//!
-//! // Load warehouse map
-//! let map = GridMap::load_from_file("assets/data/layout.txt")?;
-//!
-//! // Use topic constants for Zenoh
-//! let topic = topics::ROBOT_UPDATES;
-//! ```
+
 
 pub mod commands;
 pub mod config;
@@ -56,7 +45,16 @@ pub mod publish;
 
 // Re-export for convenience
 pub use commands::{PathCmd, PathCommand, RobotControl, SystemCommand, SystemCommandEffect, CommandResponse, CommandStatus};
-pub use layout::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV, layout_path_from_selector, resolve_layout_path};
+pub use layout::{
+	LAYOUT_FILE_EXTENSION,
+	LAYOUT_FILE_PATH,
+	LAYOUT_OVERRIDE_ENV,
+	LAYOUTS_DIR,
+	LayoutEntry,
+	discover_layout_entries,
+	layout_path_from_selector,
+	resolve_layout_path,
+};
 pub use grid_map::{GridMap, MapValidation, ShelfInventory, Tile, TileType};
 pub use robot::{RobotPathTelemetry, RobotState, RobotUpdate, RobotUpdateBatch, WhcaMetricsTelemetry};
 pub use tasks::{Priority, QueueState, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskRequest, TaskStatus, TaskStatusUpdate, TaskType, task_status_label};

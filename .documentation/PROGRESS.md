@@ -202,7 +202,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Robot visual alignment pass 10: configurable robot model Y-offset control
 - [x] Visual contrast pass 11: neon path emphasis and task-minimap shelf contrast tuning
 - [x] Minimap consistency pass 12: shared minimap palette tokens, context-aware legends, and capacity-overlay alignment across task/shelf flows
-- [x] Layout preset pack + orchestrator run-time layout selector (`-l`, `--layout`) with shared default fallback and map-load consistency
+- [x] Dynamic layout discovery in `assets/layouts` with orchestrator `layout` command and runtime selector support (`-l`, `--layout`) by index/stem/file name
 - [x] Orchestrator run-mode selector: default release launches with opt binaries, optional dev override via `run -d` / `run -dev`
 - [x] Outline stale-entity hardening pass 13: guarded outline insertions and mesh-cache invalidation to prevent mid-run `EntityMutableFetchError` crashes
 - [x] Protocol config ownership pass 14: extracted layout logic to `protocol::layout`, renamed visual config namespace to `visualizer`, grouped battery/physics under `firmware`, and removed stale constants
@@ -300,6 +300,24 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Dynamic layout discovery and orchestrator layout command cleanup (Phase 5)
+
+- Replaced hardcoded layout selector aliases in `protocol::layout` with runtime directory discovery from `assets/layouts`.
+- Added shared `discover_layout_entries()` and `LayoutEntry` metadata for stable alphabetical listing of `.layout` files.
+- Updated selector resolution behavior to support:
+  - 1-based numeric index (`run -l 1`)
+  - layout stem (`run -l l1_basic_small`)
+  - full filename (`run -l l1_basic_small.layout`)
+- Updated orchestrator CLI command surface:
+  - Added `layout` / `layouts` command to print discoverable layouts and selectors.
+  - Removed hardcoded preset clutter from help output and replaced with a compact hint.
+  - Improved unknown selector guidance to point users to the `layout` command.
+- Updated runtime default layout initialization to use shared layout resolver for consistency across orchestrated runs.
+- Why: keep layout operations data-driven, reduce CLI noise, and avoid selector drift when layout files are added, removed, or renamed.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Mass-add UI polish follow-up (Phase 5)
 

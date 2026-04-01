@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::thread;
 use std::collections::HashSet;
 use protocol::config::orchestrator as orch_config;
-use protocol::layout::{LAYOUT_FILE_PATH, LAYOUT_OVERRIDE_ENV};
+use protocol::layout::{resolve_layout_path, LAYOUT_OVERRIDE_ENV};
 use crate::cli::RunMode;
 
 /// List of all manageable crates in startup order
@@ -30,7 +30,7 @@ impl Processes {
         Self {
             running: Vec::new(),
             show_output: HashSet::new(), // all crates silent by default
-            active_layout: LAYOUT_FILE_PATH.to_string(),
+            active_layout: resolve_layout_path(),
             active_mode: RunMode::Release,
         }
     }

@@ -64,45 +64,57 @@ async fn main() {
             // Process management
             Command::RunAll { layout: layout_selector, mode } => {
                 logs::start_run_session();
-                let layout = layout_selector
-                    .as_deref()
-                    .map(|selector| {
-                        protocol::layout::layout_path_from_selector(selector)
-                            .ok_or_else(|| format!("Unknown layout selector '{}'. Type 'help' for presets.", selector))
-                    })
-                    .transpose();
-
-                let layout_path = match layout {
-                    Ok(path) => path,
-                    Err(e) => {
-                        println!("✗ {}", e);
-                        continue;
-                    }
+                let layout_path = match layout_selector {
+                    Some(selector) => match protocol::layout::layout_path_from_selector(&selector) {
+                        Ok(Some(path)) => Some(path),
+                        Ok(None) => {
+                            println!(
+                                "✗ Unknown layout selector '{}'. Type 'layout' to list available layouts.",
+                                selector
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            println!(
+                                "✗ Failed to read layouts from '{}': {}",
+                                protocol::layout::LAYOUTS_DIR,
+                                e
+                            );
+                            continue;
+                        }
+                    },
+                    None => None,
                 };
 
-                if let Err(e) = processes.start_all(layout_path, mode) {
+                if let Err(e) = processes.start_all(layout_path.as_deref(), mode) {
                     println!("✗ Failed to run: {}", e);
                 }
             }
             Command::Run { name, layout, mode } => {
                 logs::start_run_session();
-                let layout = layout
-                    .as_deref()
-                    .map(|selector| {
-                        protocol::layout::layout_path_from_selector(selector)
-                            .ok_or_else(|| format!("Unknown layout selector '{}'. Type 'help' for presets.", selector))
-                    })
-                    .transpose();
-
                 let layout_path = match layout {
-                    Ok(path) => path,
-                    Err(e) => {
-                        println!("✗ {}", e);
-                        continue;
-                    }
+                    Some(selector) => match protocol::layout::layout_path_from_selector(&selector) {
+                        Ok(Some(path)) => Some(path),
+                        Ok(None) => {
+                            println!(
+                                "✗ Unknown layout selector '{}'. Type 'layout' to list available layouts.",
+                                selector
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            println!(
+                                "✗ Failed to read layouts from '{}': {}",
+                                protocol::layout::LAYOUTS_DIR,
+                                e
+                            );
+                            continue;
+                        }
+                    },
+                    None => None,
                 };
 
-                if let Err(e) = processes.start(&name, layout_path, mode) {
+                if let Err(e) = processes.start(&name, layout_path.as_deref(), mode) {
                     println!("✗ Failed to run {}: {}", name, e);
                 }
             }
@@ -129,6 +141,14 @@ async fn main() {
             Command::Status => {
                 cli::print_status(processes.running(), processes.output_set());
             }
+            Command::Layouts => match protocol::layout::discover_layout_entries() {
+                Ok(layouts) => cli::print_layouts(&layouts),
+                Err(e) => println!(
+                    "✗ Failed to read layouts from '{}': {}",
+                    protocol::layout::LAYOUTS_DIR,
+                    e
+                ),
+            },
 
             // output visibility
             Command::ShowOutput(name, true) => processes.show_output(&name),

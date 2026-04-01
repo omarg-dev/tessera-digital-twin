@@ -1,6 +1,7 @@
 //! CLI command parsing and help display
 
 use crate::processes::CRATE_ORDER;
+use protocol::layout::LayoutEntry;
 
 /// Build/run mode for spawned crates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +33,7 @@ pub enum Command {
     Kill(String),
     Restart,
     Status,
+    Layouts,
 
     // Output visibility (takes effect on next spawn)
     ShowOutput(String, bool),
@@ -68,6 +70,7 @@ impl Command {
             
             ["restart"] | ["reset"] => Command::Restart,
             ["status"] | ["ps"] => Command::Status,
+            ["layout"] | ["layouts"] | ["l"] => Command::Layouts,
 
             // output visibility (takes effect on next spawn)
             ["show", "all"] => Command::ShowOutput("all".to_string(), true),
@@ -146,12 +149,13 @@ pub fn print_help() {
     println!("│  run <crate>    - Run specific crate            │");
     println!("│  run (default)  - release mode                  │");
     println!("│  run -d|-dev    - dev mode (debug binaries)     │");
-    println!("│  run -l <id>    - Run all with layout preset    │");
+    println!("│  run -l <id>    - Run all with selected layout  │");
     println!("│  run <crate> --layout <id> - Run crate layout   │");
     println!("│  kill, down     - Kill all crates               │");
     println!("│  kill <crate>   - Kill specific crate           │");
     println!("│  restart        - Kill + run all                │");
     println!("│  status, ps     - Show process status           │");
+    println!("│  layout, l      - List available layouts        │");
     println!("├─────────────────────────────────────────────────┤");
     println!("│  OUTPUT VISIBILITY (takes effect on next spawn) │");
     println!("├─────────────────────────────────────────────────┤");
@@ -172,17 +176,26 @@ pub fn print_help() {
     println!("╰─────────────────────────────────────────────────╯");
     println!();
     println!("Available crates: {:?}", CRATE_ORDER);
-    println!("Available layout presets:");
-    println!("  0/default/layout           -> assets/data/layout.txt");
-    println!("  1/layout1                  -> assets/data/layout1.txt");
-    println!("  2/layout2                  -> assets/data/layout2.txt");
-    println!("  3/cinematic1/cinematic_ring -> assets/data/layout3_cinematic_ring.txt");
-    println!("  4/cinematic2/cinematic_crossroads -> assets/data/layout4_cinematic_crossroads.txt");
-    println!("  5/cinematic3/cinematic_runway -> assets/data/layout5_cinematic_runway.txt");
-    println!("  6/test1/test_bottleneck    -> assets/data/layout6_test_bottleneck.txt");
-    println!("  7/test2/test_openfield     -> assets/data/layout7_test_openfield.txt");
-    println!("  8/test3/test_lane_swap     -> assets/data/layout8_test_lane_swap.txt");
-    println!("  9/mega/massive_factory     -> assets/data/layout9_massive_factory.txt");
+    println!("Use 'layout' to list available layouts and selectors.");
+}
+
+/// Print discoverable layouts.
+pub fn print_layouts(layouts: &[LayoutEntry]) {
+    println!("Available layouts ({}):", protocol::layout::LAYOUTS_DIR);
+
+    if layouts.is_empty() {
+        println!("  (none found)");
+        return;
+    }
+
+    for (index, layout) in layouts.iter().enumerate() {
+        println!(
+            "  {:>2}. {:24} -> {}",
+            index + 1,
+            layout.stem,
+            layout.path
+        );
+    }
 }
 
 /// Print process status table
@@ -320,6 +333,12 @@ mod tests {
         assert_eq!(Command::parse("kill all"), Command::KillAll);
         assert_eq!(Command::parse("down"), Command::KillAll);
         assert_eq!(Command::parse("kill coordinator"), Command::Kill("coordinator".to_string()));
+    }
+
+    #[test]
+    fn test_parse_layouts() {
+        assert_eq!(Command::parse("layout"), Command::Layouts);
+        assert_eq!(Command::parse("layouts"), Command::Layouts);
     }
 
     #[test]
