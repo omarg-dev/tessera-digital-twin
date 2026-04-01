@@ -192,6 +192,20 @@ pub mod scheduler {
     /// Keeps loop latency bounded so state broadcasts and UI updates remain responsive
     /// under very large backlogs.
     pub const ALLOCATION_TASK_BUDGET_PER_TICK: usize = 20;
+
+    /// Maximum number of auto-retry attempts for retryable no-path assignment failures.
+    pub const RETRYABLE_NO_PATH_MAX_ATTEMPTS: u32 = 3;
+
+    /// Initial retry backoff in milliseconds for retryable no-path failures.
+    pub const RETRYABLE_NO_PATH_BASE_BACKOFF_MS: u64 = 250;
+
+    /// Maximum retry backoff in milliseconds for retryable no-path failures.
+    pub const RETRYABLE_NO_PATH_MAX_BACKOFF_MS: u64 = 3000;
+
+    /// Random jitter added to retry backoff (milliseconds).
+    ///
+    /// Helps avoid synchronized re-assignment storms under corridor congestion.
+    pub const RETRYABLE_NO_PATH_JITTER_MS: u64 = 200;
     
     /// Location marker base for shelf encoding (S1 = SHELF_MARKER_BASE + 1)
     pub const SHELF_MARKER_BASE: usize = 10000;

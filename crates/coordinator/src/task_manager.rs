@@ -199,7 +199,13 @@ pub async fn handle_task_assignment(
     let Some(path_result) = pathfinder.find_path_to_non_walkable_for_robot(map, start, pickup, robot_id) else {
         println!("✗ No path found from Robot {} to pickup {:?}", robot_id, pickup);
         logs::save_log("Coordinator", &format!("[ERROR] Pathfinding failed: Robot {} cannot reach pickup {:?}", robot_id, pickup));
-        send_task_failure(status_publisher, task.id, robot_id, format!("No path to pickup {:?}", pickup)).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            format!("no path to pickup ({},{})", pickup.0, pickup.1),
+        )
+        .await;
         return AssignmentResult::NoPathToPickup;
     };
 

@@ -12,7 +12,8 @@ use rand::Rng;
 use protocol::config::scheduler as sched_config;
 use protocol::{
     timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
-    Task, TaskAssignment, TaskCommand, TaskListSnapshot, TaskStatus, TaskStatusUpdate, TaskType,
+    Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskStatus, TaskStatusUpdate,
+    TaskType,
     is_reachable_on_map, world_to_grid,
 };
 
@@ -20,6 +21,52 @@ use crate::allocator::{Allocator, AllocatorInstance, RobotInfo};
 use crate::cli::{print_status, print_shelves, print_dropoffs, print_stations, print_map, print_history, spawn_stdin_reader, print_help, StdinCmd};
 use crate::commands::handle_system_commands;
 use crate::queue::{QueueInstance, TaskQueue};
+
+#[derive(Debug, Clone)]
+struct TaskRetryState {
+    attempts: u32,
+    next_eligible_at: std::time::Instant,
+}
+
+fn is_disabled_failure_reason(reason: &str) -> bool {
+    reason.to_ascii_lowercase().contains("disabled")
+}
+
+fn is_retryable_no_path_failure(reason: &str) -> bool {
+    reason.to_ascii_lowercase().contains("no path to pickup")
+}
+
+fn base_retry_backoff_ms(attempt: u32) -> u64 {
+    let exponent = attempt.saturating_sub(1).min(16);
+    let base = sched_config::RETRYABLE_NO_PATH_BASE_BACKOFF_MS
+        .saturating_mul(1_u64 << exponent);
+    base.min(sched_config::RETRYABLE_NO_PATH_MAX_BACKOFF_MS)
+}
+
+fn retry_backoff_with_jitter_ms(attempt: u32) -> u64 {
+    let base = base_retry_backoff_ms(attempt);
+    let jitter_max = sched_config::RETRYABLE_NO_PATH_JITTER_MS;
+    if jitter_max == 0 {
+        return base;
+    }
+    let jitter = thread_rng().gen_range(0..=jitter_max);
+    base.saturating_add(jitter)
+}
+
+fn unix_timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn prune_retry_state(queue: &dyn TaskQueue, retry_state: &mut HashMap<TaskId, TaskRetryState>) {
+    retry_state.retain(|task_id, _| {
+        queue.get(*task_id)
+            .map(|task| task.status == TaskStatus::Pending)
+            .unwrap_or(false)
+    });
+}
 
 /// Run the scheduler main loop
 pub async fn run(session: Session) {
@@ -53,6 +100,7 @@ pub async fn run(session: Session) {
     let mut queue = QueueInstance::from_config();
     let allocator = AllocatorInstance::from_config();
     let mut robots: HashMap<u32, RobotInfo> = HashMap::new();
+    let mut retry_state: HashMap<TaskId, TaskRetryState> = HashMap::new();
     let mut paused = false;
     let mut verbose = true; // Default to verbose on
 
@@ -85,11 +133,30 @@ pub async fn run(session: Session) {
         handle_robot_updates(&robot_sub, &mut robots);
         
         // Task status updates (from coordinator)
-        handle_status_updates(&status_sub, &mut queue, &mut robots, &mut inventory);
+        handle_status_updates(
+            &status_sub,
+            &mut queue,
+            &mut robots,
+            &mut inventory,
+            &mut retry_state,
+        );
+
+        // Drop retry metadata for tasks that are no longer pending.
+        prune_retry_state(&queue, &mut retry_state);
 
         // Allocate tasks
         if !paused {
-            allocate_tasks(&mut queue, &allocator, &mut robots, &map, &mut inventory, &assignment_pub, verbose).await;
+            allocate_tasks(
+                &mut queue,
+                &allocator,
+                &mut robots,
+                &map,
+                &mut inventory,
+                &mut retry_state,
+                &assignment_pub,
+                verbose,
+            )
+            .await;
         }
 
         // Broadcast queue state and task list
@@ -558,6 +625,7 @@ fn handle_status_updates(
     queue: &mut dyn TaskQueue,
     robots: &mut HashMap<u32, RobotInfo>,
     inventory: &mut ShelfInventory,
+    retry_state: &mut HashMap<TaskId, TaskRetryState>,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
         let payload = sample.payload().to_bytes();
@@ -566,43 +634,86 @@ fn handle_status_updates(
                 println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
                 logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
 
-                let requeue_disabled_failure = match &update.status {
-                    TaskStatus::Failed { reason } => reason.to_ascii_lowercase().contains("disabled"),
-                    _ => false,
-                };
+                match &update.status {
+                    TaskStatus::Failed { reason } => {
+                        if let Some(pickup) = task.pickup_location() {
+                            inventory.undo_pickup(pickup);
+                        }
+                        if let Some(dropoff) = task.target_location() {
+                            inventory.undo_dropoff(dropoff);
+                        }
+                        logs::save_log("Scheduler", &format!("Task {} failed: inventory reservations undone", task.id));
 
-                // Undo inventory reservations on task failure
-                if matches!(update.status, TaskStatus::Failed { .. }) {
-                    if let Some(pickup) = task.pickup_location() {
-                        inventory.undo_pickup(pickup);
+                        if is_disabled_failure_reason(reason) {
+                            task.status = TaskStatus::Pending;
+                            task.completed_at = None;
+                            retry_state.remove(&task.id);
+                            logs::save_log(
+                                "Scheduler",
+                                &format!(
+                                    "Task {} requeued after disabled robot auto-unassign",
+                                    task.id
+                                ),
+                            );
+                        } else if is_retryable_no_path_failure(reason) {
+                            let state = retry_state.entry(task.id).or_insert(TaskRetryState {
+                                attempts: 0,
+                                next_eligible_at: std::time::Instant::now(),
+                            });
+
+                            if state.attempts < sched_config::RETRYABLE_NO_PATH_MAX_ATTEMPTS {
+                                state.attempts += 1;
+                                let backoff_ms = retry_backoff_with_jitter_ms(state.attempts);
+                                state.next_eligible_at =
+                                    std::time::Instant::now() + std::time::Duration::from_millis(backoff_ms);
+
+                                task.status = TaskStatus::Pending;
+                                task.completed_at = None;
+
+                                logs::save_log(
+                                    "Scheduler",
+                                    &format!(
+                                        "Task {} retry scheduled after no-path failure (attempt {}/{}, backoff {}ms)",
+                                        task.id,
+                                        state.attempts,
+                                        sched_config::RETRYABLE_NO_PATH_MAX_ATTEMPTS,
+                                        backoff_ms
+                                    ),
+                                );
+                            } else {
+                                let exhausted_reason = format!(
+                                    "{} (retry exhausted after {} attempts)",
+                                    reason,
+                                    state.attempts
+                                );
+                                task.status = TaskStatus::Failed {
+                                    reason: exhausted_reason,
+                                };
+                                task.completed_at = Some(unix_timestamp_ms());
+                                retry_state.remove(&task.id);
+                            }
+                        } else {
+                            task.status = update.status.clone();
+                            task.completed_at = Some(unix_timestamp_ms());
+                            retry_state.remove(&task.id);
+                        }
                     }
-                    if let Some(dropoff) = task.target_location() {
-                        inventory.undo_dropoff(dropoff);
-                    }
-                    logs::save_log("Scheduler", &format!("Task {} failed: inventory reservations undone", task.id));
-                }
+                    _ => {
+                        task.status = update.status.clone();
 
-                if requeue_disabled_failure {
-                    task.status = TaskStatus::Pending;
-                    task.completed_at = None;
-                    logs::save_log(
-                        "Scheduler",
-                        &format!(
-                            "Task {} requeued after disabled robot auto-unassign",
-                            task.id
-                        ),
-                    );
-                } else {
-                    task.status = update.status.clone();
+                        if matches!(update.status, TaskStatus::Completed | TaskStatus::Cancelled) {
+                            task.completed_at = Some(unix_timestamp_ms());
+                        }
 
-                    // stamp completion time for terminal transitions
-                    if matches!(update.status, TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled) {
-                        task.completed_at = Some(
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64
-                        );
+                        if matches!(
+                            update.status,
+                            TaskStatus::Assigned { .. }
+                                | TaskStatus::InProgress { .. }
+                                | TaskStatus::Completed
+                                | TaskStatus::Cancelled
+                        ) {
+                            retry_state.remove(&task.id);
+                        }
                     }
                 }
 
@@ -634,12 +745,20 @@ async fn allocate_tasks(
     robots: &mut HashMap<u32, RobotInfo>,
     map: &GridMap,
     inventory: &mut ShelfInventory,
+    retry_state: &mut HashMap<TaskId, TaskRetryState>,
     publisher: &zenoh::pubsub::Publisher<'_>,
     verbose: bool,
 ) {
     let pending_ids = queue.pending_task_ids_limited(sched_config::ALLOCATION_TASK_BUDGET_PER_TICK);
+    let now = std::time::Instant::now();
 
     for task_id in pending_ids {
+        if let Some(state) = retry_state.get(&task_id) {
+            if now < state.next_eligible_at {
+                continue;
+            }
+        }
+
         let Some(task) = queue.get(task_id).cloned() else { continue };
 
         // Shelf capacity enforcement: skip tasks that can't be fulfilled
@@ -704,6 +823,7 @@ async fn allocate_tasks(
             .await
             {
                 task.status = TaskStatus::Assigned { robot_id };
+                retry_state.remove(&task_id);
                 if verbose {
                     println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
                 }
@@ -748,4 +868,34 @@ async fn broadcast_state(
         |payload| async move { publisher.put(payload).await.map(|_| ()) },
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_reason_detection_is_case_insensitive() {
+        assert!(is_disabled_failure_reason("Robot Disabled"));
+        assert!(is_disabled_failure_reason("robot is disabled by operator"));
+        assert!(!is_disabled_failure_reason("robot busy"));
+    }
+
+    #[test]
+    fn retryable_no_path_detection_is_case_insensitive() {
+        assert!(is_retryable_no_path_failure("no path to pickup (10,20)"));
+        assert!(is_retryable_no_path_failure("No Path To Pickup"));
+        assert!(!is_retryable_no_path_failure("invalid pickup/dropoff"));
+    }
+
+    #[test]
+    fn retry_backoff_growth_is_capped() {
+        let first = base_retry_backoff_ms(1);
+        let second = base_retry_backoff_ms(2);
+        let tenth = base_retry_backoff_ms(10);
+
+        assert_eq!(first, sched_config::RETRYABLE_NO_PATH_BASE_BACKOFF_MS);
+        assert!(second >= first);
+        assert!(tenth <= sched_config::RETRYABLE_NO_PATH_MAX_BACKOFF_MS);
+    }
 }

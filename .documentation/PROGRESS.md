@@ -210,6 +210,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Mass-add traffic generation flow: shared `TaskCommand::MassAdd`, scheduler-side random generation logic + CLI command, and visualizer tasks-panel trigger form
 - [x] Mass-add UI polish: 0-100 drop-off slider control, ASCII back button label (`<- Back`), and inline form validation hint for invalid task count input
 - [x] Mass-add scalability guardrails: capped mass-add request size, removed per-task enqueue console spam, and bounded scheduler assignment scan budget per tick
+- [x] Retryable no-path congestion handling: scheduler retry lane with bounded exponential backoff + jitter and coordinator no-path reason normalization
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -305,6 +306,25 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Scheduler retry lane for congestion no-path failures (Phase 5)
+
+- Added scheduler retry policy config knobs in protocol:
+  - `RETRYABLE_NO_PATH_MAX_ATTEMPTS`
+  - `RETRYABLE_NO_PATH_BASE_BACKOFF_MS`
+  - `RETRYABLE_NO_PATH_MAX_BACKOFF_MS`
+  - `RETRYABLE_NO_PATH_JITTER_MS`
+- Implemented scheduler-side retry metadata and backoff gating:
+  - retry only for retryable no-path failures
+  - preserve existing disabled-robot auto-requeue behavior
+  - apply exponential backoff with jitter and terminal fail after retry budget exhaustion
+- Added retry-aware allocator gating so pending tasks under backoff are skipped until eligible.
+- Normalized coordinator no-path failure text to a stable lowercase form (`no path to pickup (x,y)`) for deterministic scheduler classification.
+- Added scheduler unit tests covering failure classification and backoff bounds.
+- Why: reduce false terminal failures under temporary reservation congestion while preventing immediate re-assignment storms.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Visualizer UI icon glyph normalization (Phase 5)
 
