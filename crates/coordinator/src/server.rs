@@ -11,7 +11,8 @@ use protocol::config::coordinator::{collision as collision_config, sensor as sen
 use protocol::logs;
 use protocol::grid_map::ShelfInventory;
 use serde_json::{to_vec, from_slice};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use crate::state::{TrackedRobot, TaskStage};
 use crate::pathfinding::{self, Pathfinder, PathfinderInstance};
@@ -128,6 +129,7 @@ pub async fn run(session: Session, map: GridMap) {
     let mut last_whca_stats_log = std::time::Instant::now();
     let mut last_whca_stats_snapshot: Option<pathfinding::WHCAStatsSnapshot> = None;
     let mut chaos = protocol::config::chaos::ENABLED;
+    let mut path_telemetry_cache: HashMap<u32, PathTelemetryCacheEntry> = HashMap::new();
     
     loop {
         // Republish map hash periodically (ensures latecomers can validate)
@@ -323,8 +325,13 @@ pub async fn run(session: Session, map: GridMap) {
                 send_path_commands(&mut robots, &cmd_publisher, &mut next_cmd_id, &mut pathfinder, verbose).await;
             }
 
-            // Broadcast remaining paths for all robots (visualizer path telemetry)
-            broadcast_path_telemetry(&robots, &path_telemetry_publisher).await;
+            // Broadcast remaining paths when changed, with heartbeat fallback.
+            broadcast_path_telemetry(
+                &robots,
+                &path_telemetry_publisher,
+                &mut path_telemetry_cache,
+            )
+            .await;
         }
 
         if last_whca_stats_log.elapsed() >= std::time::Duration::from_secs(5) {
@@ -602,28 +609,83 @@ async fn send_path_commands(
 // ============================================================================
 
 /// Broadcast remaining waypoints for all tracked robots.
-/// Runs once per tick so the visualizer always has fresh path data.
+/// Sends immediately on path change and periodically as a heartbeat.
+#[derive(Debug, Clone)]
+struct PathTelemetryCacheEntry {
+    signature: u64,
+    last_sent: std::time::Instant,
+}
+
+fn remaining_path_slice(robot: &TrackedRobot) -> &[[f32; 3]] {
+    if robot.path_index < robot.current_path.len() {
+        &robot.current_path[robot.path_index..]
+    } else {
+        &[]
+    }
+}
+
+fn path_signature(waypoints: &[[f32; 3]]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    waypoints.len().hash(&mut hasher);
+    for [x, y, z] in waypoints {
+        x.to_bits().hash(&mut hasher);
+        y.to_bits().hash(&mut hasher);
+        z.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn should_send_path_telemetry(
+    previous: Option<&PathTelemetryCacheEntry>,
+    signature: u64,
+    now: std::time::Instant,
+    heartbeat: std::time::Duration,
+) -> bool {
+    let Some(previous) = previous else {
+        return true;
+    };
+
+    previous.signature != signature || now.duration_since(previous.last_sent) >= heartbeat
+}
+
 async fn broadcast_path_telemetry(
     robots: &HashMap<u32, TrackedRobot>,
     publisher: &zenoh::pubsub::Publisher<'_>,
+    cache: &mut HashMap<u32, PathTelemetryCacheEntry>,
 ) {
     use protocol::RobotPathTelemetry;
+    let now = std::time::Instant::now();
+    let heartbeat = std::time::Duration::from_millis(coord_config::PATH_TELEMETRY_HEARTBEAT_MS);
+
+    cache.retain(|robot_id, _| robots.contains_key(robot_id));
 
     for (&robot_id, robot) in robots.iter() {
-        let waypoints: Vec<[f32; 3]> = if robot.path_index < robot.current_path.len() {
-            robot.current_path[robot.path_index..].to_vec()
-        } else {
-            Vec::new()
-        };
+        let remaining = remaining_path_slice(robot);
+        let signature = path_signature(remaining);
+
+        if !should_send_path_telemetry(cache.get(&robot_id), signature, now, heartbeat) {
+            continue;
+        }
+
+        let waypoints = remaining.to_vec();
 
         let telemetry = RobotPathTelemetry { robot_id, waypoints };
-        let _ = protocol::publish_json_logged(
+        if protocol::publish_json_logged(
             "Coordinator",
             "path telemetry broadcast",
             &telemetry,
             |payload| async move { publisher.put(payload).await.map(|_| ()) },
         )
-        .await;
+        .await
+        {
+            cache.insert(
+                robot_id,
+                PathTelemetryCacheEntry {
+                    signature,
+                    last_sent: now,
+                },
+            );
+        }
     }
 }
 
@@ -1071,6 +1133,7 @@ fn log_deserialize_failure(expected_type: &str, topic: &str, payload: &[u8], err
 mod tests {
     use super::*;
     use protocol::{RobotState, RobotUpdate};
+    use std::time::Duration;
 
     fn tracked_robot(id: u32, x: f32, z: f32) -> TrackedRobot {
         TrackedRobot::new(RobotUpdate {
@@ -1114,5 +1177,52 @@ mod tests {
         assert!(pairs.contains(&(10, 20)));
         assert!(pairs.contains(&(10, 30)));
         assert!(pairs.contains(&(20, 30)));
+    }
+
+    #[test]
+    fn path_signature_changes_when_waypoints_change() {
+        let path_a = vec![[1.0, 0.25, 2.0], [2.0, 0.25, 2.0]];
+        let path_b = vec![[1.0, 0.25, 2.0], [2.0, 0.25, 3.0]];
+
+        let sig_a = path_signature(&path_a);
+        let sig_b = path_signature(&path_b);
+
+        assert_eq!(sig_a, path_signature(&path_a));
+        assert_ne!(sig_a, sig_b);
+    }
+
+    #[test]
+    fn telemetry_send_policy_honors_change_and_heartbeat() {
+        let now = std::time::Instant::now();
+        let heartbeat = Duration::from_millis(1000);
+        let signature = 42_u64;
+
+        assert!(should_send_path_telemetry(None, signature, now, heartbeat));
+
+        let previous = PathTelemetryCacheEntry {
+            signature,
+            last_sent: now,
+        };
+
+        assert!(!should_send_path_telemetry(
+            Some(&previous),
+            signature,
+            now + Duration::from_millis(500),
+            heartbeat,
+        ));
+
+        assert!(should_send_path_telemetry(
+            Some(&previous),
+            signature,
+            now + Duration::from_millis(1000),
+            heartbeat,
+        ));
+
+        assert!(should_send_path_telemetry(
+            Some(&previous),
+            signature + 1,
+            now + Duration::from_millis(100),
+            heartbeat,
+        ));
     }
 }

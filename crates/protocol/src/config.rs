@@ -63,6 +63,12 @@ pub mod coordinator {
     
     /// Path command send interval in milliseconds (20 Hz, matching firmware physics tick)
     pub const PATH_SEND_INTERVAL_MS: u64 = 50;
+
+    /// Path telemetry heartbeat interval in milliseconds.
+    ///
+    /// Coordinator sends path telemetry immediately on path change and at this
+    /// interval while unchanged to keep renderer state fresh without per-tick fanout.
+    pub const PATH_TELEMETRY_HEARTBEAT_MS: u64 = 1000;
     
     /// Number of upcoming waypoints to check for reservations before dispatching FollowPath.
     /// Scanning ahead prevents the firmware from blindly driving into a cell that becomes

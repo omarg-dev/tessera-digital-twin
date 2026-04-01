@@ -212,6 +212,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Mass-add scalability guardrails: capped mass-add request size, removed per-task enqueue console spam, and bounded scheduler assignment scan budget per tick
 - [x] Retryable no-path congestion handling: scheduler retry lane with bounded exponential backoff + jitter and coordinator no-path reason normalization
 - [x] Coordinator collision scaling pass: replaced O(R^2) all-pairs collision scan with spatial-bucket candidate pruning plus helper tests
+- [x] Path telemetry data-plane pass: coordinator now publishes path telemetry on change with heartbeat fallback (instead of every send tick for every robot)
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -307,6 +308,19 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Path telemetry change-driven broadcast throttling (Phase 5)
+
+- Added coordinator config knob `PATH_TELEMETRY_HEARTBEAT_MS` for low-rate unchanged-path refreshes.
+- Replaced per-robot per-send-tick telemetry fanout with change-driven publishing:
+  - compute a stable signature over remaining waypoints
+  - publish immediately when signature changes (new path, progress, clear, replan)
+  - publish heartbeat snapshots when unchanged for renderer freshness
+- Added coordinator helper tests for path signature stability and send-policy behavior (change vs heartbeat).
+- Why: reduce coordinator -> visualizer telemetry volume and hot-loop publish overhead in dense fleet scenarios while preserving correct path updates.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Coordinator spatial collision candidate pruning (Phase 5)
 
