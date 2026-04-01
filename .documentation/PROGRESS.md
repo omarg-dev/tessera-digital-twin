@@ -208,6 +208,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Protocol config ownership pass 14: extracted layout logic to `protocol::layout`, renamed visual config namespace to `visualizer`, grouped battery/physics under `firmware`, and removed stale constants
 - [x] Compact layout format pass 15: removed whitespace-separated map rows, adopted single-char hexadecimal shelf stock tokens (1..F, 0=16), and aligned parser support for compact + legacy layout inputs
 - [x] Mass-add traffic generation flow: shared `TaskCommand::MassAdd`, scheduler-side random generation logic + CLI command, and visualizer tasks-panel trigger form
+- [x] Mass-add UI polish: 0-100 drop-off slider control, ASCII back button label (`<- Back`), and inline form validation hint for invalid task count input
 
 **Pending Features:** None - Phase 5 Complete! ✅
 
@@ -299,6 +300,17 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Mass-add UI polish follow-up (Phase 5)
+
+- Updated the visualizer Tasks tab mass-add form to replace the Drop-off % text field with a 0-100 slider.
+- Kept scheduler fallback behavior intact by showing default 60% when slider value is not explicitly committed.
+- Replaced the Add Task wizard back button label from the problematic unicode arrow glyph to plain ASCII `<- Back`.
+- Added an inline validation hint in the mass-add form when the task count is invalid (non-numeric or non-positive).
+- Why: improve UI clarity and prevent glyph rendering issues while giving immediate input feedback without crashes or noisy errors.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-03-30: Mass-add task generation command flow (Phase 5)
 

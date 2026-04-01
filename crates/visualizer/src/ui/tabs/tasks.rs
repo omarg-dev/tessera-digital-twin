@@ -271,14 +271,34 @@ fn render_mass_add_controls(
                 .hint_text("e.g. 250"),
         );
 
+        let count_is_valid = ui_state
+            .mass_add_count_input
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|count| *count > 0)
+            .is_some();
+
         ui.add_space(4.0);
         ui.label("Drop-off %");
-        ui.add(
-            egui::TextEdit::singleline(&mut ui_state.mass_add_dropoff_pct_input)
-                .hint_text(format!("{default_pct:.0}")),
-        );
+
+        let mut slider_pct = parse_optional_dropoff_percentage(&ui_state.mass_add_dropoff_pct_input)
+            .and_then(|value| value.map(|probability| probability * 100.0))
+            .unwrap_or(default_pct)
+            .clamp(0.0, 100.0);
+
+        let slider = egui::Slider::new(&mut slider_pct, 0.0..=100.0)
+            .step_by(1.0)
+            .suffix(" %");
+        if ui.add(slider).changed() {
+            ui_state.mass_add_dropoff_pct_input = format!("{slider_pct:.0}");
+        }
+        if ui_state.mass_add_dropoff_pct_input.trim().is_empty() {
+            ui.weak(format!("Using default: {default_pct:.0} %"));
+        }
 
         ui.add_space(8.0);
+        let mut show_validation_hint = false;
         ui.horizontal(|ui| {
             let execute_btn = egui::Button::new(egui::RichText::new("Execute").strong());
             if ui.add(execute_btn).clicked() {
@@ -291,6 +311,8 @@ fn render_mass_add_controls(
                         dropoff_probability,
                     });
                     reset_mass_add_form(ui_state);
+                } else {
+                    show_validation_hint = true;
                 }
             }
 
@@ -298,6 +320,14 @@ fn render_mass_add_controls(
                 reset_mass_add_form(ui_state);
             }
         });
+
+        if show_validation_hint || (!ui_state.mass_add_count_input.trim().is_empty() && !count_is_valid)
+        {
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 80, 80),
+                "Enter a valid positive whole number for Amount of Tasks.",
+            );
+        }
     });
 }
 
@@ -313,7 +343,7 @@ fn wizard_view(
     actions: &mut Vec<UiAction>,
 ) {
     ui.horizontal(|ui| {
-        if ui.button("\u{2190} Back").clicked() {
+        if ui.button("<- Back").clicked() {
             ui_state.task_wizard_active = false;
         }
         ui.label(egui::RichText::new("Add New Task").strong());
