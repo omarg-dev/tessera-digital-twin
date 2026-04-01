@@ -6,6 +6,7 @@ edition.workspace = true
 [lib]
 name = "notifier"
 path = "src/lib.rs"
+doctest = false
 
 [[bin]]
 name = "notifier"

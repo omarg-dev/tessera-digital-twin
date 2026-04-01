@@ -139,7 +139,8 @@ async fn main() {
                 }
             }
             Command::Status => {
-                cli::print_status(processes.running(), processes.output_set());
+                let status_entries = processes.status_snapshot();
+                cli::print_status(&status_entries);
             }
             Command::Layouts => match protocol::layout::discover_layout_entries() {
                 Ok(layouts) => cli::print_layouts(&layouts),

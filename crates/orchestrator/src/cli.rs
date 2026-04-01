@@ -1,6 +1,6 @@
 //! CLI command parsing and help display
 
-use crate::processes::CRATE_ORDER;
+use crate::processes::{ProcessStatusEntry, CRATE_ORDER};
 use protocol::layout::LayoutEntry;
 
 /// Build/run mode for spawned crates.
@@ -199,23 +199,19 @@ pub fn print_layouts(layouts: &[LayoutEntry]) {
 }
 
 /// Print process status table
-pub fn print_status(running: &[String], show_output: &std::collections::HashSet<String>) {
-    use crate::processes::is_process_running;
-
+pub fn print_status(status_entries: &[ProcessStatusEntry]) {
     println!("╭───────────────────────────────────────────────────────╮");
     println!("│  PROCESS STATUS                                       │");
     println!("├───────────────────────────────────────────────────────┤");
 
-    for name in CRATE_ORDER {
-        let status = if is_process_running(name) {
-            "🟢 running"
-        } else if running.contains(&name.to_string()) {
-            "🔴 exited"
-        } else {
-            "⚫ not started"
-        };
-        let output = if show_output.contains(*name) { "[window]" } else { "[silent]" };
-        println!("│  {:17} {:18}  {:8}  │", format!("{}:", name), status, output);
+    for entry in status_entries {
+        let output = if entry.windowed { "[window]" } else { "[silent]" };
+        println!(
+            "│  {:17} {:18}  {:8}  │",
+            format!("{}:", entry.name),
+            entry.state.label(),
+            output
+        );
     }
     println!("╰───────────────────────────────────────────────────────╯");
 }

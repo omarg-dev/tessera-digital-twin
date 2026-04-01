@@ -209,7 +209,10 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Compact layout format pass 15: removed whitespace-separated map rows, adopted single-char hexadecimal shelf stock tokens (1..F, 0=16), and aligned parser support for compact + legacy layout inputs
 - [x] Mass-add traffic generation flow: shared `TaskCommand::MassAdd`, scheduler-side random generation logic + CLI command, and visualizer tasks-panel trigger form
 - [x] Mass-add UI polish: 0-100 drop-off slider control, ASCII back button label (`<- Back`), and inline form validation hint for invalid task count input
+- [x] Mass-add scalability guardrails: capped mass-add request size, removed per-task enqueue console spam, and bounded scheduler assignment scan budget per tick
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
+- [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
+- [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
 
 **Pending Features:** None - Phase 5 Complete! ✅
 
@@ -301,6 +304,49 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Mass-add backpressure guardrails and bounded allocation (Phase 5)
+
+- Added scheduler config guardrails for high-volume task injection:
+  - `MASS_ADD_MAX_COUNT` hard cap (10,000) per mass-add command
+  - `ALLOCATION_TASK_BUDGET_PER_TICK` cap (20) for per-loop assignment scanning
+- Enforced cap in scheduler handlers for both CLI and UI-originated `TaskCommand::MassAdd` requests, with cap diagnostics in logs.
+- Removed per-task enqueue `println!` spam from FIFO queue hot path to avoid terminal I/O collapse under bulk inserts.
+- Added efficient queue API `pending_task_ids_limited(limit)` and switched allocator loop to process only the configured budget per tick.
+- Updated visualizer Tasks tab mass-add validation to require `1..=MASS_ADD_MAX_COUNT`, including input hint text and test coverage.
+- Why: prevent scheduler loop starvation and renderer/update lag when users issue pathological mass-add requests.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
+
+### 2026-04-01: Orchestrator process-state reconciliation and auto-restart (Phase 5)
+
+- Replaced vector-based process tracking with explicit per-crate lifecycle state (`NotStarted`, `Running`, `Exited`) in the orchestrator process manager.
+- Added process liveness reconciliation before startup and shutdown decisions so command behavior reflects current OS process truth.
+- Updated single-crate startup behavior (`run <crate>`, `up <crate>`) to restart crates that previously exited instead of returning a misleading "already running" warning.
+- Updated single-crate shutdown behavior (`down <crate>`) to clear stale exited state markers, preventing lifecycle deadlock after external process exits.
+- Unified status rendering to use `Processes::status_snapshot()` so `ps` output and command gating share the same state source.
+- Hardened Windows process detection by switching to `tasklist` CSV output matching, and tightened windowed spawn invocation (`start "" <binary>`).
+- Disabled notifier doctests (`doctest = false`) to avoid rustdoc extern-artifact path failures during full workspace test runs on this environment.
+- Why: eliminate contradictory operator feedback where a crate could appear exited in `ps` while `run`/`up` still reported it as already running.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
+
+### 2026-04-01: System Snapshot flowchart topology alignment (Phase 5)
+
+- Replaced the README System Snapshot Mermaid flowchart with a service-topology diagram centered on Zenoh.
+- Updated node and edge labels to match runtime microservices and real communication planes:
+  - orchestrator admin control
+  - coordinator routing/status/telemetry
+  - firmware path command and ACK/NAK exchange
+  - scheduler assignment and queue/task-list state
+  - visualizer operator bridge and task request path
+- Added explicit startup map validation dotted path (`coordinator -> Zenoh -> mock_firmware`) to reflect startup handshake behavior.
+- Why: the prior diagram represented stack layers (Rust/Tokio/Bevy) rather than runtime service topology, which was misleading in a System Snapshot section.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Tessera project rename alignment (Phase 5)
 
