@@ -371,6 +371,57 @@ pub mod visualizer {
         pub const MAX_FADE_SEGMENTS_PER_FRAME: usize = 700;
     }
 
+    /// visualizer async channel and backpressure settings.
+    pub mod network {
+        /// robot update channel capacity (batch payloads).
+        pub const ROBOT_UPDATES_CHANNEL_CAPACITY: usize = 64;
+
+        /// queue state channel capacity.
+        pub const QUEUE_STATE_CHANNEL_CAPACITY: usize = 32;
+
+        /// task list channel capacity.
+        pub const TASK_LIST_CHANNEL_CAPACITY: usize = 32;
+
+        /// path telemetry channel capacity.
+        pub const PATH_TELEMETRY_CHANNEL_CAPACITY: usize = 512;
+
+        /// whca metrics channel capacity.
+        pub const WHCA_METRICS_CHANNEL_CAPACITY: usize = 32;
+
+        /// outbound ui command channel capacity.
+        pub const COMMAND_CHANNEL_CAPACITY: usize = 64;
+
+        /// path telemetry coalescing window size in milliseconds.
+        pub const PATH_TELEMETRY_COALESCE_WINDOW_MS: u64 = 5;
+
+        /// path telemetry coalescing immediate flush threshold.
+        pub const PATH_TELEMETRY_COALESCE_FLUSH_MAX: usize = 64;
+
+        /// cooldown between repeated backpressure warning log lines.
+        pub const WARNING_COOLDOWN_SECS: f64 = 2.0;
+
+        /// robot update queue warning threshold.
+        pub const ROBOT_UPDATES_WARN_QUEUE_DEPTH: usize = 48;
+
+        /// path telemetry queue warning threshold.
+        pub const PATH_TELEMETRY_WARN_QUEUE_DEPTH: usize = 256;
+
+        /// queue state queue warning threshold.
+        pub const QUEUE_STATE_WARN_QUEUE_DEPTH: usize = 24;
+
+        /// task list queue warning threshold.
+        pub const TASK_LIST_WARN_QUEUE_DEPTH: usize = 24;
+
+        /// whca metrics queue warning threshold.
+        pub const WHCA_METRICS_WARN_QUEUE_DEPTH: usize = 24;
+
+        /// ui command queue warning threshold.
+        pub const COMMAND_WARN_QUEUE_DEPTH: usize = 48;
+
+        /// ui command dropped-event warning threshold.
+        pub const COMMAND_WARN_DROP_DELTA: u64 = 1;
+    }
+
     /// Semantic visual tokens used by both 3D scene and UI accents.
     pub mod semantic {
         /// Bright cyan reserved for active selected path only.

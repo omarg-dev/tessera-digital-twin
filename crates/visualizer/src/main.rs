@@ -112,6 +112,7 @@ fn main() {
         .init_resource::<resources::WhcaMetricsData>()
         .init_resource::<resources::RenderPerfCounters>()
         .init_resource::<resources::UiAnalyticsView>()
+        .init_resource::<resources::BackpressureMetrics>()
         .init_resource::<resources::UiFrameInputs>()
         .init_resource::<resources::CongestionOverlayData>()
         .init_resource::<resources::ScreenshotHarness>()

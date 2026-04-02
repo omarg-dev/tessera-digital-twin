@@ -216,6 +216,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Path telemetry data-plane pass: coordinator now publishes path telemetry on change with heartbeat fallback (instead of every send tick for every robot)
 - [x] Stationary reservation scaling pass: coordinator now refreshes stationary reservation history on change/interval (`STATIONARY_REFRESH_INTERVAL_MS`) instead of every loop tick
 - [x] Task-list data-plane pass: scheduler now broadcasts bounded active/recent task windows with aggregate totals, and visualizer Tasks tab renders paged sections over the windowed dataset
+- [x] Visualizer backpressure hardening pass: robot update ingest now preserves firmware batches, path telemetry coalesces before ECS apply, and analytics/log surfaces expose channel pressure/drop counters
 - [x] WHCA stationary reservation density pass: stationary positions are now sampled at planner stride (`MOVE_TIME_MS`) instead of per-millisecond timestamps, preserving coverage while reducing reservation-table amplification
 - [x] Scheduler no-path retry lifecycle pass: preserve retry attempt state across assignment publish and prefilter allocation candidates beyond WHCA pickup horizon lower bound
 - [x] Scheduler no-path robot penalty pass: short-lived per-task robot penalties now prevent immediate same-robot reselection after no-path failures
@@ -315,6 +316,28 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-02: Visualizer one-pass backpressure hardening (Phase 5)
+
+- Reworked visualizer robot ingest to preserve `RobotUpdateBatch` payloads through async channels (instead of expanding to per-robot channel sends), reducing enqueue pressure under high fleet sizes.
+- Added freshness-first overload handling for high-rate streams:
+  - robot updates now use non-blocking enqueue with explicit `dropped_full`/`blocked_send` accounting
+  - path telemetry listener now coalesces by `robot_id` before channel enqueue and uses non-blocking enqueue
+- Added configurable visualizer network constants in protocol config for channel capacities, coalescing window/flush behavior, and warning thresholds.
+- Extended telemetry ingestion with frame-level coalescing and analytics counters for path telemetry message/waypoint pressure.
+- Added shared visualizer backpressure metrics resource and per-channel counters (`received`, `enqueued`, `dropped_full`, `blocked_send`, `queue_len`, `queue_peak`) across:
+  - robot updates
+  - path telemetry
+  - queue state
+  - task list
+  - WHCA metrics
+  - command bridge
+- Analytics tab now includes a channel backpressure grid plus path telemetry pressure counters.
+- Added rate-limited warning lines to `LogBuffer` when queue depth/drops exceed configured thresholds.
+- Why: high-traffic runs were choking due to local async queue pressure and per-message fanout; preserving batch shape + coalescing + visibility reduces stalls and makes overload behavior measurable.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-02: Scheduler no-path robot penalty lane (Phase 5)
 

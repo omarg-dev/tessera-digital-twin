@@ -4,7 +4,7 @@
 
 use bevy_egui::egui;
 
-use crate::resources::{UiAnalyticsView, WhcaMetricsData};
+use crate::resources::{ChannelBackpressureSnapshot, UiAnalyticsView, WhcaMetricsData};
 
 pub const LABEL: &str = "Analytics";
 
@@ -118,6 +118,46 @@ pub fn draw(
                     ui.label("Overlay Update Ticks");
                     ui.monospace(format!("{}", analytics_view.perf.overlay_updates));
                     ui.end_row();
+
+                    ui.label("Path Telemetry Messages");
+                    ui.monospace(format!("{}", analytics_view.perf.path_telemetry_messages_processed));
+                    ui.end_row();
+
+                    ui.label("Path Telemetry Robots");
+                    ui.monospace(format!("{}", analytics_view.perf.path_telemetry_unique_robots));
+                    ui.end_row();
+
+                    ui.label("Path Telemetry Waypoints");
+                    ui.monospace(format!("{}", analytics_view.perf.path_telemetry_total_waypoints));
+                    ui.end_row();
+
+                    ui.label("Path Telemetry Max Waypoints");
+                    ui.monospace(format!("{}", analytics_view.perf.path_telemetry_max_waypoints_single));
+                    ui.end_row();
+                });
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Channel Backpressure").strong());
+
+            egui::Grid::new("backpressure_metrics_grid")
+                .num_columns(5)
+                .spacing([14.0, 6.0])
+                .show(ui, |ui| {
+                    ui.strong("Channel");
+                    ui.strong("Queue");
+                    ui.strong("Peak");
+                    ui.strong("Dropped");
+                    ui.strong("Blocked");
+                    ui.end_row();
+
+                    backpressure_row(ui, "robot_updates", analytics_view.backpressure.robot_updates);
+                    backpressure_row(ui, "path_telemetry", analytics_view.backpressure.path_telemetry);
+                    backpressure_row(ui, "queue_state", analytics_view.backpressure.queue_state);
+                    backpressure_row(ui, "task_list", analytics_view.backpressure.task_list);
+                    backpressure_row(ui, "whca_metrics", analytics_view.backpressure.whca_metrics);
+                    backpressure_row(ui, "command_bridge", analytics_view.backpressure.command_bridge);
                 });
 
             ui.add_space(10.0);
@@ -134,4 +174,20 @@ pub fn draw(
                 }
             }
         });
+}
+
+fn backpressure_row(ui: &mut egui::Ui, name: &str, stats: ChannelBackpressureSnapshot) {
+    let warning = stats.dropped_full > 0 || stats.blocked_send > 0;
+    let label = if warning {
+        egui::RichText::new(name).color(egui::Color32::from_rgb(245, 170, 55))
+    } else {
+        egui::RichText::new(name)
+    };
+
+    ui.label(label);
+    ui.monospace(format!("{}", stats.queue_len));
+    ui.monospace(format!("{}", stats.queue_peak));
+    ui.monospace(format!("{}", stats.dropped_full));
+    ui.monospace(format!("{}", stats.blocked_send));
+    ui.end_row();
 }

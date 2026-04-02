@@ -4,15 +4,16 @@
 //! Outbound-only counterpart to commands.rs (which handles inbound system commands).
 
 use bevy::prelude::*;
+use protocol::config::visualizer::network as net_cfg;
 use protocol::{RobotControl, SystemCommand, TaskCommand, topics};
 use tokio::sync::mpsc;
 use zenoh::Session;
 
-use crate::resources::{CommandSender, LogBuffer, OutboundCommand, UiAction, UiState, VisualTuning, ZenohSession};
+use crate::resources::{BackpressureMetrics, CommandSender, LogBuffer, OutboundCommand, UiAction, UiState, VisualTuning, ZenohSession};
 
 /// Initialize background Zenoh publishers for UI commands
 pub fn setup_publishers(mut commands: Commands, session: Res<ZenohSession>) {
-    let (tx, rx) = mpsc::channel::<OutboundCommand>(64);
+    let (tx, rx) = mpsc::channel::<OutboundCommand>(net_cfg::COMMAND_CHANNEL_CAPACITY);
     let sess = session.session.clone();
 
     session.runtime.spawn(async move {
@@ -86,8 +87,10 @@ pub fn bridge_ui_commands(
     mut ui_state: ResMut<UiState>,
     mut visual_tuning: ResMut<VisualTuning>,
     mut log_buffer: ResMut<LogBuffer>,
+    mut backpressure: ResMut<BackpressureMetrics>,
 ) {
     let Some(sender) = sender else { return };
+    let pressure = backpressure.command_bridge.handle();
 
     for action in events.read() {
         let (cmd, msg) = match action {
@@ -191,8 +194,18 @@ pub fn bridge_ui_commands(
 
         log_buffer.push(msg);
         if let Some(cmd) = cmd {
+            pressure.on_received();
+            backpressure.command_bridge.record_queue_depth(
+                net_cfg::COMMAND_CHANNEL_CAPACITY.saturating_sub(sender.0.capacity()),
+            );
             if let Err(e) = sender.0.try_send(cmd) {
+                match e {
+                    mpsc::error::TrySendError::Full(_) => pressure.on_dropped_full(),
+                    mpsc::error::TrySendError::Closed(_) => pressure.on_blocked_send(),
+                }
                 log_buffer.push(format!("[UI] Command dropped before publish: {}", e));
+            } else {
+                pressure.on_enqueued();
             }
         }
     }

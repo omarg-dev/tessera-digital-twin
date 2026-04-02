@@ -3,21 +3,27 @@
 //! Robot.current_task stays up-to-date without relying on RobotUpdate.
 
 use bevy::prelude::*;
+use protocol::config::visualizer::network as net_cfg;
 use protocol::{TaskListSnapshot, TaskStatus, topics};
 use serde_json::from_slice;
 use tokio::sync::mpsc;
 use zenoh::Session;
 
 use crate::components::Robot;
-use crate::resources::{RobotIndex, TaskListData, TaskListReceiver, ZenohSession};
+use crate::resources::{BackpressureMetrics, RobotIndex, TaskListData, TaskListReceiver, ZenohSession};
 
 /// Initialize background Zenoh subscriber for task list windows.
-pub fn setup_task_listener(mut commands: Commands, session: Res<ZenohSession>) {
-    let (tx, rx) = mpsc::channel::<TaskListSnapshot>(16);
+pub fn setup_task_listener(
+    mut commands: Commands,
+    session: Res<ZenohSession>,
+    backpressure: Res<BackpressureMetrics>,
+) {
+    let (tx, rx) = mpsc::channel::<TaskListSnapshot>(net_cfg::TASK_LIST_CHANNEL_CAPACITY);
     let sess = session.session.clone();
+    let pressure = backpressure.task_list.handle();
 
     session.runtime.spawn(async move {
-        if let Err(e) = run_task_listener(sess, tx).await {
+        if let Err(e) = run_task_listener(sess, tx, pressure).await {
             eprintln!("Task list listener exited: {}", e);
         }
     });
@@ -28,6 +34,7 @@ pub fn setup_task_listener(mut commands: Commands, session: Res<ZenohSession>) {
 async fn run_task_listener(
     session: Session,
     tx: mpsc::Sender<TaskListSnapshot>,
+    pressure: crate::resources::ChannelBackpressureHandle,
 ) -> Result<(), String> {
     let subscriber = session
         .declare_subscriber(topics::TASK_LIST)
@@ -36,9 +43,12 @@ async fn run_task_listener(
 
     while let Ok(sample) = subscriber.recv_async().await {
         if let Ok(snapshot) = from_slice::<TaskListSnapshot>(&sample.payload().to_bytes()) {
+            pressure.on_received();
             if tx.send(snapshot).await.is_err() {
+                pressure.on_blocked_send();
                 return Err("task list receiver dropped".into());
             }
+            pressure.on_enqueued();
         }
     }
 
@@ -50,8 +60,11 @@ pub fn collect_task_list(
     receiver: Option<ResMut<TaskListReceiver>>,
     mut data: ResMut<TaskListData>,
     time: Res<Time>,
+    mut backpressure: ResMut<BackpressureMetrics>,
 ) {
     let Some(mut receiver) = receiver else { return };
+
+    backpressure.task_list.record_queue_depth(receiver.0.len());
 
     // drain channel, keep only the latest snapshot
     while let Ok(snapshot) = receiver.0.try_recv() {

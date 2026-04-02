@@ -16,8 +16,8 @@ use bevy_egui::EguiContexts;
 
 use crate::components::{Dropoff, Robot, Shelf};
 use crate::resources::{
-    ActivePaths, LogBuffer, QueueStateData, RenderPerfCounters, RobotIndex, ScreenshotHarness,
-    TaskListData, UiAction, UiAnalyticsView, UiFrameInputs, UiState, WarehouseMap,
+    ActivePaths, BackpressureMetrics, LogBuffer, QueueStateData, RenderPerfCounters, RobotIndex,
+    ScreenshotHarness, TaskListData, UiAction, UiAnalyticsView, UiFrameInputs, UiState, WarehouseMap,
     WhcaMetricsData,
 };
 
@@ -35,10 +35,16 @@ pub fn sync_ui_frame_inputs(
 pub fn sync_ui_analytics_view(
     perf_counters: Res<RenderPerfCounters>,
     screenshot_harness: Res<ScreenshotHarness>,
+    time: Res<Time>,
+    mut backpressure: ResMut<BackpressureMetrics>,
+    mut log_buffer: ResMut<LogBuffer>,
     mut analytics_view: ResMut<UiAnalyticsView>,
 ) {
+    backpressure.refresh_from_handles();
+    backpressure.maybe_push_warnings(time.elapsed_secs_f64(), &mut log_buffer);
     analytics_view.perf = perf_counters.clone();
     analytics_view.snapshot_markers = screenshot_harness.records.clone();
+    analytics_view.backpressure = backpressure.snapshot();
 }
 
 /// System that renders all four UI panels each frame.

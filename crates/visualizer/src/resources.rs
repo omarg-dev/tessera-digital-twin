@@ -5,10 +5,11 @@
 //! Publishes control commands (pause/resume, robot control) from the UI.
 
 use bevy::prelude::*;
-use protocol::config::visualizer::{bloom as bloom_cfg, ui as ui_cfg};
+use protocol::config::visualizer::{bloom as bloom_cfg, network as net_cfg, ui as ui_cfg};
 use protocol::grid_map::GridMap;
-use protocol::{Priority, QueueState, RobotControl, RobotUpdate, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest, WhcaMetricsTelemetry};
+use protocol::{Priority, QueueState, RobotControl, RobotUpdate, RobotUpdateBatch, SystemCommand, Task, TaskCommand, TaskListSnapshot, TaskRequest, WhcaMetricsTelemetry};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -39,12 +40,13 @@ pub fn open_zenoh_session() -> ZenohSession {
 
 /// Receives robot updates from Zenoh (firmware publishes, we display)
 #[derive(Resource)]
-pub struct ZenohReceiver(pub mpsc::Receiver<RobotUpdate>);
+pub struct ZenohReceiver(pub mpsc::Receiver<RobotUpdateBatch>);
 
 /// Stores latest robot updates for systems to consume
 #[derive(Resource, Default)]
 pub struct RobotUpdates {
     pub updates: Vec<RobotUpdate>,
+    pub last_batch_tick: Option<u64>,
 }
 
 /// Fast lookup for robot entities by ID
@@ -114,6 +116,10 @@ pub struct RenderPerfCounters {
     pub overlay_tiles_drawn: usize,
     pub overlay_halos_drawn: usize,
     pub overlay_updates: u64,
+    pub path_telemetry_messages_processed: u32,
+    pub path_telemetry_unique_robots: u32,
+    pub path_telemetry_total_waypoints: u32,
+    pub path_telemetry_max_waypoints_single: u32,
 }
 
 /// UI-facing snapshot of render counters and screenshot markers.
@@ -121,6 +127,198 @@ pub struct RenderPerfCounters {
 pub struct UiAnalyticsView {
     pub perf: RenderPerfCounters,
     pub snapshot_markers: VecDeque<String>,
+    pub backpressure: BackpressureSnapshot,
+}
+
+#[derive(Clone, Default)]
+pub struct ChannelBackpressureHandle {
+    received: Arc<AtomicU64>,
+    enqueued: Arc<AtomicU64>,
+    dropped_full: Arc<AtomicU64>,
+    blocked_send: Arc<AtomicU64>,
+}
+
+impl ChannelBackpressureHandle {
+    pub fn on_received(&self) {
+        self.received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn on_enqueued(&self) {
+        self.enqueued.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn on_dropped_full(&self) {
+        self.dropped_full.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn on_blocked_send(&self) {
+        self.blocked_send.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> (u64, u64, u64, u64) {
+        (
+            self.received.load(Ordering::Relaxed),
+            self.enqueued.load(Ordering::Relaxed),
+            self.dropped_full.load(Ordering::Relaxed),
+            self.blocked_send.load(Ordering::Relaxed),
+        )
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct ChannelBackpressureSnapshot {
+    pub received: u64,
+    pub enqueued: u64,
+    pub dropped_full: u64,
+    pub blocked_send: u64,
+    pub queue_len: usize,
+    pub queue_peak: usize,
+}
+
+#[derive(Clone)]
+pub struct ChannelBackpressure {
+    pub snapshot: ChannelBackpressureSnapshot,
+    pub warn_queue_depth: usize,
+    pub last_warning_secs: f64,
+    pub last_warned_dropped_full: u64,
+    pub last_warned_blocked_send: u64,
+    handle: ChannelBackpressureHandle,
+}
+
+impl ChannelBackpressure {
+    pub fn new(warn_queue_depth: usize) -> Self {
+        Self {
+            snapshot: ChannelBackpressureSnapshot::default(),
+            warn_queue_depth,
+            last_warning_secs: 0.0,
+            last_warned_dropped_full: 0,
+            last_warned_blocked_send: 0,
+            handle: ChannelBackpressureHandle::default(),
+        }
+    }
+
+    pub fn handle(&self) -> ChannelBackpressureHandle {
+        self.handle.clone()
+    }
+
+    pub fn refresh_from_handle(&mut self) {
+        let (received, enqueued, dropped_full, blocked_send) = self.handle.snapshot();
+        self.snapshot.received = received;
+        self.snapshot.enqueued = enqueued;
+        self.snapshot.dropped_full = dropped_full;
+        self.snapshot.blocked_send = blocked_send;
+    }
+
+    pub fn record_queue_depth(&mut self, queue_len: usize) {
+        self.snapshot.queue_len = queue_len;
+        self.snapshot.queue_peak = self.snapshot.queue_peak.max(queue_len);
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct BackpressureSnapshot {
+    pub robot_updates: ChannelBackpressureSnapshot,
+    pub queue_state: ChannelBackpressureSnapshot,
+    pub task_list: ChannelBackpressureSnapshot,
+    pub path_telemetry: ChannelBackpressureSnapshot,
+    pub whca_metrics: ChannelBackpressureSnapshot,
+    pub command_bridge: ChannelBackpressureSnapshot,
+}
+
+#[derive(Resource, Clone)]
+pub struct BackpressureMetrics {
+    pub robot_updates: ChannelBackpressure,
+    pub queue_state: ChannelBackpressure,
+    pub task_list: ChannelBackpressure,
+    pub path_telemetry: ChannelBackpressure,
+    pub whca_metrics: ChannelBackpressure,
+    pub command_bridge: ChannelBackpressure,
+}
+
+impl Default for BackpressureMetrics {
+    fn default() -> Self {
+        Self {
+            robot_updates: ChannelBackpressure::new(net_cfg::ROBOT_UPDATES_WARN_QUEUE_DEPTH),
+            queue_state: ChannelBackpressure::new(net_cfg::QUEUE_STATE_WARN_QUEUE_DEPTH),
+            task_list: ChannelBackpressure::new(net_cfg::TASK_LIST_WARN_QUEUE_DEPTH),
+            path_telemetry: ChannelBackpressure::new(net_cfg::PATH_TELEMETRY_WARN_QUEUE_DEPTH),
+            whca_metrics: ChannelBackpressure::new(net_cfg::WHCA_METRICS_WARN_QUEUE_DEPTH),
+            command_bridge: ChannelBackpressure::new(net_cfg::COMMAND_WARN_QUEUE_DEPTH),
+        }
+    }
+}
+
+impl BackpressureMetrics {
+    pub fn refresh_from_handles(&mut self) {
+        self.robot_updates.refresh_from_handle();
+        self.queue_state.refresh_from_handle();
+        self.task_list.refresh_from_handle();
+        self.path_telemetry.refresh_from_handle();
+        self.whca_metrics.refresh_from_handle();
+        self.command_bridge.refresh_from_handle();
+    }
+
+    pub fn snapshot(&self) -> BackpressureSnapshot {
+        BackpressureSnapshot {
+            robot_updates: self.robot_updates.snapshot,
+            queue_state: self.queue_state.snapshot,
+            task_list: self.task_list.snapshot,
+            path_telemetry: self.path_telemetry.snapshot,
+            whca_metrics: self.whca_metrics.snapshot,
+            command_bridge: self.command_bridge.snapshot,
+        }
+    }
+
+    fn warn_channel(
+        name: &str,
+        channel: &mut ChannelBackpressure,
+        now_secs: f64,
+        log_buffer: &mut LogBuffer,
+    ) {
+        if now_secs - channel.last_warning_secs < net_cfg::WARNING_COOLDOWN_SECS {
+            return;
+        }
+
+        let queue_hot = channel.snapshot.queue_len >= channel.warn_queue_depth;
+        let dropped_delta = channel
+            .snapshot
+            .dropped_full
+            .saturating_sub(channel.last_warned_dropped_full);
+        let blocked_delta = channel
+            .snapshot
+            .blocked_send
+            .saturating_sub(channel.last_warned_blocked_send);
+
+        if !queue_hot
+            && dropped_delta < net_cfg::COMMAND_WARN_DROP_DELTA
+            && blocked_delta == 0
+        {
+            return;
+        }
+
+        log_buffer.push(format!(
+            "[Net] {} pressure: queue={}/{} peak={} dropped_full={} blocked_send={}",
+            name,
+            channel.snapshot.queue_len,
+            channel.warn_queue_depth,
+            channel.snapshot.queue_peak,
+            channel.snapshot.dropped_full,
+            channel.snapshot.blocked_send,
+        ));
+
+        channel.last_warning_secs = now_secs;
+        channel.last_warned_dropped_full = channel.snapshot.dropped_full;
+        channel.last_warned_blocked_send = channel.snapshot.blocked_send;
+    }
+
+    pub fn maybe_push_warnings(&mut self, now_secs: f64, log_buffer: &mut LogBuffer) {
+        Self::warn_channel("robot_updates", &mut self.robot_updates, now_secs, log_buffer);
+        Self::warn_channel("path_telemetry", &mut self.path_telemetry, now_secs, log_buffer);
+        Self::warn_channel("queue_state", &mut self.queue_state, now_secs, log_buffer);
+        Self::warn_channel("task_list", &mut self.task_list, now_secs, log_buffer);
+        Self::warn_channel("whca_metrics", &mut self.whca_metrics, now_secs, log_buffer);
+        Self::warn_channel("command_bridge", &mut self.command_bridge, now_secs, log_buffer);
+    }
 }
 
 /// Per-frame UI input snapshot to keep egui system params compact.
