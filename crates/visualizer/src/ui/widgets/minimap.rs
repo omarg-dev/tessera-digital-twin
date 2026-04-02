@@ -63,7 +63,7 @@ pub fn wizard_minimap_legend(ui: &mut egui::Ui) {
         color_swatch(ui, rgb(minimap_cfg::DROPOFF));
         ui.label(egui::RichText::new("drop zone").small());
         color_swatch(ui, empty_shelf_color());
-        ui.label(egui::RichText::new("empty shelf").small());
+        ui.label(egui::RichText::new("unavailable shelf").small());
         color_swatch(ui, shelf_fill_color_egui(2, 16));
         ui.label(egui::RichText::new("low").small());
         color_swatch(ui, shelf_fill_color_egui(8, 16));
@@ -121,7 +121,7 @@ pub fn wizard_minimap_widget(
     highlight_b: Option<(usize, usize)>,
     clickable_shelves: bool,
     clickable_dropoffs: bool,
-    empty_positions: Option<&HashSet<(usize, usize)>>,
+    blocked_shelf_positions: Option<&HashSet<(usize, usize)>>,
     shelf_capacity: Option<&HashMap<(usize, usize), (u32, u32)>>,
     id_salt: &str,
 ) -> Option<(usize, usize)> {
@@ -154,7 +154,7 @@ pub fn wizard_minimap_widget(
                     } else {
                         match grid.get_tile(col, row).map(|t| t.tile_type) {
                             Some(TileType::Shelf(_)) => {
-                                if empty_positions.is_some_and(|s| s.contains(&gpos)) {
+                                if blocked_shelf_positions.is_some_and(|s| s.contains(&gpos)) {
                                     empty_shelf_color()
                                 } else if let Some(&(cargo, max)) =
                                     shelf_capacity.and_then(|m| m.get(&gpos))
@@ -178,8 +178,11 @@ pub fn wizard_minimap_widget(
                     let Some(tile) = grid.get_tile(col, row) else { continue };
                     let is_shelf = matches!(tile.tile_type, TileType::Shelf(_));
                     let is_dropoff = matches!(tile.tile_type, TileType::Dropoff);
-                    let is_empty_shelf = is_shelf && empty_positions.map_or(false, |s| s.contains(&gpos));
-                    let interactive = (is_shelf && clickable_shelves && !is_empty_shelf) || (is_dropoff && clickable_dropoffs);
+                    let is_blocked_shelf =
+                        is_shelf && blocked_shelf_positions.map_or(false, |s| s.contains(&gpos));
+                    let interactive =
+                        (is_shelf && clickable_shelves && !is_blocked_shelf)
+                            || (is_dropoff && clickable_dropoffs);
                     if !interactive { continue; }
 
                     let cell_rect = egui::Rect::from_min_size(
@@ -334,6 +337,11 @@ pub fn shelf_minimap_widget(
                         [cell_rect.right_top(), cell_rect.left_bottom()],
                         stroke,
                     );
+                    continue;
+                }
+
+                let is_full_shelf = max > 0 && cargo >= max;
+                if is_full_shelf {
                     continue;
                 }
 

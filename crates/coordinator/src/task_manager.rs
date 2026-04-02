@@ -53,6 +53,17 @@ pub enum AssignmentResult {
     NoPathToPickup,
 }
 
+fn inventory_milestone_for_stage(task_stage: TaskStage) -> InventoryMilestone {
+    match task_stage {
+        TaskStage::Idle | TaskStage::MovingToPickup | TaskStage::Picking => {
+            InventoryMilestone::Reserved
+        }
+        TaskStage::MovingToDropoff | TaskStage::Delivering | TaskStage::ReturningToStation => {
+            InventoryMilestone::PickupConfirmed
+        }
+    }
+}
+
 /// Handle a task assignment from scheduler
 pub async fn handle_task_assignment(
     assignment: &TaskAssignment,
@@ -76,22 +87,42 @@ pub async fn handle_task_assignment(
     // Get the robot
     let Some(robot) = robots.get_mut(&robot_id) else {
         println!("✗ Robot {} not found for task {}", robot_id, task.id);
-        send_task_failure(status_publisher, task.id, robot_id, format!("Robot {} not found", robot_id)).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            format!("Robot {} not found", robot_id),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::RobotNotFound;
     };
 
     // Reject assignments for faulted/blocked robots
     if matches!(robot.last_update.state, RobotState::Faulted | RobotState::Blocked) {
         println!("✗ Task {} rejected: Robot {} is {:?}", task.id, robot_id, robot.last_update.state);
-        send_task_failure(status_publisher, task.id, robot_id,
-            format!("Robot {:?}", robot.last_update.state)).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            format!("Robot {:?}", robot.last_update.state),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::RobotFaultedOrBlocked;
     }
 
     // Reject assignments for disabled robots.
     if !robot.last_update.enabled {
         println!("✗ Task {} rejected: Robot {} is disabled", task.id, robot_id);
-        send_task_failure(status_publisher, task.id, robot_id, "Robot disabled".to_string()).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            "Robot disabled".to_string(),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::RobotDisabled;
     }
     
@@ -117,8 +148,14 @@ pub async fn handle_task_assignment(
             // Cannot accept tasks while returning due to low battery
             println!("✗ Task {} rejected: Robot {} is returning to station due to low battery ({:.1}%)", 
                 task.id, robot_id, battery);
-            send_task_failure(status_publisher, task.id, robot_id, 
-                format!("Robot returning to station (low battery: {:.1}%)", battery)).await;
+            send_task_failure(
+                status_publisher,
+                task.id,
+                robot_id,
+                format!("Robot returning to station (low battery: {:.1}%)", battery),
+                Some(InventoryMilestone::Reserved),
+            )
+            .await;
             return AssignmentResult::LowBatteryReturn { battery };
         }
     }
@@ -132,8 +169,14 @@ pub async fn handle_task_assignment(
             && battery >= battery_config::MIN_BATTERY_FOR_TASK);
     if !eligible_for_new_task {
         println!("✗ Task {} rejected: Robot {} busy ({:?})", task.id, robot_id, robot.task_stage);
-        send_task_failure(status_publisher, task.id, robot_id,
-            format!("Robot busy ({:?})", robot.task_stage)).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            format!("Robot busy ({:?})", robot.task_stage),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::RobotBusy;
     }
     
@@ -170,7 +213,14 @@ pub async fn handle_task_assignment(
         let pickup_tile = map.get_tile(pickup.0, pickup.1).map(|t| t.tile_type);
         let dropoff_tile = map.get_tile(dropoff_grid.0, dropoff_grid.1).map(|t| t.tile_type);
         println!("✗ Task {} rejected: {:?} → {:?} invalid", task.id, pickup_tile, dropoff_tile);
-        send_task_failure(status_publisher, task.id, robot_id, "Invalid pickup/dropoff combination".to_string()).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            "Invalid pickup/dropoff combination".to_string(),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::InvalidTileCombination;
     }
 
@@ -179,14 +229,28 @@ pub async fn handle_task_assignment(
         let stock = inventory.stock_at(pickup);
         let reason = format!("pickup shelf ({},{}) empty ({:?})", pickup.0, pickup.1, stock);
         println!("✗ Task {} rejected: {}", task.id, reason);
-        send_task_failure(status_publisher, task.id, robot_id, reason.clone()).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            reason.clone(),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::ShelfCapacity { reason };
     }
     if !inventory.can_dropoff(dropoff_grid) {
         let stock = inventory.stock_at(dropoff_grid);
         let reason = format!("dropoff shelf ({},{}) full ({:?})", dropoff_grid.0, dropoff_grid.1, stock);
         println!("✗ Task {} rejected: {}", task.id, reason);
-        send_task_failure(status_publisher, task.id, robot_id, reason.clone()).await;
+        send_task_failure(
+            status_publisher,
+            task.id,
+            robot_id,
+            reason.clone(),
+            Some(InventoryMilestone::Reserved),
+        )
+        .await;
         return AssignmentResult::ShelfCapacity { reason };
     }
 
@@ -207,6 +271,7 @@ pub async fn handle_task_assignment(
             task.id,
             robot_id,
             format!("no path to pickup ({},{})", pickup.0, pickup.1),
+            Some(InventoryMilestone::Reserved),
         )
         .await;
         return AssignmentResult::NoPathToPickup;
@@ -270,6 +335,7 @@ pub async fn handle_task_assignment(
         task_id: task.id,
         status: TaskStatus::InProgress { robot_id },
         robot_id: Some(robot_id),
+        inventory_milestone: Some(InventoryMilestone::Reserved),
     };
     let _ = protocol::publish_json_logged(
         "Coordinator",
@@ -326,11 +392,13 @@ pub async fn send_task_failure(
     task_id: u64,
     robot_id: u32,
     reason: String,
+    inventory_milestone: Option<InventoryMilestone>,
 ) {
     let update = TaskStatusUpdate {
         task_id,
         status: TaskStatus::Failed { reason },
         robot_id: Some(robot_id),
+        inventory_milestone,
     };
     let _ = protocol::publish_json_logged(
         "Coordinator",
@@ -485,7 +553,19 @@ pub async fn progress_tasks(
                 handle_moving_to_pickup(robot, *robot_id, task_id, cmd_publisher, next_cmd_id, verbose).await;
             }
             TaskStage::Picking => {
-                handle_picking(robot, *robot_id, task_id, map, pathfinder, inventory, cmd_publisher, next_cmd_id, verbose).await;
+                handle_picking(
+                    robot,
+                    *robot_id,
+                    task_id,
+                    map,
+                    pathfinder,
+                    inventory,
+                    cmd_publisher,
+                    status_publisher,
+                    next_cmd_id,
+                    verbose,
+                )
+                .await;
             }
             TaskStage::MovingToDropoff => {
                 handle_moving_to_dropoff(
@@ -580,6 +660,7 @@ async fn handle_task_timeouts(
                 task_id,
                 status: TaskStatus::Failed { reason: format!("Timeout ({}s no progress)", elapsed) },
                 robot_id: Some(robot_id),
+                inventory_milestone: Some(inventory_milestone_for_stage(robot.task_stage)),
             };
             let _ = protocol::publish_json_logged(
                 "Coordinator",
@@ -628,8 +709,16 @@ pub async fn mark_robot_faulted(
     }
     logs::save_log("Coordinator", &format!("Robot {} faulted: {}", robot_id, reason));
 
+    let failure_milestone = inventory_milestone_for_stage(robot.task_stage);
     if let Some(task_id) = robot.current_task {
-        send_task_failure(status_publisher, task_id, robot_id, reason).await;
+        send_task_failure(
+            status_publisher,
+            task_id,
+            robot_id,
+            reason,
+            Some(failure_milestone),
+        )
+        .await;
     }
 
     // Clear robot state
@@ -1145,7 +1234,10 @@ async fn handle_picking(
     map: &GridMap,
     pathfinder: &mut PathfinderInstance,
     inventory: &mut ShelfInventory,
-    cmd_publisher: &zenoh::pubsub::Publisher<'_>,    next_cmd_id: &mut u64,    verbose: bool,
+    cmd_publisher: &zenoh::pubsub::Publisher<'_>,
+    status_publisher: &zenoh::pubsub::Publisher<'_>,
+    next_cmd_id: &mut u64,
+    verbose: bool,
 ) {
     let robot_pos = robot.last_update.position;
     
@@ -1172,6 +1264,20 @@ async fn handle_picking(
         if verbose {
             println!("[{}ms] ✓ Robot {} loaded cargo for task {}", timestamp(), robot_id, task_id);
         }
+
+        let milestone_update = TaskStatusUpdate {
+            task_id,
+            status: TaskStatus::InProgress { robot_id },
+            robot_id: Some(robot_id),
+            inventory_milestone: Some(InventoryMilestone::PickupConfirmed),
+        };
+        let _ = protocol::publish_json_logged(
+            "Coordinator",
+            "task pickup confirmed status",
+            &milestone_update,
+            |payload| async move { status_publisher.put(payload).await.map(|_| ()) },
+        )
+        .await;
         
         // Calculate path to dropoff
         if let Some(dropoff_world) = robot.dropoff_location {
@@ -1323,6 +1429,7 @@ async fn handle_delivering(
         task_id,
         status: TaskStatus::Completed,
         robot_id: Some(robot_id),
+        inventory_milestone: Some(InventoryMilestone::DropoffConfirmed),
     };
     let _ = protocol::publish_json_logged(
         "Coordinator",

@@ -504,6 +504,13 @@ fn wizard_view(
         .filter_map(transform_to_grid)
         .collect();
 
+    let full_shelves: HashSet<(usize, usize)> = all_shelves
+        .iter()
+        .filter(|(_, sh)| sh.max_capacity > 0 && sh.cargo >= sh.max_capacity)
+        .filter_map(|(e, _)| transforms.get(e).ok())
+        .filter_map(transform_to_grid)
+        .collect();
+
     // track shelf fill levels so wizard minimaps can use the same capacity colors
     let shelf_capacity: HashMap<(usize, usize), (u32, u32)> = all_shelves
         .iter()
@@ -564,7 +571,7 @@ fn wizard_view(
                     ui_state.wizard_pickup,
                     ui_state.wizard_dropoff,
                     true, true, // shelves + dropoffs clickable
-                    None,
+                    Some(&full_shelves),
                     Some(&shelf_capacity),
                     "wzrd_dropoff",
                 ) {
@@ -600,7 +607,12 @@ fn wizard_view(
     ui.add_space(8.0);
 
     // ── Submit ──
-    let can_submit = ui_state.wizard_pickup.is_some() && ui_state.wizard_dropoff.is_some();
+    let dropoff_has_capacity = ui_state
+        .wizard_dropoff
+        .and_then(|dropoff| shelf_capacity.get(&dropoff))
+        .map_or(true, |&(cargo, max)| max == 0 || cargo < max);
+    let can_submit =
+        ui_state.wizard_pickup.is_some() && ui_state.wizard_dropoff.is_some() && dropoff_has_capacity;
     let add_btn = egui::Button::new(egui::RichText::new("Add Task").strong())
         .min_size(egui::Vec2::new(ui.available_width(), 28.0));
     if ui.add_enabled(can_submit, add_btn).clicked() {
@@ -614,6 +626,13 @@ fn wizard_view(
             }));
             ui_state.task_wizard_active = false;
         }
+    }
+
+    if !dropoff_has_capacity {
+        ui.colored_label(
+            egui::Color32::from_rgb(220, 80, 80),
+            "Selected destination shelf is full.",
+        );
     }
 }
 

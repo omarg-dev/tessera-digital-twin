@@ -816,11 +816,21 @@ async fn handle_robot_update(
                 ),
             );
 
+            let inventory_milestone = match robot.task_stage {
+                TaskStage::Idle | TaskStage::MovingToPickup | TaskStage::Picking => {
+                    Some(InventoryMilestone::Reserved)
+                }
+                TaskStage::MovingToDropoff
+                | TaskStage::Delivering
+                | TaskStage::ReturningToStation => Some(InventoryMilestone::PickupConfirmed),
+            };
+
             task_manager::send_task_failure(
                 status_publisher,
                 task_id,
                 robot.last_update.id,
                 "Robot disabled (auto-unassign)".to_string(),
+                inventory_milestone,
             )
             .await;
 

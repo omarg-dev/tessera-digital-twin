@@ -179,6 +179,7 @@ pub fn draw(
                         if Some((gx, gy)) == source_grid {
                             continue;
                         }
+                        let can_relocate = max == 0 || cargo < max;
                         let cell_color = shelf_fill_color_egui(cargo, max);
                         let label = format!("({gx},{gy})  {cargo}/{max}");
                         let btn = egui::Button::new(
@@ -187,12 +188,15 @@ pub fn draw(
                         .fill(cell_color)
                         .min_size(egui::Vec2::new(ui.available_width(), 0.0));
 
-                        let resp = ui.add(btn).on_hover_text(format!(
+                        let mut resp = ui.add_enabled(can_relocate, btn).on_hover_text(format!(
                             "cargo: {}/{} ({})",
                             cargo,
                             max,
                             shelf_fill_band_label(cargo, max)
                         ));
+                        if !can_relocate {
+                            resp = resp.on_hover_text("destination shelf is full");
+                        }
                         if resp.hovered() {
                             ui_state.hovered_entity = Some(dest_entity);
                         }

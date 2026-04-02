@@ -41,6 +41,17 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+/// Inventory lifecycle milestone emitted by the coordinator for scheduler rollback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InventoryMilestone {
+    /// Scheduler reserved pickup/dropoff capacity for an assignment.
+    Reserved,
+    /// Pickup was physically confirmed by firmware/coordinator.
+    PickupConfirmed,
+    /// Dropoff was physically confirmed by firmware/coordinator.
+    DropoffConfirmed,
+}
+
 /// Stable semantic label for a task status.
 ///
 /// Keeps status wording consistent across crates while leaving renderer-specific
@@ -152,6 +163,9 @@ pub struct TaskStatusUpdate {
     pub status: TaskStatus,
     /// Robot that reported this update (if any)
     pub robot_id: Option<u32>,
+    /// Optional inventory execution milestone for reservation rollback semantics.
+    #[serde(default)]
+    pub inventory_milestone: Option<InventoryMilestone>,
 }
 
 /// New task request: external system → scheduler
@@ -333,5 +347,16 @@ mod tests {
             }
             _ => panic!("Expected TaskCommand::MassAdd"),
         }
+    }
+
+    #[test]
+    fn test_task_status_update_missing_inventory_milestone_defaults_to_none() {
+        let json = r#"{"task_id":42,"status":"Completed","robot_id":7}"#;
+        let parsed: TaskStatusUpdate =
+            serde_json::from_str(json).expect("TaskStatusUpdate should deserialize");
+        assert_eq!(parsed.task_id, 42);
+        assert_eq!(parsed.status, TaskStatus::Completed);
+        assert_eq!(parsed.robot_id, Some(7));
+        assert_eq!(parsed.inventory_milestone, None);
     }
 }

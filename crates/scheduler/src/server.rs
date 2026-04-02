@@ -11,9 +11,9 @@ use rand::Rng;
 
 use protocol::config::{coordinator as coord_config, scheduler as sched_config};
 use protocol::{
-    timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
-    Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskStatus, TaskStatusUpdate,
-    TaskType,
+    timestamp, logs, topics, GridMap, InventoryMilestone, Priority, QueueState, RobotUpdateBatch,
+    ShelfInventory, Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskStatus,
+    TaskStatusUpdate, TaskType,
     is_reachable_on_map, world_to_grid,
 };
 
@@ -66,6 +66,48 @@ fn prune_retry_state(queue: &dyn TaskQueue, retry_state: &mut HashMap<TaskId, Ta
             .map(|task| task.status == TaskStatus::Pending)
             .unwrap_or(false)
     });
+}
+
+fn prune_inventory_milestones(
+    queue: &dyn TaskQueue,
+    inventory_milestones: &mut HashMap<TaskId, InventoryMilestone>,
+) {
+    inventory_milestones.retain(|task_id, _| {
+        queue
+            .get(*task_id)
+            .map(|task| {
+                matches!(
+                    task.status,
+                    TaskStatus::Pending | TaskStatus::Assigned { .. } | TaskStatus::InProgress { .. }
+                )
+            })
+            .unwrap_or(false)
+    });
+}
+
+fn rollback_reserved_inventory(
+    inventory: &mut ShelfInventory,
+    task: &Task,
+    milestone: Option<InventoryMilestone>,
+) -> &'static str {
+    match milestone.unwrap_or(InventoryMilestone::Reserved) {
+        InventoryMilestone::Reserved => {
+            if let Some(pickup) = task.pickup_location() {
+                inventory.undo_pickup(pickup);
+            }
+            if let Some(dropoff) = task.target_location() {
+                inventory.undo_dropoff(dropoff);
+            }
+            "pickup+dropoff"
+        }
+        InventoryMilestone::PickupConfirmed => {
+            if let Some(dropoff) = task.target_location() {
+                inventory.undo_dropoff(dropoff);
+            }
+            "dropoff-only"
+        }
+        InventoryMilestone::DropoffConfirmed => "none",
+    }
 }
 
 fn whca_pickup_horizon_steps() -> usize {
@@ -202,6 +244,7 @@ pub async fn run(session: Session) {
     let allocator = AllocatorInstance::from_config();
     let mut robots: HashMap<u32, RobotInfo> = HashMap::new();
     let mut retry_state: HashMap<TaskId, TaskRetryState> = HashMap::new();
+    let mut inventory_milestones: HashMap<TaskId, InventoryMilestone> = HashMap::new();
     let mut paused = false;
     let mut verbose = true; // Default to verbose on
 
@@ -240,10 +283,12 @@ pub async fn run(session: Session) {
             &mut robots,
             &mut inventory,
             &mut retry_state,
+            &mut inventory_milestones,
         );
 
         // Drop retry metadata for tasks that are no longer pending.
         prune_retry_state(&queue, &mut retry_state);
+        prune_inventory_milestones(&queue, &mut inventory_milestones);
 
         // Allocate tasks
         if !paused {
@@ -254,6 +299,7 @@ pub async fn run(session: Session) {
                 &map,
                 &mut inventory,
                 &mut retry_state,
+                &mut inventory_milestones,
                 &assignment_pub,
                 verbose,
             )
@@ -568,10 +614,30 @@ fn handle_task_requests(
                         TaskType::Relocate { from, .. } => Some(*from),
                         TaskType::ReturnToStation { .. } => None,
                     };
+                    let dropoff = match &task_type {
+                        TaskType::PickAndDeliver { dropoff, .. } => Some(*dropoff),
+                        TaskType::Relocate { to, .. } => Some(*to),
+                        TaskType::ReturnToStation { .. } => None,
+                    };
                     if let Some(pos) = pickup {
                         if !inventory.can_pickup(pos) {
                             println!("[{}ms] ✗ Task rejected: pickup shelf ({},{}) is empty", timestamp(), pos.0, pos.1);
                             logs::save_log("Scheduler", &format!("Task rejected: pickup ({},{}) is empty", pos.0, pos.1));
+                            continue;
+                        }
+                    }
+                    if let Some(pos) = dropoff {
+                        if !inventory.can_dropoff(pos) {
+                            println!(
+                                "[{}ms] ✗ Task rejected: dropoff shelf ({},{}) is full",
+                                timestamp(),
+                                pos.0,
+                                pos.1
+                            );
+                            logs::save_log(
+                                "Scheduler",
+                                &format!("Task rejected: dropoff ({},{}) is full", pos.0, pos.1),
+                            );
                             continue;
                         }
                     }
@@ -720,6 +786,7 @@ fn handle_status_updates(
     robots: &mut HashMap<u32, RobotInfo>,
     inventory: &mut ShelfInventory,
     retry_state: &mut HashMap<TaskId, TaskRetryState>,
+    inventory_milestones: &mut HashMap<TaskId, InventoryMilestone>,
 ) {
     while let Ok(Some(sample)) = sub.try_recv() {
         let payload = sample.payload().to_bytes();
@@ -728,15 +795,26 @@ fn handle_status_updates(
                 println!("[{}ms] ↻ Task {} status: {:?} → {:?}", timestamp(), task.id, task.status, update.status);
                 logs::save_log("Scheduler", &format!("Task {} status changed to {:?}", task.id, update.status));
 
+                if let Some(milestone) = update.inventory_milestone {
+                    inventory_milestones.insert(task.id, milestone);
+                }
+
                 match &update.status {
                     TaskStatus::Failed { reason } => {
-                        if let Some(pickup) = task.pickup_location() {
-                            inventory.undo_pickup(pickup);
-                        }
-                        if let Some(dropoff) = task.target_location() {
-                            inventory.undo_dropoff(dropoff);
-                        }
-                        logs::save_log("Scheduler", &format!("Task {} failed: inventory reservations undone", task.id));
+                        let known_milestone = update
+                            .inventory_milestone
+                            .or_else(|| inventory_milestones.get(&task.id).copied());
+                        let rollback_scope = rollback_reserved_inventory(inventory, task, known_milestone);
+                        logs::save_log(
+                            "Scheduler",
+                            &format!(
+                                "Task {} failed: inventory rollback {} (milestone {:?})",
+                                task.id,
+                                rollback_scope,
+                                known_milestone
+                            ),
+                        );
+                        inventory_milestones.remove(&task.id);
 
                         if is_disabled_failure_reason(reason) {
                             task.status = TaskStatus::Pending;
@@ -797,6 +875,7 @@ fn handle_status_updates(
 
                         if matches!(update.status, TaskStatus::Completed | TaskStatus::Cancelled) {
                             task.completed_at = Some(unix_timestamp_ms());
+                            inventory_milestones.remove(&task.id);
                         }
 
                         if matches!(
@@ -840,6 +919,7 @@ async fn allocate_tasks(
     map: &GridMap,
     inventory: &mut ShelfInventory,
     retry_state: &mut HashMap<TaskId, TaskRetryState>,
+    inventory_milestones: &mut HashMap<TaskId, InventoryMilestone>,
     publisher: &zenoh::pubsub::Publisher<'_>,
     verbose: bool,
 ) {
@@ -920,6 +1000,7 @@ async fn allocate_tasks(
             .await
             {
                 task.status = TaskStatus::Assigned { robot_id };
+                inventory_milestones.insert(task_id, InventoryMilestone::Reserved);
                 if verbose {
                     println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
                 }
@@ -934,6 +1015,7 @@ async fn allocate_tasks(
                 if let Some(dropoff_pos) = task.target_location() {
                     inventory.undo_dropoff(dropoff_pos);
                 }
+                inventory_milestones.remove(&task_id);
                 logs::save_log(
                     "Scheduler",
                     &format!(
@@ -1005,6 +1087,84 @@ mod tests {
             (10, 10),
             (10 + max_steps.saturating_add(1), 10)
         ));
+    }
+
+    #[test]
+    fn rollback_inventory_reserved_undoes_pickup_and_dropoff() {
+        let map = GridMap::parse("12").expect("map should parse");
+        let mut inventory = ShelfInventory::from_map(&map);
+        let task = Task::new(
+            1,
+            TaskType::Relocate {
+                from: (0, 0),
+                to: (1, 0),
+            },
+            Priority::Normal,
+        );
+
+        assert!(inventory.pickup((0, 0)));
+        assert!(inventory.dropoff((1, 0)));
+
+        let scope = rollback_reserved_inventory(
+            &mut inventory,
+            &task,
+            Some(InventoryMilestone::Reserved),
+        );
+        assert_eq!(scope, "pickup+dropoff");
+        assert_eq!(inventory.stock_at((0, 0)), Some((1, 16)));
+        assert_eq!(inventory.stock_at((1, 0)), Some((2, 16)));
+    }
+
+    #[test]
+    fn rollback_inventory_pickup_confirmed_undoes_dropoff_only() {
+        let map = GridMap::parse("12").expect("map should parse");
+        let mut inventory = ShelfInventory::from_map(&map);
+        let task = Task::new(
+            2,
+            TaskType::Relocate {
+                from: (0, 0),
+                to: (1, 0),
+            },
+            Priority::Normal,
+        );
+
+        assert!(inventory.pickup((0, 0)));
+        assert!(inventory.dropoff((1, 0)));
+
+        let scope = rollback_reserved_inventory(
+            &mut inventory,
+            &task,
+            Some(InventoryMilestone::PickupConfirmed),
+        );
+        assert_eq!(scope, "dropoff-only");
+        assert_eq!(inventory.stock_at((0, 0)), Some((0, 16)));
+        assert_eq!(inventory.stock_at((1, 0)), Some((2, 16)));
+    }
+
+    #[test]
+    fn rollback_inventory_dropoff_confirmed_skips_undo() {
+        let map = GridMap::parse("12").expect("map should parse");
+        let mut inventory = ShelfInventory::from_map(&map);
+        let task = Task::new(
+            3,
+            TaskType::Relocate {
+                from: (0, 0),
+                to: (1, 0),
+            },
+            Priority::Normal,
+        );
+
+        assert!(inventory.pickup((0, 0)));
+        assert!(inventory.dropoff((1, 0)));
+
+        let scope = rollback_reserved_inventory(
+            &mut inventory,
+            &task,
+            Some(InventoryMilestone::DropoffConfirmed),
+        );
+        assert_eq!(scope, "none");
+        assert_eq!(inventory.stock_at((0, 0)), Some((0, 16)));
+        assert_eq!(inventory.stock_at((1, 0)), Some((3, 16)));
     }
 
     fn make_completed_task(id: u64, completed_at: u64) -> Task {

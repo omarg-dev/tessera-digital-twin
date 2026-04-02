@@ -218,6 +218,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Task-list data-plane pass: scheduler now broadcasts bounded active/recent task windows with aggregate totals, and visualizer Tasks tab renders paged sections over the windowed dataset
 - [x] WHCA stationary reservation density pass: stationary positions are now sampled at planner stride (`MOVE_TIME_MS`) instead of per-millisecond timestamps, preserving coverage while reducing reservation-table amplification
 - [x] Scheduler no-path retry lifecycle pass: preserve retry attempt state across assignment publish and prefilter allocation candidates beyond WHCA pickup horizon lower bound
+- [x] Inventory guardrails pass: scheduler rejects full-destination task requests, coordinator emits inventory milestones, scheduler applies milestone-aware rollback, and visualizer blocks full-shelf destination picks
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -313,6 +314,28 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-02: Inventory guardrails + milestone rollback (Phase 5)
+
+- Added protocol-level inventory progress metadata:
+  - new `InventoryMilestone` enum (`Reserved`, `PickupConfirmed`, `DropoffConfirmed`)
+  - optional `inventory_milestone` on `TaskStatusUpdate` with serde default for compatibility
+- Coordinator now publishes inventory milestones through task lifecycle updates:
+  - `Reserved` when task enters in-progress after assignment acceptance
+  - `PickupConfirmed` once firmware confirms pickup transition (`MovingToDrop`)
+  - `DropoffConfirmed` on task completion
+  - failure updates include stage-derived milestone context
+- Scheduler intake guardrail now rejects new UI task requests targeting full destination shelves (not just empty pickup shelves).
+- Scheduler now tracks per-task inventory milestones and applies selective rollback on failure:
+  - `Reserved` => undo pickup + dropoff reservations
+  - `PickupConfirmed` => undo dropoff reservation only
+  - `DropoffConfirmed` => no rollback
+- Visualizer guardrails now block full-shelf destination selection in both task wizard dropoff picking and shelf-inspector relocation flows.
+- Added unit tests for milestone-aware rollback behavior and `TaskStatusUpdate` backward-compatible deserialization.
+- Why: prevent assignment-time acceptance from drifting into inconsistent shelf state when failures happen after physical pickup, and stop obvious empty/full shelf requests earlier in UI/scheduler paths.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-02: Scheduler retry lifecycle + WHCA horizon guard (Phase 5)
 
