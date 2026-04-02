@@ -76,7 +76,7 @@ pub fn object_manager(
 
 // ── Inspector (right) ─────────────────────────────────────────────
 
-/// Tabbed right panel: Details and Network tabs.
+/// Tabbed right panel: Inspector and Network tabs.
 #[allow(clippy::too_many_arguments)]
 pub fn inspector(
     ctx: &egui::Context,
@@ -95,14 +95,14 @@ pub fn inspector(
         .width_range(ui_cfg::SIDE_PANEL_MIN_WIDTH..=ui_cfg::SIDE_PANEL_MAX_WIDTH)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Details, tabs::details::LABEL);
+                ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Details, tabs::inspector::LABEL);
                 ui.selectable_value(&mut ui_state.inspector_tab, RightTab::Network, tabs::network::LABEL);
             });
 
             ui.separator();
 
             match ui_state.inspector_tab {
-                RightTab::Details => tabs::details::draw(
+                RightTab::Details => tabs::inspector::draw(
                     ui, ui_state, robots, shelves, dropoffs, transforms,
                     warehouse_map, task_list, active_paths, actions,
                 ),

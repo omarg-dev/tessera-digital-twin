@@ -1,4 +1,4 @@
-//! Details tab: context-sensitive inspector routing.
+//! Inspector tab: context-sensitive inspector routing.
 //!
 //! Routes to the appropriate sub-inspector based on what is selected:
 //! robot entity → robot_inspector, shelf entity → shelf_inspector,
@@ -13,7 +13,7 @@ use crate::resources::{ActivePaths, TaskListData, UiAction, UiState};
 
 use super::{robot_inspector, shelf_inspector, task_inspector};
 
-pub const LABEL: &str = "Details";
+pub const LABEL: &str = "Inspector";
 
 /// Render the appropriate sub-inspector for the current selection.
 #[allow(clippy::too_many_arguments)]
@@ -32,7 +32,8 @@ pub fn draw(
     // entity inspector takes priority over task inspector
     if let Some(entity) = ui_state.selected_entity {
         if let Ok((_, robot)) = robots.get(entity) {
-            robot_inspector::draw(ui, robot, actions);
+            let active_path = active_paths.0.get(&robot.id).map(Vec::as_slice);
+            robot_inspector::draw(ui, robot, active_path, actions);
             return;
         }
         if let Ok((_, shelf)) = shelves.get(entity) {

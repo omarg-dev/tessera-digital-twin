@@ -150,6 +150,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Top HUD panel: pause/play, speed controls (1x/2x/5x/10x/custom), FPS counter, layer toggles
 - [x] Left Object Manager: tabbed robot/shelf browser with search filter
 - [x] Right Inspector: context-sensitive entity details (battery bar, state, position, actions)
+- [x] Inspector telemetry polish: per-robot pathfinding diagnostics, Inspector tab naming, and idle icon fallback visibility
 - [x] Bottom Log Console: scrollable log viewer with auto-scroll and clear
 - [x] Camera input guard (egui panels don't interfere with 3D orbit/pan/zoom)
 - [x] `UiState` resource for centralized UI state management
@@ -310,6 +311,23 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-02: Inspector telemetry + tab naming polish (Phase 5)
+
+- Added robot inspector pathfinding telemetry block using per-robot `ActivePaths` + live robot motion data:
+  - active/idle path telemetry status
+  - remaining waypoint count
+  - next waypoint and destination
+  - remaining path distance (XZ), current speed (XZ), and ETA estimate
+  - short upcoming-waypoint preview list
+- Updated inspector routing to pass selected robot path telemetry into the robot inspector.
+- Renamed the right panel tab label from `Details` to `Inspector` (UI label only; enum wiring unchanged).
+- Fixed Entities tab idle icon visibility by replacing the missing-glyph idle marker with a reliable `I` fallback glyph.
+- Updated inspector-related comments/docs in visualizer UI modules to use Inspector terminology consistently.
+- Why: improve per-robot pathfinding observability during debugging while removing naming/icon friction in the UI.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-02: Bounded task-list windows + visualizer paging (Phase 5)
 

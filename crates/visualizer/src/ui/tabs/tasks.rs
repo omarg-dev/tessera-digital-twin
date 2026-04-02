@@ -316,7 +316,7 @@ fn task_list_view(
     ui_state.task_page_completed = completed_page;
 }
 
-/// Single selectable task row. Click -> select task and switch to Details tab.
+/// Single selectable task row. Click -> select task and switch to Inspector tab.
 fn task_row(ui: &mut egui::Ui, task: &protocol::Task, ui_state: &mut UiState) {
     let is_selected = ui_state.selected_task_id == Some(task.id);
     if ui.selectable_label(is_selected, task_row_label(task)).clicked() {

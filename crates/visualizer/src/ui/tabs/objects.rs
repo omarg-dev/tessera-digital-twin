@@ -138,7 +138,7 @@ fn refresh_object_caches(
 fn state_icon(robot: &Robot) -> &'static str {
     use protocol::RobotState::*;
     match robot.state {
-        Idle => "●",           // ●  idle
+        Idle => "I",           // I  idle
         Charging => "⚡",       // ⚡ charging
         MovingToPickup | MovingToDrop | MovingToStation => "▶", // ▶ moving
         Picking => "⬆",        // ⬆ picking

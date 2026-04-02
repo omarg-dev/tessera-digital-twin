@@ -1,7 +1,9 @@
 //! Robot inspector panel: battery, state, position, and action buttons.
 
+use bevy::prelude::Vec3;
 use bevy_egui::egui;
 use protocol::config::firmware::battery;
+use protocol::RobotState;
 
 use crate::components::Robot;
 use crate::resources::UiAction;
@@ -32,8 +34,23 @@ fn detail_row(ui: &mut egui::Ui, label: &str, value: impl Into<String>, primary:
     });
 }
 
+fn distance_xz(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    (dx * dx + dz * dz).sqrt()
+}
+
+fn format_point_xz(point: Vec3) -> String {
+    format!("[{:.2}, {:.2}]", point.x, point.z)
+}
+
 /// Inspector for a single robot with functional action buttons.
-pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
+pub fn draw(
+    ui: &mut egui::Ui,
+    robot: &Robot,
+    active_path: Option<&[Vec3]>,
+    actions: &mut Vec<UiAction>,
+) {
     ui.label(
         egui::RichText::new(format!("Robot #{}", robot.id))
             .heading()
@@ -43,7 +60,7 @@ pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
     ui.add_space(8.0);
 
     detail_row(ui, "State:", format!("{:?}", robot.state), true);
-    ui.colored_label(state_color(&robot.state), "● live state");
+    ui.colored_label(state_color(&robot.state), "live state");
 
     // Position
     detail_row(
@@ -90,6 +107,79 @@ pub fn draw(ui: &mut egui::Ui, robot: &Robot, actions: &mut Vec<UiAction>) {
         },
         false,
     );
+
+    // Pathfinding telemetry
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label(egui::RichText::new("Pathfinding").strong());
+
+    let speed_xz = Vec3::new(robot.network_velocity.x, 0.0, robot.network_velocity.z).length();
+
+    match active_path {
+        Some(path_points) if !path_points.is_empty() => {
+            detail_row(
+                ui,
+                "Telemetry:",
+                format!("Active ({} waypoints)", path_points.len()),
+                false,
+            );
+
+            if let Some(next) = path_points.first() {
+                detail_row(ui, "Next:", format_point_xz(*next), false);
+            }
+            if let Some(dest) = path_points.last() {
+                detail_row(ui, "Destination:", format_point_xz(*dest), false);
+            }
+
+            let mut remaining_dist = 0.0;
+            let mut cursor = Vec3::new(robot.position.x, 0.0, robot.position.z);
+            for &waypoint in path_points {
+                let target = Vec3::new(waypoint.x, 0.0, waypoint.z);
+                remaining_dist += distance_xz(cursor, target);
+                cursor = target;
+            }
+
+            detail_row(ui, "Remaining dist:", format!("{remaining_dist:.2} m"), false);
+            detail_row(ui, "Speed (XZ):", format!("{speed_xz:.2} m/s"), false);
+
+            let eta = if speed_xz > 0.05 {
+                format!("{:.1} s", remaining_dist / speed_xz)
+            } else {
+                "n/a (speed below threshold)".to_string()
+            };
+            detail_row(ui, "ETA:", eta, false);
+
+            ui.add_space(4.0);
+            ui.weak("Upcoming waypoints:");
+            for (idx, waypoint) in path_points.iter().take(5).enumerate() {
+                ui.label(
+                    egui::RichText::new(format!("{:>2}. {}", idx + 1, format_point_xz(*waypoint)))
+                        .small(),
+                );
+            }
+            if path_points.len() > 5 {
+                ui.weak(format!("... +{} more", path_points.len() - 5));
+            }
+        }
+        _ => {
+            detail_row(ui, "Telemetry:", "No active path", false);
+            detail_row(ui, "Speed (XZ):", format!("{speed_xz:.2} m/s"), false);
+
+            if matches!(
+                robot.state,
+                RobotState::MovingToPickup
+                    | RobotState::MovingToDrop
+                    | RobotState::MovingToStation
+                    | RobotState::Blocked
+                    | RobotState::Picking
+            ) {
+                ui.colored_label(
+                    egui::Color32::from_rgb(245, 170, 55),
+                    "Path telemetry missing while robot is in a movement-related state.",
+                );
+            }
+        }
+    }
 
     ui.add_space(12.0);
     ui.separator();

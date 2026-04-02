@@ -294,7 +294,7 @@ pub struct UiState {
     pub mass_add_count_input: String,
     /// text input for optional mass-add dropoff percentage
     pub mass_add_dropoff_pct_input: String,
-    /// selected task ID for the Details inspector (None = no task selected)
+    /// selected task ID for the Inspector panel (None = no task selected)
     pub selected_task_id: Option<u64>,
     /// current page in Active tasks section (0-based)
     pub task_page_active: usize,
