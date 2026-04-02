@@ -121,6 +121,12 @@ pub mod coordinator {
         /// How long to reserve stationary tiles (milliseconds)
         pub const STATIONARY_RESERVATION_MS: u64 = 2500;
 
+        /// Minimum interval between stationary reservation refreshes (milliseconds).
+        ///
+        /// Reduces per-tick reservation churn for idle/faulted robots while
+        /// preserving a rolling reservation window.
+        pub const STATIONARY_REFRESH_INTERVAL_MS: u64 = 500;
+
         /// Collision buffer radius (tiles) reserved around each reserved cell
         /// Set to 0 to avoid over-reserving narrow corridors.
         pub const COLLISION_BUFFER_TILES: usize = 0;

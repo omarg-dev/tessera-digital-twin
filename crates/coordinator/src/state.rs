@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::time::Instant;
-use protocol::RobotUpdate;
+use protocol::{RobotState, RobotUpdate};
 
 use crate::pathfinding::GridPos;
 
@@ -64,6 +64,17 @@ pub struct TrackedRobot {
     /// true after FollowPath has been dispatched for the current path segment;
     /// cleared by set_path() so any new or replanned path triggers a fresh dispatch.
     pub path_sent: bool,
+
+    /// last time stationary reservations were refreshed for this robot.
+    pub last_stationary_reservation_refresh: Option<Instant>,
+    /// last grid position used for stationary reservation refresh.
+    pub last_stationary_reservation_pos: Option<GridPos>,
+    /// last task stage observed when refreshing stationary reservations.
+    pub last_stationary_reservation_stage: Option<TaskStage>,
+    /// whether robot was faulted/blocked at last stationary reservation refresh.
+    pub last_stationary_reservation_faulted_or_blocked: bool,
+    /// signature of recent stationary reservation history at last refresh.
+    pub last_stationary_reservation_history_sig: u64,
 }
 
 impl TrackedRobot {
@@ -90,6 +101,11 @@ impl TrackedRobot {
             waiting_since: None,
             waiting_for: None,
             path_sent: false,
+            last_stationary_reservation_refresh: None,
+            last_stationary_reservation_pos: None,
+            last_stationary_reservation_stage: None,
+            last_stationary_reservation_faulted_or_blocked: false,
+            last_stationary_reservation_history_sig: 0,
         }
     }
     
@@ -150,6 +166,55 @@ impl TrackedRobot {
         self.current_task.is_some() && 
         self.last_progress.elapsed().as_secs() >= timeout_secs
     }
+
+    fn is_faulted_or_blocked(&self) -> bool {
+        matches!(self.last_update.state, RobotState::Faulted | RobotState::Blocked)
+    }
+
+    /// decide if stationary reservations should be refreshed now.
+    pub fn stationary_refresh_due(
+        &self,
+        now: Instant,
+        interval: std::time::Duration,
+        current_pos: GridPos,
+        history_sig: u64,
+    ) -> bool {
+        let Some(last_refresh) = self.last_stationary_reservation_refresh else {
+            return true;
+        };
+
+        if self.last_stationary_reservation_pos != Some(current_pos) {
+            return true;
+        }
+
+        if self.last_stationary_reservation_stage != Some(self.task_stage) {
+            return true;
+        }
+
+        if self.last_stationary_reservation_faulted_or_blocked != self.is_faulted_or_blocked() {
+            return true;
+        }
+
+        if self.last_stationary_reservation_history_sig != history_sig {
+            return true;
+        }
+
+        now.duration_since(last_refresh) >= interval
+    }
+
+    /// record metadata after refreshing stationary reservations.
+    pub fn record_stationary_reservation_refresh(
+        &mut self,
+        now: Instant,
+        current_pos: GridPos,
+        history_sig: u64,
+    ) {
+        self.last_stationary_reservation_refresh = Some(now);
+        self.last_stationary_reservation_pos = Some(current_pos);
+        self.last_stationary_reservation_stage = Some(self.task_stage);
+        self.last_stationary_reservation_faulted_or_blocked = self.is_faulted_or_blocked();
+        self.last_stationary_reservation_history_sig = history_sig;
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +273,55 @@ mod tests {
         // Mark progress resets timeout
         robot.mark_progress();
         assert!(!robot.is_task_timed_out(1));
+    }
+
+    #[test]
+    fn test_stationary_refresh_due_initially() {
+        let robot = TrackedRobot::new(make_update(1));
+        let now = Instant::now();
+
+        assert!(robot.stationary_refresh_due(
+            now,
+            Duration::from_millis(500),
+            (1, 1),
+            123,
+        ));
+    }
+
+    #[test]
+    fn test_stationary_refresh_not_due_without_changes() {
+        let mut robot = TrackedRobot::new(make_update(1));
+        let now = Instant::now();
+        robot.record_stationary_reservation_refresh(now, (2, 2), 555);
+
+        assert!(!robot.stationary_refresh_due(
+            now + Duration::from_millis(250),
+            Duration::from_millis(500),
+            (2, 2),
+            555,
+        ));
+    }
+
+    #[test]
+    fn test_stationary_refresh_due_on_position_or_stage_change() {
+        let mut robot = TrackedRobot::new(make_update(1));
+        let now = Instant::now();
+        robot.record_stationary_reservation_refresh(now, (2, 2), 555);
+
+        assert!(robot.stationary_refresh_due(
+            now + Duration::from_millis(100),
+            Duration::from_millis(500),
+            (3, 2),
+            555,
+        ));
+
+        robot.record_stationary_reservation_refresh(now, (2, 2), 555);
+        robot.task_stage = TaskStage::Picking;
+        assert!(robot.stationary_refresh_due(
+            now + Duration::from_millis(100),
+            Duration::from_millis(500),
+            (2, 2),
+            555,
+        ));
     }
 }

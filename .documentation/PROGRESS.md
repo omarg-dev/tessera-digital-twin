@@ -213,6 +213,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Retryable no-path congestion handling: scheduler retry lane with bounded exponential backoff + jitter and coordinator no-path reason normalization
 - [x] Coordinator collision scaling pass: replaced O(R^2) all-pairs collision scan with spatial-bucket candidate pruning plus helper tests
 - [x] Path telemetry data-plane pass: coordinator now publishes path telemetry on change with heartbeat fallback (instead of every send tick for every robot)
+- [x] Stationary reservation scaling pass: coordinator now refreshes stationary reservation history on change/interval (`STATIONARY_REFRESH_INTERVAL_MS`) instead of every loop tick
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -308,6 +309,19 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-01: Stationary reservation refresh throttling (Phase 5)
+
+- Added coordinator WHCA config knob `STATIONARY_REFRESH_INTERVAL_MS` to bound stationary reservation refresh frequency.
+- Added per-robot stationary reservation refresh metadata in coordinator state to detect when refresh is needed.
+- Replaced unconditional per-loop stationary reservation updates with refresh-on-change-or-interval logic:
+  - refresh immediately when stationary tile/stage/history signature changes
+  - refresh when faulted/blocked stationary class changes
+  - refresh on interval expiry to preserve rolling reservation coverage
+- Why: reduce reservation-table write amplification from idle/faulted robots and keep coordinator loop cadence stable at high robot counts.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Path telemetry change-driven broadcast throttling (Phase 5)
 

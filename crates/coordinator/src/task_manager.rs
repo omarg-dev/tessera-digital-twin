@@ -9,6 +9,9 @@
 //! Extracted from server.rs for improved testability and maintainability.
 
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
 use protocol::*;
 use protocol::config::coordinator as coord_config;
 use protocol::config::coordinator::collision as collision_config;
@@ -348,6 +351,21 @@ fn is_near(pos: [f32; 3], target: [f32; 3]) -> bool {
     dist < coord_config::WAYPOINT_ARRIVAL_THRESHOLD
 }
 
+fn should_reserve_stationary(robot: &TrackedRobot) -> bool {
+    matches!(robot.task_stage, TaskStage::Idle | TaskStage::Picking | TaskStage::Delivering)
+        || matches!(robot.last_update.state, RobotState::Faulted | RobotState::Blocked)
+}
+
+fn stationary_history_signature(robot: &TrackedRobot, current_pos: GridPos) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    robot.recent_positions.len().hash(&mut hasher);
+    for &pos in &robot.recent_positions {
+        pos.hash(&mut hasher);
+    }
+    current_pos.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Monitor task progression and send commands when robot reaches destinations
 pub async fn progress_tasks(
     robots: &mut HashMap<u32, TrackedRobot>,
@@ -370,21 +388,22 @@ pub async fn progress_tasks(
     // Blocked handling: immediate replan or fault escalation
     handle_blocked_robots(robots, map, pathfinder, cmd_publisher, status_publisher, next_cmd_id, verbose).await;
     
-    // Second pass: reserve stationary robot positions for WHCA* collision avoidance
-    for (robot_id, robot) in robots.iter() {
-        let robot_pos = pathfinding::world_to_grid(robot.last_update.position);
-        
-        // Reserve position if robot is stationary (not actively moving)
-        match robot.task_stage {
-            TaskStage::Idle | TaskStage::Picking | TaskStage::Delivering => {
-                pathfinder.reserve_stationary_history(*robot_id, &robot.recent_positions, robot_pos);
-            }
-            _ => {}
+    // Second pass: refresh stationary reservations when state/tile/history changed or interval elapsed.
+    let now = Instant::now();
+    let refresh_interval = Duration::from_millis(coord_config::whca::STATIONARY_REFRESH_INTERVAL_MS);
+    for (robot_id, robot) in robots.iter_mut() {
+        if !should_reserve_stationary(robot) {
+            continue;
         }
 
-        if matches!(robot.last_update.state, RobotState::Faulted | RobotState::Blocked) {
-            pathfinder.reserve_stationary_history(*robot_id, &robot.recent_positions, robot_pos);
+        let robot_pos = pathfinding::world_to_grid(robot.last_update.position);
+        let history_sig = stationary_history_signature(robot, robot_pos);
+        if !robot.stationary_refresh_due(now, refresh_interval, robot_pos, history_sig) {
+            continue;
         }
+
+        pathfinder.reserve_stationary_history(*robot_id, &robot.recent_positions, robot_pos);
+        robot.record_stationary_reservation_refresh(now, robot_pos, history_sig);
     }
     
     // collect (robot_id, new_path) pairs for each successful replan so we can stop
