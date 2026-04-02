@@ -26,6 +26,7 @@ use crate::queue::{QueueInstance, TaskQueue};
 struct TaskRetryState {
     attempts: u32,
     next_eligible_at: std::time::Instant,
+    penalized_robots: HashMap<u32, std::time::Instant>,
 }
 
 fn is_disabled_failure_reason(reason: &str) -> bool {
@@ -53,6 +54,16 @@ fn retry_backoff_with_jitter_ms(attempt: u32) -> u64 {
     base.saturating_add(jitter)
 }
 
+fn robot_penalty_with_jitter_ms() -> u64 {
+    let base = sched_config::RETRYABLE_NO_PATH_ROBOT_PENALTY_MS;
+    let jitter_max = sched_config::RETRYABLE_NO_PATH_ROBOT_PENALTY_JITTER_MS;
+    if jitter_max == 0 {
+        return base;
+    }
+    let jitter = thread_rng().gen_range(0..=jitter_max);
+    base.saturating_add(jitter)
+}
+
 fn unix_timestamp_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -61,11 +72,27 @@ fn unix_timestamp_ms() -> u64 {
 }
 
 fn prune_retry_state(queue: &dyn TaskQueue, retry_state: &mut HashMap<TaskId, TaskRetryState>) {
-    retry_state.retain(|task_id, _| {
+    let now = std::time::Instant::now();
+    retry_state.retain(|task_id, state| {
+        state
+            .penalized_robots
+            .retain(|_, penalized_until| now < *penalized_until);
+
         queue.get(*task_id)
             .map(|task| task.status == TaskStatus::Pending)
             .unwrap_or(false)
     });
+}
+
+fn is_robot_penalized(
+    state: Option<&TaskRetryState>,
+    robot_id: u32,
+    now: std::time::Instant,
+) -> bool {
+    state
+        .and_then(|entry| entry.penalized_robots.get(&robot_id))
+        .map(|penalized_until| now < *penalized_until)
+        .unwrap_or(false)
 }
 
 fn prune_inventory_milestones(
@@ -828,16 +855,35 @@ fn handle_status_updates(
                                 ),
                             );
                         } else if is_retryable_no_path_failure(reason) {
+                            let now = std::time::Instant::now();
                             let state = retry_state.entry(task.id).or_insert(TaskRetryState {
                                 attempts: 0,
-                                next_eligible_at: std::time::Instant::now(),
+                                next_eligible_at: now,
+                                penalized_robots: HashMap::new(),
                             });
+
+                            if let Some(robot_id) = update.robot_id {
+                                let penalty_ms = robot_penalty_with_jitter_ms();
+                                state.penalized_robots.insert(
+                                    robot_id,
+                                    now + std::time::Duration::from_millis(penalty_ms),
+                                );
+                                logs::save_log(
+                                    "Scheduler",
+                                    &format!(
+                                        "Task {} penalized robot {} for {}ms after no-path failure",
+                                        task.id,
+                                        robot_id,
+                                        penalty_ms
+                                    ),
+                                );
+                            }
 
                             if state.attempts < sched_config::RETRYABLE_NO_PATH_MAX_ATTEMPTS {
                                 state.attempts += 1;
                                 let backoff_ms = retry_backoff_with_jitter_ms(state.attempts);
                                 state.next_eligible_at =
-                                    std::time::Instant::now() + std::time::Duration::from_millis(backoff_ms);
+                                    now + std::time::Duration::from_millis(backoff_ms);
 
                                 task.status = TaskStatus::Pending;
                                 task.completed_at = None;
@@ -959,7 +1005,11 @@ async fn allocate_tasks(
 
         let Some(pickup) = task.pickup_location() else { continue };
         let mut reachable_robots: HashMap<u32, RobotInfo> = HashMap::new();
+        let task_retry_state = retry_state.get(&task_id);
         for (id, robot) in robots.iter() {
+            if is_robot_penalized(task_retry_state, *id, now) {
+                continue;
+            }
             let Some(start) = world_to_grid(robot.position) else { continue; };
             if !is_within_pickup_horizon(start, pickup) {
                 continue;
@@ -1076,6 +1126,41 @@ mod tests {
         assert_eq!(first, sched_config::RETRYABLE_NO_PATH_BASE_BACKOFF_MS);
         assert!(second >= first);
         assert!(tenth <= sched_config::RETRYABLE_NO_PATH_MAX_BACKOFF_MS);
+    }
+
+    #[test]
+    fn robot_penalty_jitter_respects_bounds() {
+        for _ in 0..128 {
+            let value = robot_penalty_with_jitter_ms();
+            assert!(value >= sched_config::RETRYABLE_NO_PATH_ROBOT_PENALTY_MS);
+            assert!(
+                value
+                    <= sched_config::RETRYABLE_NO_PATH_ROBOT_PENALTY_MS
+                        .saturating_add(sched_config::RETRYABLE_NO_PATH_ROBOT_PENALTY_JITTER_MS)
+            );
+        }
+    }
+
+    #[test]
+    fn robot_penalty_filter_respects_expiry() {
+        let now = std::time::Instant::now();
+        let mut state = TaskRetryState {
+            attempts: 1,
+            next_eligible_at: now,
+            penalized_robots: HashMap::new(),
+        };
+        state
+            .penalized_robots
+            .insert(42, now + std::time::Duration::from_millis(200));
+
+        assert!(is_robot_penalized(Some(&state), 42, now));
+        assert!(!is_robot_penalized(
+            Some(&state),
+            42,
+            now + std::time::Duration::from_millis(201)
+        ));
+        assert!(!is_robot_penalized(Some(&state), 7, now));
+        assert!(!is_robot_penalized(None, 42, now));
     }
 
     #[test]

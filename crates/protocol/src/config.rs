@@ -228,6 +228,15 @@ pub mod scheduler {
     ///
     /// Helps avoid synchronized re-assignment storms under corridor congestion.
     pub const RETRYABLE_NO_PATH_JITTER_MS: u64 = 200;
+
+    /// Temporary per-task robot penalty duration after no-path assignment failure.
+    ///
+    /// Prevents immediate re-selection of the same robot for the same task,
+    /// reducing assignment thrash in congested zones.
+    pub const RETRYABLE_NO_PATH_ROBOT_PENALTY_MS: u64 = 4000;
+
+    /// Random jitter added to per-task robot penalty duration (milliseconds).
+    pub const RETRYABLE_NO_PATH_ROBOT_PENALTY_JITTER_MS: u64 = 500;
     
     /// Location marker base for shelf encoding (S1 = SHELF_MARKER_BASE + 1)
     pub const SHELF_MARKER_BASE: usize = 10000;
