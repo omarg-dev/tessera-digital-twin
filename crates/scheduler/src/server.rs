@@ -9,7 +9,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
-use protocol::config::scheduler as sched_config;
+use protocol::config::{coordinator as coord_config, scheduler as sched_config};
 use protocol::{
     timestamp, logs, topics, GridMap, Priority, QueueState, RobotUpdateBatch, ShelfInventory,
     Task, TaskAssignment, TaskCommand, TaskId, TaskListSnapshot, TaskStatus, TaskStatusUpdate,
@@ -66,6 +66,16 @@ fn prune_retry_state(queue: &dyn TaskQueue, retry_state: &mut HashMap<TaskId, Ta
             .map(|task| task.status == TaskStatus::Pending)
             .unwrap_or(false)
     });
+}
+
+fn whca_pickup_horizon_steps() -> usize {
+    let move_time_ms = coord_config::whca::MOVE_TIME_MS.max(1);
+    (coord_config::whca::WINDOW_SIZE_MS / move_time_ms) as usize
+}
+
+fn is_within_pickup_horizon(start: (usize, usize), pickup: (usize, usize)) -> bool {
+    let manhattan_steps = start.0.abs_diff(pickup.0) + start.1.abs_diff(pickup.1);
+    manhattan_steps <= whca_pickup_horizon_steps()
 }
 
 fn terminal_recency_ms(task: &Task) -> u64 {
@@ -871,6 +881,9 @@ async fn allocate_tasks(
         let mut reachable_robots: HashMap<u32, RobotInfo> = HashMap::new();
         for (id, robot) in robots.iter() {
             let Some(start) = world_to_grid(robot.position) else { continue; };
+            if !is_within_pickup_horizon(start, pickup) {
+                continue;
+            }
             if is_reachable_on_map(map, start, pickup) {
                 reachable_robots.insert(*id, robot.clone());
             }
@@ -907,7 +920,6 @@ async fn allocate_tasks(
             .await
             {
                 task.status = TaskStatus::Assigned { robot_id };
-                retry_state.remove(&task_id);
                 if verbose {
                     println!("[{}ms] 📤 Task {} → Robot {}", timestamp(), task_id, robot_id);
                 }
@@ -982,6 +994,17 @@ mod tests {
         assert_eq!(first, sched_config::RETRYABLE_NO_PATH_BASE_BACKOFF_MS);
         assert!(second >= first);
         assert!(tenth <= sched_config::RETRYABLE_NO_PATH_MAX_BACKOFF_MS);
+    }
+
+    #[test]
+    fn pickup_horizon_filter_rejects_impossible_distance() {
+        let max_steps = whca_pickup_horizon_steps();
+        assert!(max_steps > 0);
+        assert!(is_within_pickup_horizon((10, 10), (10 + max_steps, 10)));
+        assert!(!is_within_pickup_horizon(
+            (10, 10),
+            (10 + max_steps.saturating_add(1), 10)
+        ));
     }
 
     fn make_completed_task(id: u64, completed_at: u64) -> Task {

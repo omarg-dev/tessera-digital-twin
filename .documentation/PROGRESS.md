@@ -217,6 +217,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Stationary reservation scaling pass: coordinator now refreshes stationary reservation history on change/interval (`STATIONARY_REFRESH_INTERVAL_MS`) instead of every loop tick
 - [x] Task-list data-plane pass: scheduler now broadcasts bounded active/recent task windows with aggregate totals, and visualizer Tasks tab renders paged sections over the windowed dataset
 - [x] WHCA stationary reservation density pass: stationary positions are now sampled at planner stride (`MOVE_TIME_MS`) instead of per-millisecond timestamps, preserving coverage while reducing reservation-table amplification
+- [x] Scheduler no-path retry lifecycle pass: preserve retry attempt state across assignment publish and prefilter allocation candidates beyond WHCA pickup horizon lower bound
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -313,6 +314,18 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 
 ## Changelog
 
+### 2026-04-02: Scheduler retry lifecycle + WHCA horizon guard (Phase 5)
+
+- Fixed retry-state lifecycle for retryable no-path failures by preserving retry metadata across assignment publish success (state now clears only on status transitions/terminal outcomes).
+- Added scheduler-side WHCA horizon lower-bound guard for robot candidates:
+  - computes max feasible pickup steps from `WINDOW_SIZE_MS / MOVE_TIME_MS`
+  - skips robots whose Manhattan lower bound already exceeds that horizon
+- Added scheduler unit test coverage for the pickup horizon filter.
+- Why: prevent no-path retry thrash from resetting attempt counters and reduce guaranteed-fail assignments to robots that cannot reach pickup within the active WHCA planning window.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
+
 ### 2026-04-02: Inspector telemetry + tab naming polish (Phase 5)
 
 - Added robot inspector pathfinding telemetry block using per-robot `ActivePaths` + live robot motion data:
@@ -338,7 +351,6 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - Validation:
   - `cargo check --workspace` passed
   - `cargo test --workspace` passed
-
 
 ### 2026-04-02: Bounded task-list windows + visualizer paging (Phase 5)
 
