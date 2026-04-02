@@ -2,7 +2,10 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use protocol::config::{scheduler as sched_cfg, visualizer::TILE_SIZE};
+use protocol::config::{
+    scheduler as sched_cfg,
+    visualizer::{self as vis_cfg, TILE_SIZE},
+};
 use protocol::grid_map::GridMap;
 use protocol::{Priority, TaskRequest, TaskStatus, TaskType};
 use std::collections::{HashMap, HashSet};
@@ -41,6 +44,14 @@ fn categorize_tasks(tasks: &[protocol::Task]) -> TaskBuckets<'_> {
     }
 }
 
+fn task_pages(len: usize, page_size: usize) -> usize {
+    if len == 0 {
+        1
+    } else {
+        (len + page_size - 1) / page_size
+    }
+}
+
 /// Task queue tab -- stats summary + task list or Add Task wizard.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
@@ -59,9 +70,9 @@ pub fn draw(
     ui.add_space(4.0);
 
     let buckets = categorize_tasks(&task_list.tasks);
-    let active_count = buckets.active.len();
-    let failed_count = buckets.failed.len();
-    let completed_count = buckets.completed.len();
+    let active_count = task_list.active_total;
+    let failed_count = task_list.failed_like_total();
+    let completed_count = task_list.completed_total;
 
     egui::Grid::new("queue_stats")
         .num_columns(2)
@@ -110,7 +121,7 @@ pub fn draw(
         }
         ui.add_space(4.0);
 
-        task_list_view(ui, ui_state, &buckets, actions);
+        task_list_view(ui, ui_state, &buckets, task_list, actions);
     }
 }
 
@@ -119,21 +130,64 @@ fn task_list_view(
     ui: &mut egui::Ui,
     ui_state: &mut UiState,
     buckets: &TaskBuckets,
+    task_list: &TaskListData,
     _actions: &mut Vec<UiAction>,
 ) {
+    let mut active_page = ui_state.task_page_active;
+    let mut failed_page = ui_state.task_page_failed;
+    let mut completed_page = ui_state.task_page_completed;
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
             let active_id = egui::Id::new("task_list_active");
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), active_id, true)
                 .show_header(ui, |ui| {
-                    ui.label(egui::RichText::new(format!("Active ({})", buckets.active.len())).strong());
+                    ui.label(
+                        egui::RichText::new(format!("Active ({})", task_list.active_total)).strong(),
+                    );
                 })
                 .body(|ui| {
-                    for task in &buckets.active {
-                        task_row(ui, task, ui_state);
+                    let page_size = vis_cfg::ui::TASK_LIST_PAGE_SIZE.max(1);
+                    let page_count = task_pages(buckets.active.len(), page_size);
+                    active_page = active_page.min(page_count.saturating_sub(1));
+
+                    if task_list.active_total > buckets.active.len() {
+                        ui.weak(format!(
+                            "showing {} of {} active tasks",
+                            buckets.active.len(),
+                            task_list.active_total
+                        ));
                     }
-                    if buckets.active.is_empty() { ui.weak("no active tasks"); }
+
+                    if buckets.active.is_empty() {
+                        ui.weak("no active tasks");
+                    } else {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(active_page > 0, egui::Button::new("< Prev"))
+                                .clicked()
+                            {
+                                active_page = active_page.saturating_sub(1);
+                            }
+                            ui.label(format!("Page {}/{}", active_page + 1, page_count));
+                            if ui
+                                .add_enabled(
+                                    active_page + 1 < page_count,
+                                    egui::Button::new("Next >"),
+                                )
+                                .clicked()
+                            {
+                                active_page += 1;
+                            }
+                        });
+
+                        let start = active_page * page_size;
+                        let end = (start + page_size).min(buckets.active.len());
+                        for task in &buckets.active[start..end] {
+                            task_row(ui, task, ui_state);
+                        }
+                    }
                 });
 
             ui.add_space(4.0);
@@ -141,24 +195,66 @@ fn task_list_view(
             let failed_id = egui::Id::new("task_list_failed");
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), failed_id, true)
                 .show_header(ui, |ui| {
-                    ui.label(egui::RichText::new(format!("Failed ({})", buckets.failed.len()))
-                        .strong()
-                        .color(egui::Color32::from_rgb(220, 80, 80)));
+                    ui.label(
+                        egui::RichText::new(format!("Failed ({})", task_list.failed_like_total()))
+                            .strong()
+                            .color(egui::Color32::from_rgb(220, 80, 80)),
+                    );
                 })
                 .body(|ui| {
-                    for task in &buckets.failed {
-                        let is_selected = ui_state.selected_task_id == Some(task.id);
-                        let label = task_row_label(task);
-                        if ui.selectable_label(
-                            is_selected,
-                            egui::RichText::new(label).color(egui::Color32::from_rgb(220, 80, 80)),
-                        ).clicked() {
-                            ui_state.selected_task_id = Some(task.id);
-                            ui_state.selected_entity = None;
-                            ui_state.inspector_tab = RightTab::Details;
+                    let page_size = vis_cfg::ui::TASK_LIST_PAGE_SIZE.max(1);
+                    let page_count = task_pages(buckets.failed.len(), page_size);
+                    failed_page = failed_page.min(page_count.saturating_sub(1));
+
+                    if task_list.failed_like_total() > buckets.failed.len() {
+                        ui.weak(format!(
+                            "showing {} of {} failed/cancelled tasks",
+                            buckets.failed.len(),
+                            task_list.failed_like_total()
+                        ));
+                    }
+
+                    if buckets.failed.is_empty() {
+                        ui.weak("no failed tasks");
+                    } else {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(failed_page > 0, egui::Button::new("< Prev"))
+                                .clicked()
+                            {
+                                failed_page = failed_page.saturating_sub(1);
+                            }
+                            ui.label(format!("Page {}/{}", failed_page + 1, page_count));
+                            if ui
+                                .add_enabled(
+                                    failed_page + 1 < page_count,
+                                    egui::Button::new("Next >"),
+                                )
+                                .clicked()
+                            {
+                                failed_page += 1;
+                            }
+                        });
+
+                        let start = failed_page * page_size;
+                        let end = (start + page_size).min(buckets.failed.len());
+                        for task in &buckets.failed[start..end] {
+                            let is_selected = ui_state.selected_task_id == Some(task.id);
+                            let label = task_row_label(task);
+                            if ui
+                                .selectable_label(
+                                    is_selected,
+                                    egui::RichText::new(label)
+                                        .color(egui::Color32::from_rgb(220, 80, 80)),
+                                )
+                                .clicked()
+                            {
+                                ui_state.selected_task_id = Some(task.id);
+                                ui_state.selected_entity = None;
+                                ui_state.inspector_tab = RightTab::Details;
+                            }
                         }
                     }
-                    if buckets.failed.is_empty() { ui.weak("no failed tasks"); }
                 });
 
             ui.add_space(4.0);
@@ -166,15 +262,58 @@ fn task_list_view(
             let completed_id = egui::Id::new("task_list_completed");
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), completed_id, false)
                 .show_header(ui, |ui| {
-                    ui.label(egui::RichText::new(format!("Completed ({})", buckets.completed.len())).strong());
+                    ui.label(
+                        egui::RichText::new(format!("Completed ({})", task_list.completed_total))
+                            .strong(),
+                    );
                 })
                 .body(|ui| {
-                    for task in &buckets.completed {
-                        task_row(ui, task, ui_state);
+                    let page_size = vis_cfg::ui::TASK_LIST_PAGE_SIZE.max(1);
+                    let page_count = task_pages(buckets.completed.len(), page_size);
+                    completed_page = completed_page.min(page_count.saturating_sub(1));
+
+                    if task_list.completed_total > buckets.completed.len() {
+                        ui.weak(format!(
+                            "showing {} of {} completed tasks",
+                            buckets.completed.len(),
+                            task_list.completed_total
+                        ));
                     }
-                    if buckets.completed.is_empty() { ui.weak("no completed tasks"); }
+
+                    if buckets.completed.is_empty() {
+                        ui.weak("no completed tasks");
+                    } else {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(completed_page > 0, egui::Button::new("< Prev"))
+                                .clicked()
+                            {
+                                completed_page = completed_page.saturating_sub(1);
+                            }
+                            ui.label(format!("Page {}/{}", completed_page + 1, page_count));
+                            if ui
+                                .add_enabled(
+                                    completed_page + 1 < page_count,
+                                    egui::Button::new("Next >"),
+                                )
+                                .clicked()
+                            {
+                                completed_page += 1;
+                            }
+                        });
+
+                        let start = completed_page * page_size;
+                        let end = (start + page_size).min(buckets.completed.len());
+                        for task in &buckets.completed[start..end] {
+                            task_row(ui, task, ui_state);
+                        }
+                    }
                 });
         });
+
+    ui_state.task_page_active = active_page;
+    ui_state.task_page_failed = failed_page;
+    ui_state.task_page_completed = completed_page;
 }
 
 /// Single selectable task row. Click -> select task and switch to Details tab.
@@ -504,5 +643,13 @@ mod tests {
         assert_eq!(parse_mass_add_inputs("0", "60"), None);
         assert_eq!(parse_mass_add_inputs("10001", "60"), None);
         assert_eq!(parse_mass_add_inputs("abc", "60"), None);
+    }
+
+    #[test]
+    fn test_task_pages() {
+        assert_eq!(task_pages(0, 50), 1);
+        assert_eq!(task_pages(1, 50), 1);
+        assert_eq!(task_pages(50, 50), 1);
+        assert_eq!(task_pages(51, 50), 2);
     }
 }

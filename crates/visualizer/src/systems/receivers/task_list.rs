@@ -1,4 +1,4 @@
-//! Subscribe to the scheduler's TaskListSnapshot broadcasts via Zenoh.
+//! Subscribe to the scheduler's bounded TaskListSnapshot broadcasts via Zenoh.
 //! Also cross-references task assignments with robot components so
 //! Robot.current_task stays up-to-date without relying on RobotUpdate.
 
@@ -11,7 +11,7 @@ use zenoh::Session;
 use crate::components::Robot;
 use crate::resources::{RobotIndex, TaskListData, TaskListReceiver, ZenohSession};
 
-/// Initialize background Zenoh subscriber for the task list snapshot
+/// Initialize background Zenoh subscriber for task list windows.
 pub fn setup_task_listener(mut commands: Commands, session: Res<ZenohSession>) {
     let (tx, rx) = mpsc::channel::<TaskListSnapshot>(16);
     let sess = session.session.clone();
@@ -55,7 +55,13 @@ pub fn collect_task_list(
 
     // drain channel, keep only the latest snapshot
     while let Ok(snapshot) = receiver.0.try_recv() {
-        data.tasks = snapshot.tasks;
+        let mut tasks = snapshot.active_tasks;
+        tasks.extend(snapshot.recent_terminal_tasks);
+        data.tasks = tasks;
+        data.active_total = snapshot.active_total;
+        data.completed_total = snapshot.completed_total;
+        data.failed_total = snapshot.failed_total;
+        data.cancelled_total = snapshot.cancelled_total;
         data.last_updated_secs = time.elapsed_secs_f64();
     }
 }

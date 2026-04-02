@@ -108,18 +108,7 @@ pub fn draw_congestion_overlays(
     .clamp(0.0, 1.0);
 
     // include active task count as a soft pressure amplifier.
-    let active_tasks = task_list
-        .tasks
-        .iter()
-        .filter(|t| {
-            matches!(
-                t.status,
-                protocol::TaskStatus::Pending
-                    | protocol::TaskStatus::Assigned { .. }
-                    | protocol::TaskStatus::InProgress { .. }
-            )
-        })
-        .count() as f32;
+    let active_tasks = task_list.active_total as f32;
     let pressure = (load_ratio + (active_tasks / 80.0)).clamp(0.0, 1.0);
 
     let halo_color = Color::linear_rgba(

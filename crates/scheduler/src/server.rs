@@ -68,6 +68,97 @@ fn prune_retry_state(queue: &dyn TaskQueue, retry_state: &mut HashMap<TaskId, Ta
     });
 }
 
+fn terminal_recency_ms(task: &Task) -> u64 {
+    task.completed_at.unwrap_or(task.created_at)
+}
+
+fn oldest_recent_terminal_index(window: &[Task]) -> Option<usize> {
+    window
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, task)| (terminal_recency_ms(task), task.id))
+        .map(|(idx, _)| idx)
+}
+
+fn push_recent_terminal_task(window: &mut Vec<Task>, task: &Task, limit: usize) {
+    if limit == 0 {
+        return;
+    }
+
+    if window.len() < limit {
+        window.push(task.clone());
+        return;
+    }
+
+    let Some(oldest_idx) = oldest_recent_terminal_index(window) else {
+        return;
+    };
+
+    let oldest = &window[oldest_idx];
+    let candidate_key = (terminal_recency_ms(task), task.id);
+    let oldest_key = (terminal_recency_ms(oldest), oldest.id);
+
+    if candidate_key > oldest_key {
+        window[oldest_idx] = task.clone();
+    }
+}
+
+fn build_task_list_snapshot(queue: &dyn TaskQueue) -> TaskListSnapshot {
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let active_limit = sched_config::TASK_LIST_ACTIVE_WINDOW;
+    let recent_terminal_limit = sched_config::TASK_LIST_RECENT_TERMINAL_WINDOW;
+
+    let mut active_tasks = Vec::with_capacity(active_limit.min(64));
+    let mut recent_terminal_tasks = Vec::with_capacity(recent_terminal_limit.min(128));
+    let mut active_total = 0usize;
+    let mut completed_total = 0usize;
+    let mut failed_total = 0usize;
+    let mut cancelled_total = 0usize;
+
+    for task in queue.all_tasks() {
+        match task.status {
+            TaskStatus::Pending | TaskStatus::Assigned { .. } | TaskStatus::InProgress { .. } => {
+                active_total += 1;
+                if active_tasks.len() < active_limit {
+                    active_tasks.push(task.clone());
+                }
+            }
+            TaskStatus::Completed => {
+                completed_total += 1;
+                push_recent_terminal_task(&mut recent_terminal_tasks, task, recent_terminal_limit);
+            }
+            TaskStatus::Failed { .. } => {
+                failed_total += 1;
+                push_recent_terminal_task(&mut recent_terminal_tasks, task, recent_terminal_limit);
+            }
+            TaskStatus::Cancelled => {
+                cancelled_total += 1;
+                push_recent_terminal_task(&mut recent_terminal_tasks, task, recent_terminal_limit);
+            }
+        }
+    }
+
+    recent_terminal_tasks.sort_by(|a, b| {
+        terminal_recency_ms(b)
+            .cmp(&terminal_recency_ms(a))
+            .then_with(|| b.id.cmp(&a.id))
+    });
+
+    TaskListSnapshot {
+        active_tasks,
+        recent_terminal_tasks,
+        active_total,
+        completed_total,
+        failed_total,
+        cancelled_total,
+        timestamp_ms,
+    }
+}
+
 /// Run the scheduler main loop
 pub async fn run(session: Session) {
     // Load warehouse map for location info
@@ -574,17 +665,10 @@ async fn broadcast_task_list(
     publisher: &zenoh::pubsub::Publisher<'_>,
     queue: &dyn TaskQueue,
 ) {
-    let timestamp_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let snapshot = TaskListSnapshot {
-        tasks: queue.all_tasks().into_iter().cloned().collect(),
-        timestamp_ms,
-    };
+    let snapshot = build_task_list_snapshot(queue);
     let _ = protocol::publish_json_logged(
         "Scheduler",
-        "task list snapshot",
+        "task list window snapshot",
         &snapshot,
         |payload| async move { publisher.put(payload).await.map(|_| ()) },
     )
@@ -873,6 +957,7 @@ async fn broadcast_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::queue::FifoQueue;
 
     #[test]
     fn disabled_reason_detection_is_case_insensitive() {
@@ -897,5 +982,102 @@ mod tests {
         assert_eq!(first, sched_config::RETRYABLE_NO_PATH_BASE_BACKOFF_MS);
         assert!(second >= first);
         assert!(tenth <= sched_config::RETRYABLE_NO_PATH_MAX_BACKOFF_MS);
+    }
+
+    fn make_completed_task(id: u64, completed_at: u64) -> Task {
+        let mut task = Task::new(
+            id,
+            TaskType::PickAndDeliver {
+                pickup: (1, 1),
+                dropoff: (2, 2),
+                cargo_id: None,
+            },
+            Priority::Normal,
+        );
+        task.status = TaskStatus::Completed;
+        task.completed_at = Some(completed_at);
+        task
+    }
+
+    #[test]
+    fn recent_terminal_window_keeps_most_recent_entries() {
+        let mut window = Vec::new();
+        push_recent_terminal_task(&mut window, &make_completed_task(1, 100), 2);
+        push_recent_terminal_task(&mut window, &make_completed_task(2, 200), 2);
+        push_recent_terminal_task(&mut window, &make_completed_task(3, 150), 2);
+
+        let mut ids: Vec<u64> = window.iter().map(|task| task.id).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![2, 3]);
+    }
+
+    #[test]
+    fn task_list_snapshot_tracks_totals_and_windows() {
+        let mut queue = FifoQueue::new();
+
+        // active task
+        let active = Task::new(
+            queue.next_task_id(),
+            TaskType::PickAndDeliver {
+                pickup: (1, 1),
+                dropoff: (2, 2),
+                cargo_id: None,
+            },
+            Priority::Normal,
+        );
+        queue.enqueue(active);
+
+        // completed task
+        let mut completed = Task::new(
+            queue.next_task_id(),
+            TaskType::PickAndDeliver {
+                pickup: (1, 1),
+                dropoff: (2, 2),
+                cargo_id: None,
+            },
+            Priority::Normal,
+        );
+        completed.status = TaskStatus::Completed;
+        completed.completed_at = Some(1000);
+        queue.enqueue(completed);
+
+        // failed task
+        let mut failed = Task::new(
+            queue.next_task_id(),
+            TaskType::PickAndDeliver {
+                pickup: (1, 1),
+                dropoff: (2, 2),
+                cargo_id: None,
+            },
+            Priority::Normal,
+        );
+        failed.status = TaskStatus::Failed {
+            reason: "test".to_string(),
+        };
+        failed.completed_at = Some(1200);
+        queue.enqueue(failed);
+
+        // cancelled task
+        let mut cancelled = Task::new(
+            queue.next_task_id(),
+            TaskType::PickAndDeliver {
+                pickup: (1, 1),
+                dropoff: (2, 2),
+                cargo_id: None,
+            },
+            Priority::Normal,
+        );
+        cancelled.status = TaskStatus::Cancelled;
+        cancelled.completed_at = Some(1400);
+        queue.enqueue(cancelled);
+
+        let snapshot = build_task_list_snapshot(&queue);
+
+        assert_eq!(snapshot.active_total, 1);
+        assert_eq!(snapshot.completed_total, 1);
+        assert_eq!(snapshot.failed_total, 1);
+        assert_eq!(snapshot.cancelled_total, 1);
+        assert_eq!(snapshot.active_tasks.len(), 1);
+        assert_eq!(snapshot.recent_terminal_tasks.len(), 3);
     }
 }

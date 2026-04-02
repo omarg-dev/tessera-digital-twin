@@ -296,6 +296,12 @@ pub struct UiState {
     pub mass_add_dropoff_pct_input: String,
     /// selected task ID for the Details inspector (None = no task selected)
     pub selected_task_id: Option<u64>,
+    /// current page in Active tasks section (0-based)
+    pub task_page_active: usize,
+    /// current page in Failed tasks section (0-based)
+    pub task_page_failed: usize,
+    /// current page in Completed tasks section (0-based)
+    pub task_page_completed: usize,
     /// the user scrolled the scroll wheel this frame (set by camera_controls, read by follow systems)
     /// cleared at the start of camera_controls so it only fires in the same frame as the scroll
     pub camera_scroll_this_frame: bool,
@@ -359,6 +365,9 @@ impl Default for UiState {
             mass_add_count_input: String::new(),
             mass_add_dropoff_pct_input: String::new(),
             selected_task_id: None,
+            task_page_active: 0,
+            task_page_failed: 0,
+            task_page_completed: 0,
             camera_scroll_this_frame: false,
             camera_pan_this_frame: false,
             camera_orbit_this_frame: false,
@@ -434,11 +443,27 @@ pub struct QueueStateData {
 #[derive(Resource)]
 pub struct TaskListReceiver(pub mpsc::Receiver<TaskListSnapshot>);
 
-/// Latest task list received from the scheduler
+/// Latest bounded task-list window received from the scheduler
 #[derive(Resource, Default)]
 pub struct TaskListData {
+    /// combined active + recent terminal window used by task details/camera follow
     pub tasks: Vec<Task>,
+    /// total active task count on scheduler
+    pub active_total: usize,
+    /// total completed task count on scheduler
+    pub completed_total: usize,
+    /// total failed task count on scheduler
+    pub failed_total: usize,
+    /// total cancelled task count on scheduler
+    pub cancelled_total: usize,
     pub last_updated_secs: f64,
+}
+
+impl TaskListData {
+    /// Failed-like total used by the UI failed bucket (Failed + Cancelled).
+    pub fn failed_like_total(&self) -> usize {
+        self.failed_total + self.cancelled_total
+    }
 }
 
 // ── Path Telemetry ───────────────────────────────────────────────

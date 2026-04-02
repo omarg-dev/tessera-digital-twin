@@ -185,13 +185,25 @@ pub enum TaskCommand {
     SetPriority(TaskId, Priority),
 }
 
-/// Full task list snapshot: scheduler → renderer, broadcast periodically.
+/// Bounded task list snapshot: scheduler -> renderer, broadcast periodically.
 ///
-/// Allows the renderer to display individual task details.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Keeps payload size predictable by sending active tasks and a recent terminal
+/// window instead of the entire task history.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct TaskListSnapshot {
-    /// all tasks currently tracked by the scheduler
-    pub tasks: Vec<Task>,
+    /// Active task window (Pending, Assigned, InProgress)
+    pub active_tasks: Vec<Task>,
+    /// Recent terminal task window (Completed, Failed, Cancelled)
+    pub recent_terminal_tasks: Vec<Task>,
+    /// Total number of active tasks tracked by the scheduler
+    pub active_total: usize,
+    /// Total number of completed tasks tracked by the scheduler
+    pub completed_total: usize,
+    /// Total number of failed tasks tracked by the scheduler
+    pub failed_total: usize,
+    /// Total number of cancelled tasks tracked by the scheduler
+    pub cancelled_total: usize,
     /// Unix milliseconds when this snapshot was taken
     pub timestamp_ms: u64,
 }

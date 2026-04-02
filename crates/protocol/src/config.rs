@@ -189,6 +189,16 @@ pub mod scheduler {
     /// Queue state broadcast interval in seconds
     pub const QUEUE_BROADCAST_SECS: u64 = 2;
 
+    /// Maximum number of active tasks included per task-list broadcast.
+    ///
+    /// Active includes Pending, Assigned, and InProgress tasks.
+    pub const TASK_LIST_ACTIVE_WINDOW: usize = 512;
+
+    /// Maximum number of terminal tasks included per task-list broadcast.
+    ///
+    /// Terminal includes Completed, Failed, and Cancelled tasks.
+    pub const TASK_LIST_RECENT_TERMINAL_WINDOW: usize = 1024;
+
     /// Default probability for mass-add tasks to target dropoff zones.
     ///
     /// Uses 0.0..=1.0 scale where 0.60 means 60%.
@@ -543,6 +553,9 @@ pub mod visualizer {
         pub const BOTTOM_PANEL_MAX_HEIGHT: f32 = 400.0;
         /// Log buffer ring capacity
         pub const LOG_BUFFER_CAPACITY: usize = 512;
+
+        /// Number of task rows rendered per page in the Tasks tab.
+        pub const TASK_LIST_PAGE_SIZE: usize = 50;
 
         /// Minimap palette and highlight tokens used by visualizer inspector/task widgets.
         pub mod minimap {

@@ -214,6 +214,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Coordinator collision scaling pass: replaced O(R^2) all-pairs collision scan with spatial-bucket candidate pruning plus helper tests
 - [x] Path telemetry data-plane pass: coordinator now publishes path telemetry on change with heartbeat fallback (instead of every send tick for every robot)
 - [x] Stationary reservation scaling pass: coordinator now refreshes stationary reservation history on change/interval (`STATIONARY_REFRESH_INTERVAL_MS`) instead of every loop tick
+- [x] Task-list data-plane pass: scheduler now broadcasts bounded active/recent task windows with aggregate totals, and visualizer Tasks tab renders paged sections over the windowed dataset
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -309,6 +310,21 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 ---
 
 ## Changelog
+
+### 2026-04-02: Bounded task-list windows + visualizer paging (Phase 5)
+
+- Replaced full task-list snapshot payloads with bounded windows in protocol/scheduler:
+  - active window (`TASK_LIST_ACTIVE_WINDOW`)
+  - recent terminal window (`TASK_LIST_RECENT_TERMINAL_WINDOW`)
+  - aggregate totals (`active_total`, `completed_total`, `failed_total`, `cancelled_total`)
+- Updated scheduler task-list broadcaster to build and publish bounded windows with recency-based terminal selection.
+- Updated visualizer task-list receiver and resource model to ingest aggregate totals while retaining a bounded combined window for details/follow flows.
+- Added paged task rendering in the Tasks tab using `TASK_LIST_PAGE_SIZE`, including explicit "showing X of Y" hints when windows are truncated.
+- Updated congestion overlay pressure calculation to use scheduler-reported `active_total` instead of counting only visible window tasks.
+- Why: reduce scheduler->visualizer payload size and serialization cost while preserving actionable task visibility and responsive UI interaction under large queue histories.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
 
 ### 2026-04-01: Stationary reservation refresh throttling (Phase 5)
 
