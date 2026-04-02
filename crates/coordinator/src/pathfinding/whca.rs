@@ -283,10 +283,18 @@ impl WHCAPathfinder {
     pub fn reserve_stationary(&mut self, robot_id: u32, pos: GridPos) {
         let now_ms = self.current_time_ms();
         let duration_ms = STATIONARY_RESERVATION_MS.min(self.window_size_ms);
-        // Reserve current position for a short stationary window
-        for offset_ms in 0..=duration_ms {
+        let step_ms = MOVE_TIME_MS.max(1);
+
+        // reserve at planner cadence instead of per-millisecond to keep table sparse.
+        let mut offset_ms = 0;
+        loop {
             let time = now_ms + offset_ms;
             self.reserve_cell_with_buffer(pos, time, robot_id);
+
+            if offset_ms >= duration_ms {
+                break;
+            }
+            offset_ms = (offset_ms + step_ms).min(duration_ms);
         }
         self.update_reservation_peak_metric();
         // suppress per-tick stationary log (verbose builds may re-enable)
@@ -969,6 +977,38 @@ mod tests {
         // Strict WHCA behavior: no A* fallback, so blocked window returns None.
         let result = pathfinder.find_path_for_robot(&map, (1, 0), (0, 0), 2);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_stationary_reservation_uses_planner_stride() {
+        let mut pathfinder = WHCAPathfinder::with_defaults();
+        let robot_id = 77;
+        let pos = (5, 5);
+
+        pathfinder.reserve_stationary(robot_id, pos);
+
+        let reservations = pathfinder
+            .robot_reservations
+            .get(&robot_id)
+            .expect("expected stationary reservations for robot");
+
+        let mut times: Vec<u64> = reservations
+            .iter()
+            .filter_map(|&(x, y, t)| if (x, y) == pos { Some(t) } else { None })
+            .collect();
+        times.sort_unstable();
+        times.dedup();
+
+        let duration_ms = STATIONARY_RESERVATION_MS.min(WINDOW_SIZE_MS);
+        let step_ms = MOVE_TIME_MS.max(1);
+        let expected_samples = duration_ms / step_ms + 1 + u64::from(duration_ms % step_ms != 0);
+
+        assert_eq!(times.len() as u64, expected_samples);
+        assert!(
+            times
+                .windows(2)
+                .all(|pair| pair[1] > pair[0] && pair[1] - pair[0] <= step_ms)
+        );
     }
 
     #[test]

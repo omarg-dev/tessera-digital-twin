@@ -216,6 +216,7 @@ Demonstrates advanced Rust skills: async programming, ECS architecture, distribu
 - [x] Path telemetry data-plane pass: coordinator now publishes path telemetry on change with heartbeat fallback (instead of every send tick for every robot)
 - [x] Stationary reservation scaling pass: coordinator now refreshes stationary reservation history on change/interval (`STATIONARY_REFRESH_INTERVAL_MS`) instead of every loop tick
 - [x] Task-list data-plane pass: scheduler now broadcasts bounded active/recent task windows with aggregate totals, and visualizer Tasks tab renders paged sections over the windowed dataset
+- [x] WHCA stationary reservation density pass: stationary positions are now sampled at planner stride (`MOVE_TIME_MS`) instead of per-millisecond timestamps, preserving coverage while reducing reservation-table amplification
 - [x] Project rename pass: migrated legacy project identifiers to Tessera across source docs, crate headers, and layout override naming
 - [x] README system snapshot pass: replaced stack-style flowchart with runtime service topology and Zenoh topic-plane links
 - [x] Orchestrator lifecycle reconciliation pass: explicit process states, stale-exit cleanup on `down`, and auto-restart behavior for exited crates on `run`/`up`
@@ -328,6 +329,16 @@ This crate bridges Zenoh ↔ ROS2 to replace `mock_firmware` when running with:
 - Validation:
   - `cargo check --workspace` passed
   - `cargo test --workspace` passed
+
+### 2026-04-02: WHCA stationary reservation stride sampling (Phase 5)
+
+- Replaced per-millisecond stationary reservation stamping with planner-stride sampling in WHCA (`MOVE_TIME_MS` cadence), while still including end-of-window coverage.
+- Added a WHCA unit test validating stationary reservations are sampled at planner stride and bounded sample count (`test_stationary_reservation_uses_planner_stride`).
+- Why: reservation peaks were dominated by dense stationary timestamp writes, causing temporal congestion and false `no path to pickup` outcomes even when geometric routes existed.
+- Validation:
+  - `cargo check --workspace` passed
+  - `cargo test --workspace` passed
+
 
 ### 2026-04-02: Bounded task-list windows + visualizer paging (Phase 5)
 
