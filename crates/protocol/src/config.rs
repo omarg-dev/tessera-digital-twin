@@ -92,6 +92,12 @@ pub mod coordinator {
     
     /// Cargo dropoff delay in seconds (time for robot to unload cargo)
     pub const DROPOFF_DELAY_SECS: f32 = 1.5;
+
+    /// How often to retry drop commands while waiting for delivery confirmation.
+    pub const DELIVERY_CONFIRM_RETRY_INTERVAL_SECS: u64 = 3;
+
+    /// Maximum number of drop command retries before failing a delivery.
+    pub const DELIVERY_CONFIRM_MAX_RETRIES: u32 = 3;
     
     /// Task progress timeout in seconds (must see progress within this time)
     pub const TASK_TIMEOUT_SECS: u64 = 30;

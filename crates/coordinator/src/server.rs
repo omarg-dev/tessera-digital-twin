@@ -787,6 +787,7 @@ async fn handle_robot_update(
         robot.replan_attempts = 0;
         robot.waiting_since = None;
         robot.waiting_for = None;
+        robot.reset_delivery_tracking();
         // skip position validation: teleport after restart is expected
         robot.skip_next_validation = true;
         println!("[Coordinator] Robot {} recovered ({:?} → Idle) — reservations cleared", update.id, prev_update.state);
@@ -849,6 +850,7 @@ async fn handle_robot_update(
             robot.replan_attempts = 0;
             robot.blocked_since = None;
             robot.clear_wait();
+            robot.reset_delivery_tracking();
             robot.mark_progress();
         }
     }

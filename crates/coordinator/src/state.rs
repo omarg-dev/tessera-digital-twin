@@ -26,8 +26,8 @@ pub enum TaskStage {
 /// Reason for returning to station
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReturnReason {
-    /// No pending tasks - can be interrupted by new task assignment
-    NoPendingTasks,
+    /// Post-delivery repositioning - can be interrupted by new task assignment
+    PostDelivery,
     /// Battery is low - critical, should not be interrupted
     LowBattery,
 }
@@ -51,6 +51,10 @@ pub struct TrackedRobot {
     // Timeout tracking
     pub last_progress: Instant,  // Last time we saw progress on current task
     pub task_started: Option<Instant>,  // When current task was assigned
+
+    // Delivery retry tracking
+    pub delivery_retry_attempts: u32,
+    pub last_drop_command_sent_at: Option<Instant>,
 
     // Fault handling
     pub blocked_since: Option<Instant>,  // When robot entered Blocked state
@@ -95,6 +99,8 @@ impl TrackedRobot {
             skip_next_validation: false,
             last_progress: Instant::now(),
             task_started: None,
+            delivery_retry_attempts: 0,
+            last_drop_command_sent_at: None,
             blocked_since: None,
             faulted_since: None,
             replan_attempts: 0,
@@ -138,6 +144,17 @@ impl TrackedRobot {
     /// Mark progress on current task (resets timeout)
     pub fn mark_progress(&mut self) {
         self.last_progress = Instant::now();
+    }
+
+    /// Mark that a drop command was sent to firmware.
+    pub fn mark_drop_command_sent(&mut self) {
+        self.last_drop_command_sent_at = Some(Instant::now());
+    }
+
+    /// Clear delivery retry bookkeeping.
+    pub fn reset_delivery_tracking(&mut self) {
+        self.delivery_retry_attempts = 0;
+        self.last_drop_command_sent_at = None;
     }
 
     /// Mark robot as waiting on a reserved cell
@@ -323,5 +340,27 @@ mod tests {
             (2, 2),
             555,
         ));
+    }
+
+    #[test]
+    fn test_mark_drop_command_sent_sets_timestamp() {
+        let mut robot = TrackedRobot::new(make_update(1));
+        assert!(robot.last_drop_command_sent_at.is_none());
+
+        robot.mark_drop_command_sent();
+
+        assert!(robot.last_drop_command_sent_at.is_some());
+    }
+
+    #[test]
+    fn test_reset_delivery_tracking_clears_retry_state() {
+        let mut robot = TrackedRobot::new(make_update(1));
+        robot.delivery_retry_attempts = 2;
+        robot.mark_drop_command_sent();
+
+        robot.reset_delivery_tracking();
+
+        assert_eq!(robot.delivery_retry_attempts, 0);
+        assert!(robot.last_drop_command_sent_at.is_none());
     }
 }
