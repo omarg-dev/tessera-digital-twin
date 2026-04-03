@@ -8,47 +8,47 @@
 //! - **firmware** - Robot physics simulation (mock_firmware crate)
 
 /// robots broadcast state here (firmware -> coordinator, scheduler, renderer)
-pub const ROBOT_UPDATES: &str = "factory/robots";
+pub const ROBOT_UPDATES: &str = "warehouse/robots";
 
 /// coordinator sends path commands here (coordinator -> firmware)
-pub const PATH_COMMANDS: &str = "factory/commands";
+pub const PATH_COMMANDS: &str = "warehouse/commands";
 
 /// firmware sends command responses here (firmware -> coordinator)
-pub const COMMAND_RESPONSES: &str = "factory/commands/responses";
+pub const COMMAND_RESPONSES: &str = "warehouse/commands/responses";
 
 /// admin control broadcasts (orchestrator or renderer -> all runtime services)
-pub const ADMIN_CONTROL: &str = "factory/admin/control";
+pub const ADMIN_CONTROL: &str = "warehouse/admin/control";
 
 /// robot lifecycle control (coordinator or renderer -> firmware)
-pub const ROBOT_CONTROL: &str = "factory/admin/robots";
+pub const ROBOT_CONTROL: &str = "warehouse/admin/robots";
 
 /// startup map hash validation handshake (coordinator -> firmware)
-pub const MAP_VALIDATION: &str = "factory/admin/map_hash";
+pub const MAP_VALIDATION: &str = "warehouse/admin/map_hash";
 
 // ============ Task/Mission Topics ============
 
 /// task requests from renderer and external producers (renderer/external -> scheduler)
-pub const TASK_REQUESTS: &str = "factory/tasks/requests";
+pub const TASK_REQUESTS: &str = "warehouse/tasks/requests";
 
 /// task assignments (scheduler -> coordinator)
-pub const TASK_ASSIGNMENTS: &str = "factory/tasks/assignments";
+pub const TASK_ASSIGNMENTS: &str = "warehouse/tasks/assignments";
 
 /// task status updates (coordinator -> scheduler)
-pub const TASK_STATUS: &str = "factory/tasks/status";
+pub const TASK_STATUS: &str = "warehouse/tasks/status";
 
 /// queue state broadcast for monitoring (scheduler -> coordinator, renderer)
-pub const QUEUE_STATE: &str = "factory/tasks/queue";
+pub const QUEUE_STATE: &str = "warehouse/tasks/queue";
 
 /// full task list snapshot for per-task display (scheduler -> renderer)
-pub const TASK_LIST: &str = "factory/tasks/list";
+pub const TASK_LIST: &str = "warehouse/tasks/list";
 
 // ============ Telemetry Topics ============
 
 /// path telemetry for visualization (coordinator -> renderer)
-pub const TELEMETRY_PATHS: &str = "factory/telemetry/paths";
+pub const TELEMETRY_PATHS: &str = "warehouse/telemetry/paths";
 
 /// whca runtime metrics telemetry (coordinator -> renderer)
-pub const TELEMETRY_WHCA_METRICS: &str = "factory/telemetry/whca_metrics";
+pub const TELEMETRY_WHCA_METRICS: &str = "warehouse/telemetry/whca_metrics";
 
 // ============ Sender Identifiers ============
 // Used in MapValidation.sender to identify the source of broadcasts

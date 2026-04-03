@@ -235,7 +235,7 @@ impl Processes {
         thread::sleep(Duration::from_millis(orch_config::COORDINATOR_STARTUP_DELAY_MS));
 
         // 2. Firmware (mock_firmware) - validates map hash, starts physics
-        println!("  2/4 Starting mock_firmware (firmware)...");
+        println!("  2/4 Starting mock_firmware...");
         spawn_binary(
             "mock_firmware",
             self.show_output.contains("mock_firmware"),
@@ -257,7 +257,7 @@ impl Processes {
         thread::sleep(Duration::from_millis(orch_config::SCHEDULER_STARTUP_DELAY_MS));
 
         // 4. Renderer (visualizer) - Bevy window
-        println!("  4/4 Starting visualizer (renderer)...");
+        println!("  4/4 Starting visualizer...");
         spawn_binary(
             "visualizer",
             self.show_output.contains("visualizer"),

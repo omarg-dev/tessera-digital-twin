@@ -19,7 +19,7 @@ pub fn draw(
     let Some(metrics) = &whca_metrics.latest else {
         ui.add_space(4.0);
         ui.weak("No WHCA telemetry received yet.");
-        ui.weak("Start coordinator to stream metrics on factory/telemetry/whca_metrics.");
+        ui.weak("Start coordinator to stream metrics on warehouse/telemetry/whca_metrics.");
         return;
     };
 
