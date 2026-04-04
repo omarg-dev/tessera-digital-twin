@@ -24,19 +24,21 @@ Core Engineering Outcomes:
 - Failure Isolation: State and execution are strictly decoupled. A crash in the `visualizer` or a timeout in the task `scheduler` will not affect the core physics engine or the pathfinding logic.
 - Observability: Every command, path request, and telemetry update is a distinct network packet, making the entire system transparent to network-level debugging and chaos testing.
 
-## Full Demo Showcase (coming soon...)
+## Full Demo Showcase
 
-[![Full Demo](https://img.youtube.com/vi/omgXhQzj8nE/0.jpg)](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+coming soon...
 
 ## Table of Contents
 
 - [Tessera: High-Performance Digital Twin](#tessera-high-performance-digital-twin)
   - [Why This Project Matters](#why-this-project-matters)
+  - [Full Demo Showcase](#full-demo-showcase)
   - [Table of Contents](#table-of-contents)
+  - [System Snapshot](#system-snapshot)
+  - [Tessera's Graphical User Interface (GUI)](#tessera-graphical-user-interface-gui)
   - [Usage](#usage)
     - [Quick Start](#quick-start)
     - [Operational Commands](#operational-commands)
-  - [System Snapshot](#system-snapshot)
   - [Architecture](#architecture)
   - [System Logic](#system-logic)
     - [Network Topics and Protocol Contracts](#network-topics-and-protocol-contracts)
@@ -56,6 +58,31 @@ Core Engineering Outcomes:
       - [Hardware-in-the-Loop (HIL) Substitution](#hardware-in-the-loop-hil-substitution)
   - [Repository Map](#repository-map)
   - [License & Acknowledgements](#license--acknowledgements)
+
+## System Snapshot
+
+| Architecture Layer | Technology Stack | Primary Purpose |
+| :--- | :--- | :--- |
+| **Core Engineering** | Rust, Tokio | Memory-safe async execution & process management. |
+| **Network Fabric** | Zenoh | Zero-overhead, decoupled pub/sub telemetry. |
+| **Protocol Contracts** | Custom Rust types | Clear topic schemas and message structures. |
+| **Coordination Logic** | WHCA* | Multi-agent space-time conflict resolution. |
+| **Visualization Engine** | Bevy ECS | High-performance, data-driven 3D visualization. |
+| **Runtime Control** | Orchestrator CLI | Centralized process lifecycle and chaos controls. |
+
+## Tessera's Graphical User Interface (GUI)
+
+Tessera provides a live interface for interacting with the underlying system, alongside a 3D view that contains a functional replica of the warehouse. The visualization layer runs completely independently from the core simulation. This ensures that UI interactions and rendering will never slow down the physical robots or the routing logic.
+
+*Note: This section is a visual showcase of the operator controls. Technical implementation details are covered in the Architecture and System Logic sections below.*
+
+| Feature | Demonstration |
+| :--- | :--- |
+| **Live Task Injection & Execution**<br>Operators can manually assign tasks directly from the interface. Once a request is made, the system automatically validates it, finds an available robot, and handles the entire pick-up and drop-off process. | ![Task Lifecycle](<.media/1. Task Lifecycle.gif>) |
+| **Dynamic Tracking & Navigation**<br>Clicking on any robot or task locks the camera to it. This allows operators to easily monitor individual agents as they navigate complex routes and actively avoid collisions in real time. | ![Task tracking](<.media/2. Task tracking.gif>) |
+| **Real-Time Telemetry & Analytics**<br>The inspector panel provides a live look under the hood. It gathers data from across the system to expose a robot's exact speed, planned route, and pathfinding health, and other metrics without adding unnecessary load to the network. |![Real-time telemetry & analytics](<.media/3. Real-time telemetry & analytics.gif>) |
+| **Fault Monitoring & Recovery**<br>If traffic gets too heavy and two robots collide, the system catches it. Instead of freezing the warehouse, the UI flags the error, and the system automatically halts the affected agents, marks the tasks as failed, and safely restarts the affected robots back to their designated stations. |![Fault monitoring & recovery](<.media/4. Fault monitoring & recovery.gif>) |
+
 
 ## Usage
 
@@ -127,17 +154,6 @@ Orchestrator command surface:
 ```
 
 ![Orchestrator Startup](<.media/orchestrator startup.gif>)
-
-## System Snapshot
-
-| Architecture Layer | Technology Stack | Primary Purpose |
-| :--- | :--- | :--- |
-| **Core Engineering** | Rust, Tokio | Memory-safe async execution & process management. |
-| **Network Fabric** | Zenoh | Zero-overhead, decoupled pub/sub telemetry. |
-| **Protocol Contracts** | Custom Rust types | Clear topic schemas and message structures. |
-| **Coordination Logic** | WHCA* | Multi-agent space-time conflict resolution. |
-| **Visualization Engine** | Bevy ECS | High-performance, data-driven 3D visualization. |
-| **Runtime Control** | Orchestrator CLI | Centralized process lifecycle and chaos controls. |
 
 ## Architecture
 
@@ -235,6 +251,7 @@ sequenceDiagram
 ## System Logic
 
 ### Network Topics and Protocol Contracts
+
 | Topic | Constant | Publisher(s) | Subscriber(s) | Purpose |
 | --- | --- | --- | --- | --- |
 | warehouse/robots | ROBOT_UPDATES |`mock_firmware` | `coordinator`, `scheduler`, `visualizer` | robot updates/telemetry |
@@ -252,6 +269,7 @@ sequenceDiagram
 | warehouse/telemetry/whca_metrics | TELEMETRY_WHCA_METRICS | `coordinator` |`visualizer` | WHCA runtime metrics |
 
 ### Timing and Concurrency
+
 Tessera bridges an asynchronous transport layer (Zenoh) with strict, fixed-rate physical control loops.
 
 - Asynchronous Transport: Zenoh pub/sub delivery is purely event-driven. The `coordinator` continuously polls incoming telemetry and commands without blocking. The `visualizer` runs background subscribers on a Tokio runtime, feeding payloads into bounded channels that Bevy drains per frame.
@@ -261,6 +279,7 @@ Tessera bridges an asynchronous transport layer (Zenoh) with strict, fixed-rate 
 [simple diagram showing async timing: Zenoh events triggering `coordinator` and `visualizer` updates, with the `coordinator` emitting commands with accurate timing]
 
 ### Pathfinding Strategy
+
 The `coordinator` runs Windowed Hierarchical Cooperative A* (WHCA*) using strict space-time reservations.
 
 - Reservation Grid: Space-time reservations map a 3D key (x, y, time) to a specific robot_id. Each robot maintains a secondary index of its reservations, allowing O(k) cleanup upon task completion or failure.
@@ -282,6 +301,7 @@ Reservation Grid Example (Center time bins shown; each bin expands by ±200ms du
 
 
 ### Fault Tolerance
+
 Tessera enforces a hard boundary between the physical state authority and the control plane. If the hardware fails, the routing layer needs to isolate it.
 
 - Execution vs. Control: Firmware owns motion execution, hardware constraints, and command rejection. The `coordinator` owns the state machine, timeout escalation, and status reporting.
@@ -327,9 +347,11 @@ flowchart LR
 
 
 ## Challenges & Discussions
+
 This section goes over the key engineering challenges faced during the design and implementation of the system, and the rationale behind the major architectural decisions.
 
 ### Engineering Trade-offs
+
 By design, a system cannot have every feature an engineer wants. When building systems, difficult choices are around every corner. Here is what I prioritized in Tessera and what I sacrificed:
 
 #### Rust over C#/Python
@@ -350,7 +372,7 @@ Bevy’s ECS naturally supports data-driven design, and its Rust foundation mean
 
 I went with Zenoh for brokerless, peer-to-peer pub/sub in the local loop. Because Zenoh completely decouples publishers and subscribers, the system is hardware-ready: I can eventually swap the mock firmware for a physical ROS2 bridge node without touching the `coordinator`'s core logic. Or even better, I can merge the firmware and `coordinator` to be built into the robots themselves, completely decentralizing the system. The cost was giving up the massive, mature ecosystem and out-of-the-box debugging tools of MQTT.
 
-#### WHCA over Conflict-Based Search (CBS)
+#### WHCA* over Conflict-Based Search (CBS)
 
 > Deterministic execution and bounded failure FOR absolute path optimality.
 
@@ -366,7 +388,7 @@ Decoupling the system was one of the first goals I set up for this project; a ra
 
 > A single source of truth FOR massive friction during early development.
 
-I locked every network topic, configuration constant, and message schema into a single `protocol`crate. This created massive friction during early development because I had to update the central contract for every minor change, but it entirely eliminates "message drift" across the microservices with its single-source-of-truth nature. Need to change a topic name? Simple, just update the constant in the `protocol`crate and recompile. That's it.
+I locked every network topic, configuration constant, and message schema into a single `protocol` crate. This created massive friction during early development because I had to update the central contract for every minor change, but it entirely eliminates "message drift" across the microservices with its single-source-of-truth nature. Need to change a topic name? Simple, just update the constant in the `protocol` crate and recompile. That's it.
 
 #### Bidirectional UI over a Pure Observer
 
@@ -383,7 +405,6 @@ I added a command bridge to the `visualizer` for manual task injection and simul
 
 This section documents an unresolved scaling limit and the engineering attempts made to push past it. Running 1000 concurrent agents currently degrades system stability, not because of a mathematical hard limit, but due to a cascading mixture of bottlenecks under extreme contention.
 
-
 What I Tried (The Optimizations):
 - Spatial Bucketing: Initially I used a naive all-pairs collision checking, this of course caused a 500k comparisons per second explosion. So I implemented spatial-bucket pruning to mitigate O(R^2) computation scaling in the `coordinator`.
 - Network Throttling: Reduced control-plane fanout pressure by implementing change-driven path telemetry (with a heartbeat fallback) and throttling stationary reservation refreshes.
@@ -394,13 +415,15 @@ Currently, I've discovered that scaled degradation follows a predictable pattern
 - Contention Latency: As the number of robots increase, reservation density increases, WHCA* search times naturally rise.
 - Stop/Replan Churn: The rising latency causes late command dispatches. Robots reach the end of their path, halt, and trigger a wave of new replan requests. This creates an infinite loop of contention and replanning.
 - Backpressure: The resulting flood of panic-requests and task-status streams accumulates massive backpressure across the Zenoh bus.
-
 - Throughput Collapse: Queueing overhead eventually dominates useful execution time. The `coordinator` fails to keep up with the real-time demands of the simulation, leading to a complete network stall, which then causes the system to desync and collapse under its own weight.
 
+![1000 Robots Flood](<.media/1000 robots flood.png>)
+
 Future Paths:
-My final destination for this project is to reach a 10,000-robot deployment. To hit that without tearing down the network or frying the hardware, the system will likely requires moving to decentralized conflict handling on the firmware level, implementing hierarchical planning, or introducing a hybrid planner that relaxes strict WHCA* rules when traffic becomes uncontrollable.
+My final destination for this project is to reach a 10,000-robot deployment. To hit that without tearing down the network or frying the hardware, the system will likely require moving to decentralized conflict handling on the firmware level, implementing hierarchical planning, or introducing a hybrid planner that relaxes strict WHCA* rules when traffic becomes uncontrollable.
 
 ### Hardware-in-the-Loop (HIL) Substitution
+
 Tessera is designed to transition from a simulated environment to a physical Cyber-Physical System (CPS) without altering the coordination, scheduling, or the visualization logic. Because the `protocol` crate defines strict network schemas and Zenoh entirely decouples publishers from subscribers, the `mock_firmware` layer can be hot-swapped. Integrating physical robots requires a new hardware translation layer (e.g., a ROS2-to-Zenoh bridge) that consumes `PATH_COMMANDS` and publishes physical `ROBOT_UPDATES`. The rest of the system stack remains completely unaware of the physical substitution.
 
 ## Repository Map
