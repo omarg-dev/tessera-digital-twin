@@ -112,7 +112,7 @@ alternatively, you can run with a specific layout:
   > run -l 2
   ```
 
-[Type: Terminal screenshot showing startup order and map hash validation]
+![Orchestrator Startup](<.media/orchestrator startup.gif>)
 
 ### Operational Commands
 
@@ -152,8 +152,6 @@ Orchestrator command surface:
 │  help, h        - Show this help                │
 ╰─────────────────────────────────────────────────╯
 ```
-
-![Orchestrator Startup](<.media/orchestrator startup.gif>)
 
 ## Architecture
 
@@ -275,8 +273,6 @@ Tessera bridges an asynchronous transport layer (Zenoh) with strict, fixed-rate 
 - Asynchronous Transport: Zenoh pub/sub delivery is purely event-driven. The `coordinator` continuously polls incoming telemetry and commands without blocking. The `visualizer` runs background subscribers on a Tokio runtime, feeding payloads into bounded channels that Bevy drains per frame.
 - Fixed-Step Execution: The physical firmware operates at a strict 50ms (20Hz) tick rate. The `coordinator` loop sleeps for 10ms but dispatches paths at the 50ms cadence. Path telemetry is heartbeated every 1000ms if unchanged, or instantly upon a path signature shift.
 - Concurrency Boundaries: Task ingestion relies on non-blocking network polling to prevent fan-in from stalling peers. WHCA* planning is deterministic and executes in the main control flow, while Bevy's isolated frame-driven rendering ensures `coordinator` load never tanks the UI framerate.
-
-[simple diagram showing async timing: Zenoh events triggering `coordinator` and `visualizer` updates, with the `coordinator` emitting commands with accurate timing]
 
 ### Pathfinding Strategy
 
