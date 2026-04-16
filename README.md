@@ -439,4 +439,4 @@ Recommended reading order:
 - [Zenoh](https://zenoh.io/) for the powerful pub/sub network fabric that makes this architecture possible.
 - [Bevy](https://bevyengine.org/) for the flexible and high-performance game engine that enables real-time 3D visualization and operator interaction.
 
-Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Licensed under the AGPL-3.0 License. See [LICENSE](LICENSE) for details.
